@@ -4,83 +4,77 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
+import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Supabase.initialize(url: supabaseUrl, anonKey: supabaseKey);
+  try {
+    await Supabase.initialize(url: supabaseUrl, anonKey: supabaseKey);
+  } catch (_) {}
   runApp(const MaterialApp(
     home: AppGateway(),
     debugShowCheckedModeBanner: false,
   ));
 }
 
-class AppGateway extends StatefulWidget {
+class AppGateway extends StatelessWidget {
   const AppGateway({super.key});
-  @override
-  State<AppGateway> createState() => _AppGatewayState();
-}
 
-class _AppGatewayState extends State<AppGateway> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text('होटल मैनेजमेंट सिस्टम'),
-        backgroundColor: Colors.indigo,
+        title: const Text('होटल मैनेजमेंट सिस्टम', style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFF0F172A),
         centerTitle: true,
+        elevation: 0,
       ),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _roleCard(
-              title: '🖥️ काउंटर मोड (मास्टर)',
-              desc: 'बिलिंग, टेबल मैनेजमेंट, KOT सर्वर',
-              color: Colors.indigo,
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StaffAuthScreen(role: 'counter'))),
-            ),
-            const SizedBox(height: 20),
-            _roleCard(
-              title: '📱 वेटर मोड (ऑर्डरिंग)',
-              desc: 'टेबल ऑर्डर, तुरंत किचन KOT',
-              color: Colors.deepOrange,
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StaffAuthScreen(role: 'waiter'))),
-            ),
-            const SizedBox(height: 20),
-            _roleCard(
-              title: '👨‍🍳 कुक मोड (किचन डिस्प्ले)',
-              desc: 'लाइव KOT, ऑर्डर तैयार करना, राशन मांग',
-              color: Colors.teal,
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StaffAuthScreen(role: 'cook'))),
-            ),
+            _roleCard(context, '🖥️ काउंटर मास्टर (ओनर)', 'बिलिंग, मेन्यू, प्रिंटर, पार्सल व गल्ला', const Color(0xFF0F172A), 'counter'),
+            const SizedBox(height: 18),
+            _roleCard(context, '📱 वेटर मोड', 'टेबल ऑर्डर, त्वरित KOT व रनिंग टेबल', const Color(0xFFEA580C), 'waiter'),
+            const SizedBox(height: 18),
+            _roleCard(context, '👨‍🍳 कुक मोड', 'किचन डिस्प्ले (KDS) व राशन मांग', const Color(0xFF0D9488), 'cook'),
           ],
         ),
       ),
     );
   }
 
-  Widget _roleCard({required String title, required String desc, required Color color, required VoidCallback onTap}) {
+  Widget _roleCard(BuildContext ctx, String title, String sub, Color col, String role) {
     return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      onTap: () => Navigator.push(ctx, MaterialPageRoute(builder: (_) => StaffAuthScreen(role: role))),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 3))],
+          color: col,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [BoxShadow(color: col.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            Text(desc, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text(sub, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios, color: Colors.white60, size: 18)
           ],
         ),
       ),
@@ -88,7 +82,7 @@ class _AppGatewayState extends State<AppGateway> {
   }
 }
 
-// ---------------- PIN ऑथेंटिकेशन ----------------
+// ---------------- ऑथेंटिकेशन स्क्रीन ----------------
 class StaffAuthScreen extends StatefulWidget {
   final String role;
   const StaffAuthScreen({super.key, required this.role});
@@ -104,25 +98,18 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
   @override
   void initState() {
     super.initState();
-    _loadSavedCredentials();
+    _loadSaved();
   }
 
-  void _loadSavedCredentials() async {
+  void _loadSaved() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedCode = prefs.getString('saved_store_code') ?? '';
-    if (savedCode.isNotEmpty) {
-      _codeCtrl.text = savedCode;
-    }
+    _codeCtrl.text = prefs.getString('saved_store_code') ?? '';
   }
 
-  void _verifyLogin() async {
+  void _verify() async {
     final code = _codeCtrl.text.trim().toUpperCase();
     final pin = _pinCtrl.text.trim();
-
-    if (code.isEmpty || pin.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('कृपया कोड और पिन दोनों दर्ज करें!')));
-      return;
-    }
+    if (code.isEmpty || pin.isEmpty) return;
 
     setState(() => _loading = true);
     try {
@@ -133,30 +120,35 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
           .maybeSingle();
 
       if (res == null || res['is_active'] == false) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('स्टोर कोड मौजूद नहीं है या ब्लॉक है!')));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('कोड गलत है या लाइसेंस ब्लॉक है!')));
         setState(() => _loading = false);
         return;
       }
 
-      bool authSuccess = false;
-      if (widget.role == 'counter' && res['master_pin'] == pin) authSuccess = true;
-      if (widget.role == 'waiter' && (res['waiter_pin'] ?? '1111') == pin) authSuccess = true;
-      if (widget.role == 'cook' && (res['cook_pin'] ?? '2222') == pin) authSuccess = true;
+      bool ok = false;
+      if (widget.role == 'counter' && res['master_pin'] == pin) ok = true;
+      if (widget.role == 'waiter' && (res['waiter_pin'] ?? '1111') == pin) ok = true;
+      if (widget.role == 'cook' && (res['cook_pin'] ?? '2222') == pin) ok = true;
 
-      if (authSuccess) {
+      if (ok) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('saved_store_code', code);
-
         if (!mounted) return;
         if (widget.role == 'counter') {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => CounterDashboard(storeCode: code, totalTables: res['total_tables'] ?? 10)));
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => FullCounterApp(
+            storeCode: code,
+            tables: res['total_tables'] ?? 10,
+            hotelName: res['name'] ?? 'होटल',
+            initialWaiterPin: res['waiter_pin'] ?? '1111',
+            initialCookPin: res['cook_pin'] ?? '2222',
+          )));
         } else if (widget.role == 'waiter') {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => WaiterDashboard(storeCode: code, totalTables: res['total_tables'] ?? 10)));
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => WaiterApp(storeCode: code, tables: res['total_tables'] ?? 10)));
         } else {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => CookDashboard(storeCode: code)));
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => CookApp(storeCode: code)));
         }
       } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('पिन सही नहीं है! काउंटर: 6-अंक पिन, वेटर: 1111, कुक: 2222')));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('पिन सही नहीं है!')));
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('कनेक्शन एरर: $e')));
@@ -167,14 +159,13 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 
   @override
   Widget build(BuildContext context) {
-    String title = widget.role == 'counter' ? 'काउंटर लॉगिन' : (widget.role == 'waiter' ? 'वेटर लॉगिन' : 'कुक लॉगिन');
     return Scaffold(
-      appBar: AppBar(title: Text(title), backgroundColor: Colors.indigo),
+      appBar: AppBar(title: Text(widget.role == 'counter' ? 'काउंटर लॉगिन' : 'स्टाफ लॉगिन'), backgroundColor: const Color(0xFF0F172A)),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           children: [
-            TextField(controller: _codeCtrl, decoration: const InputDecoration(labelText: 'स्टोर कोड (उदा. 101 / TEST101)', border: OutlineInputBorder())),
+            TextField(controller: _codeCtrl, decoration: const InputDecoration(labelText: 'स्टोर कोड (उदा. 101)', border: OutlineInputBorder())),
             const SizedBox(height: 16),
             TextField(controller: _pinCtrl, decoration: const InputDecoration(labelText: 'पिन कोड', border: OutlineInputBorder()), keyboardType: TextInputType.number, obscureText: true),
             const SizedBox(height: 24),
@@ -182,11 +173,11 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
                 ? const CircularProgressIndicator()
                 : SizedBox(
                     width: double.infinity,
-                    height: 48,
+                    height: 50,
                     child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo),
-                      onPressed: _verifyLogin,
-                      child: const Text('प्रवेश करें', style: TextStyle(color: Colors.white, fontSize: 16)),
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+                      onPressed: _verify,
+                      child: const Text('लॉगिन करें', style: TextStyle(color: Colors.white, fontSize: 16)),
                     ),
                   )
           ],
@@ -196,487 +187,711 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
   }
 }
 
-// ---------------- 1. काउंटर स्क्रीन ----------------
-class CounterDashboard extends StatefulWidget {
+// ---------------- 1. काउंटर मास्टर ऐप (ओनर) ----------------
+class FullCounterApp extends StatefulWidget {
   final String storeCode;
-  final int totalTables;
-  const CounterDashboard({super.key, required this.storeCode, required this.totalTables});
+  final String hotelName;
+  final int tables;
+  final String initialWaiterPin;
+  final String initialCookPin;
+  const FullCounterApp({
+    super.key,
+    required this.storeCode,
+    required this.hotelName,
+    required this.tables,
+    required this.initialWaiterPin,
+    required this.initialCookPin,
+  });
   @override
-  State<CounterDashboard> createState() => _CounterDashboardState();
+  State<FullCounterApp> createState() => _FullCounterAppState();
 }
 
-class _CounterDashboardState extends State<CounterDashboard> {
+class _FullCounterAppState extends State<FullCounterApp> {
+  int _currentTab = 0;
   String localIp = 'ढूंढ रहा है...';
   ServerSocket? server;
-  final List<Socket> connectedClients = [];
-  Map<int, List<Map<String, dynamic>>> activeTableOrders = {};
-  Map<int, double> tableTotals = {};
+  bool isPrinterConnected = false;
+
+  late String waiterPin;
+  late String cookPin;
+
+  // होटल का मेन्यू
+  List<Map<String, dynamic>> hotelMenu = [
+    {'id': 1, 'name': 'दाल तड़का', 'price': 120.0, 'cat': 'सब्जी/दाल', 'available': true},
+    {'id': 2, 'name': 'पनीर बटर मसाला', 'price': 180.0, 'cat': 'सब्जी/दाल', 'available': true},
+    {'id': 3, 'name': 'तंदूरी रोटी', 'price': 12.0, 'cat': 'रोटी', 'available': true},
+    {'id': 4, 'name': 'बटर रोटी', 'price': 15.0, 'cat': 'रोटी', 'available': true},
+    {'id': 5, 'name': 'जीरा राइस', 'price': 100.0, 'cat': 'चावल', 'available': true},
+    {'id': 6, 'name': 'मसाला छाछ', 'price': 25.0, 'cat': 'पेय', 'available': true},
+  ];
+
+  // टेबल और पार्सल ऑर्डर्स (पॉज़िटिव नंबर = टेबल T-1, T-2... और नेगेटिव नंबर = पार्सल P-1, P-2...)
+  Map<int, List<Map<String, dynamic>>> activeOrders = {};
+
+  double totalCashSales = 0;
+  double totalOnlineSales = 0;
+  List<Map<String, dynamic>> dailyExpenses = [];
 
   @override
   void initState() {
     super.initState();
+    waiterPin = widget.initialWaiterPin;
+    cookPin = widget.initialCookPin;
+    _loadLocalMenu();
     _startServer();
+    _checkPrinterStatus();
+  }
+
+  void _checkPrinterStatus() async {
+    final bool result = await PrintBluetoothThermal.connectionStatus;
+    setState(() => isPrinterConnected = result);
+  }
+
+  void _loadLocalMenu() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedMenu = prefs.getString('custom_menu_${widget.storeCode}');
+    if (savedMenu != null) {
+      setState(() {
+        hotelMenu = List<Map<String, dynamic>>.from(jsonDecode(savedMenu));
+      });
+    }
+  }
+
+  void _saveLocalMenu() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('custom_menu_${widget.storeCode}', jsonEncode(hotelMenu));
   }
 
   void _startServer() async {
-    for (var interface in await NetworkInterface.list()) {
-      for (var addr in interface.addresses) {
-        if (addr.type == InternetAddressType.IPv4 && !addr.isLoopback) {
-          setState(() => localIp = addr.address);
-          break;
+    try {
+      for (var interface in await NetworkInterface.list()) {
+        for (var addr in interface.addresses) {
+          if (addr.type == InternetAddressType.IPv4 && !addr.isLoopback) {
+            setState(() => localIp = addr.address);
+            break;
+          }
         }
       }
-    }
-
-    try {
       server = await ServerSocket.bind(InternetAddress.anyIPv4, 4040);
       server!.listen((Socket client) {
-        connectedClients.add(client);
         client.listen((data) {
           try {
             final msg = jsonDecode(utf8.decode(data));
-            if (msg['type'] == 'NEW_ORDER') {
+            if (msg['type'] == 'GET_MENU') {
+              client.write(jsonEncode({'type': 'MENU_DATA', 'menu': hotelMenu}) + "\n");
+            } else if (msg['type'] == 'NEW_KOT') {
               int tbl = msg['table'];
               List items = msg['items'];
-              double amt = double.parse(msg['total'].toString());
-
               setState(() {
-                if (!activeTableOrders.containsKey(tbl)) {
-                  activeTableOrders[tbl] = [];
+                if (!activeOrders.containsKey(tbl)) activeOrders[tbl] = [];
+                for (var it in items) {
+                  activeOrders[tbl]!.add(Map<String, dynamic>.from(it));
                 }
-                for (var itm in items) {
-                  activeTableOrders[tbl]!.add(Map<String, dynamic>.from(itm));
-                }
-                tableTotals[tbl] = (tableTotals[tbl] ?? 0) + amt;
               });
-
-              // कुक की स्क्रीन को तुरंत ब्रॉडकास्ट करें
-              _broadcastToCook(msg);
             }
           } catch (_) {}
-        }, onDone: () => connectedClients.remove(client));
+        });
       });
     } catch (_) {}
   }
 
-  void _broadcastToCook(dynamic data) {
-    for (var c in connectedClients) {
-      try {
-        c.write(jsonEncode(data) + "\n");
-      } catch (_) {}
-    }
-  }
+  // ब्लूटूथ थर्मल प्रिंटर डायलॉग
+  void _openPrinterDialog() async {
+    List<BluetoothInfo> availablePrinters = await PrintBluetoothThermal.pairedBluetooths;
+    if (!mounted) return;
 
-  void _settleBill(int tbl) {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text('टेबल T-$tbl बिल सेटलमेंट'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('कुल बिल: ₹${tableTotals[tbl] ?? 0}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green)),
-            const Divider(),
-            ...?(activeTableOrders[tbl]?.map((e) => Text('• ${e['name']} x ${e['qty']} = ₹${e['price'] * e['qty']}'))),
-          ],
+        title: const Text('ब्लूटूथ प्रिंटर चुनें'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: availablePrinters.isEmpty
+              ? const Text('कोई पेयर्ड डिवाइस नहीं मिला। कृपया पहले फोन सेटिंग के ब्लूटूथ में प्रिंटर को पेयर करें।')
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: availablePrinters.length,
+                  itemBuilder: (ctx, i) {
+                    final p = availablePrinters[i];
+                    return ListTile(
+                      title: Text(p.name),
+                      subtitle: Text(p.macAdress),
+                      trailing: const Icon(Icons.print),
+                      onTap: () async {
+                        Navigator.pop(context);
+                        bool ok = await PrintBluetoothThermal.connect(macPrinterAddress: p.macAdress);
+                        setState(() => isPrinterConnected = ok);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text(ok ? 'प्रिंटर कनेक्ट हो गया!' : 'कनेक्शन विफल!'),
+                            backgroundColor: ok ? Colors.green : Colors.red,
+                          ));
+                        }
+                      },
+                    );
+                  },
+                ),
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('रद्द')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            onPressed: () {
-              setState(() {
-                activeTableOrders.remove(tbl);
-                tableTotals.remove(tbl);
-              });
-              Navigator.pop(context);
-            },
-            child: const Text('नकद भुगतान प्राप्त (खाली करें)', style: TextStyle(color: Colors.white)),
-          )
-        ],
       ),
     );
   }
 
-  @override
-  void dispose() {
-    server?.close();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('${widget.storeCode} - काउंटर'),
-        backgroundColor: Colors.indigo,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(26),
-          child: Container(
-            color: Colors.indigo.shade800,
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Center(
-              child: Text('वाई-फाई IP: $localIp (वेटर व कुक ऐप में यही डालें)', style: const TextStyle(color: Colors.yellowAccent, fontSize: 13, fontWeight: FontWeight.bold)),
-            ),
-          ),
-        ),
-      ),
-      body: GridView.builder(
-        padding: const EdgeInsets.all(12),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10),
-        itemCount: widget.totalTables,
-        itemBuilder: (ctx, i) {
-          int tbl = i + 1;
-          bool isOccupied = tableTotals.containsKey(tbl);
-          return InkWell(
-            onTap: isOccupied ? () => _settleBill(tbl) : null,
-            child: Container(
-              decoration: BoxDecoration(
-                color: isOccupied ? Colors.red.shade400 : Colors.green.shade500,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('T-$tbl', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  Text(isOccupied ? '₹${tableTotals[tbl]}' : 'खाली', style: const TextStyle(color: Colors.white, fontSize: 14)),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-// ---------------- 2. वेटर स्क्रीन ----------------
-class WaiterDashboard extends StatefulWidget {
-  final String storeCode;
-  final int totalTables;
-  const WaiterDashboard({super.key, required this.storeCode, required this.totalTables});
-  @override
-  State<WaiterDashboard> createState() => _WaiterDashboardState();
-}
-
-class _WaiterDashboardState extends State<WaiterDashboard> {
-  int selectedTable = 1;
-  final _ipCtrl = TextEditingController(text: '192.168.1.');
-  final List<Map<String, dynamic>> menu = [
-    {'name': 'दाल तड़का', 'price': 120},
-    {'name': 'पनीर बटर मसाला', 'price': 180},
-    {'name': 'तंदूरी रोटी', 'price': 12},
-    {'name': 'बटर रोटी', 'price': 15},
-    {'name': 'जीरा राइस', 'price': 100},
-    {'name': 'चाय / कॉफ़ी', 'price': 20},
-  ];
-  final Map<String, int> cart = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _loadSavedIp();
-  }
-
-  void _loadSavedIp() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString('counter_ip');
-    if (saved != null && saved.isNotEmpty) {
-      _ipCtrl.text = saved;
-    }
-  }
-
-  void _sendOrder() async {
-    if (cart.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('कृपया कोई आइटम चुनें!')));
-      return;
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('counter_ip', _ipCtrl.text.trim());
-
-    List<Map<String, dynamic>> itemsList = [];
-    double total = 0;
-    cart.forEach((name, qty) {
-      if (qty > 0) {
-        final item = menu.firstWhere((e) => e['name'] == name);
-        total += item['price'] * qty;
-        itemsList.add({'name': name, 'qty': qty, 'price': item['price']});
-      }
-    });
-
+  // थर्मल रसीद प्रिंट
+  Future<void> _printReceipt(int id, double total, List<Map<String, dynamic>> items, String payMode) async {
+    if (!await PrintBluetoothThermal.connectionStatus) return;
     try {
-      final socket = await Socket.connect(_ipCtrl.text.trim(), 4040, timeout: const Duration(seconds: 3));
-      final payload = jsonEncode({
-        'type': 'NEW_ORDER',
-        'table': selectedTable,
-        'total': total,
-        'items': itemsList,
-        'time': DateTime.now().toIso8601String(),
-      });
-      socket.write(payload);
-      await socket.flush();
-      await socket.close();
+      final profile = await CapabilityProfile.load();
+      final generator = Generator(PaperSize.mm58, profile);
+      List<int> bytes = [];
 
-      setState(() => cart.clear());
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✓ ऑर्डर काउंटर व किचन को भेजा गया!'), backgroundColor: Colors.green));
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('कनेक्ट नहीं हो सका! काउंटर IP सही डालें: $e'), backgroundColor: Colors.red));
-    }
+      String orderTitle = id > 0 ? 'टेबल: T-$id' : 'पार्सल: P-${-id}';
+
+      bytes += generator.text(widget.hotelName, styles: const PosStyles(align: PosAlign.center, bold: true, height: PosTextSize.size2, width: PosTextSize.size2));
+      bytes += generator.text('$orderTitle | $payMode', styles: const PosStyles(align: PosAlign.center));
+      bytes += generator.text('दिनांक: ${DateTime.now().toString().substring(0, 16)}', styles: const PosStyles(align: PosAlign.center));
+      bytes += generator.hr();
+
+      for (var it in items) {
+        bytes += generator.row([
+          PosColumn(text: it['name'], width: 7),
+          PosColumn(text: 'x${it['qty']}', width: 2),
+          PosColumn(text: '${it['price'] * it['qty']}', width: 3, styles: const PosStyles(align: PosAlign.right)),
+        ]);
+      }
+
+      bytes += generator.hr();
+      bytes += generator.text('कुल बिल: Rs. $total', styles: const PosStyles(bold: true, align: PosAlign.right, height: PosTextSize.size2));
+      bytes += generator.hr();
+      bytes += generator.text('धन्यवाद! फिर पधारें', styles: const PosStyles(align: PosAlign.center));
+      bytes += generator.feed(2);
+      bytes += generator.cut();
+
+      await PrintBluetoothThermal.writeBytes(bytes);
+    } catch (_) {}
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text('वेटर - ${widget.storeCode}'), backgroundColor: Colors.deepOrange),
-      body: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            color: Colors.grey.shade200,
-            child: Row(
-              children: [
-                const Text('काउंटर IP: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                Expanded(child: TextField(controller: _ipCtrl, decoration: const InputDecoration(isDense: true, border: InputBorder.none, hintText: 'उदा. 192.168.1.5'))),
-              ],
-            ),
+  // टेबल या पार्सल का बिल सेटल करना
+  void _settleBill(int id) {
+    List<Map<String, dynamic>> items = activeOrders[id] ?? [];
+    double total = items.fold(0, (sum, it) => sum + (it['price'] * it['qty']));
+    String title = id > 0 ? 'टेबल T-$id का बिल' : 'पार्सल P-${-id} का बिल';
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('$title (कुल: ₹$total)'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ...items.map((it) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [Text('${it['name']} x ${it['qty']}'), Text('₹${it['price'] * it['qty']}')],
+                ),
+              )),
+              const Divider(),
+              const Text('भुगतान माध्यम चुनें:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                    onPressed: () async {
+                      await _printReceipt(id, total, items, 'नकद (CASH)');
+                      setState(() {
+                        totalCashSales += total;
+                        activeOrders.remove(id);
+                      });
+                      if (!mounted) return;
+                      Navigator.pop(context);
+                    },
+                    child: const Text('💵 नकद (Cash)', style: TextStyle(color: Colors.white)),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                    onPressed: () async {
+                      await _printReceipt(id, total, items, 'ऑनलाइन (ONLINE)');
+                      setState(() {
+                        totalOnlineSales += total;
+                        activeOrders.remove(id);
+                      });
+                      if (!mounted) return;
+                      Navigator.pop(context);
+                    },
+                    child: const Text('📱 ऑनलाइन', style: TextStyle(color: Colors.white)),
+                  )
+                ],
+              )
+            ],
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('टेबल चुनें:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                DropdownButton<int>(
-                  value: selectedTable,
-                  items: List.generate(widget.totalTables, (i) => DropdownMenuItem(value: i + 1, child: Text('Table ${i + 1}', style: const TextStyle(fontWeight: FontWeight.bold)))),
-                  onChanged: (v) => setState(() => selectedTable = v!),
-                )
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
+        ),
+      ),
+    );
+  }
+
+  // पार्सल (Takeaway) का नया ऑर्डर काउंटर से ही तुरंत जोड़ना
+  void _createTakeawayOrder() {
+    int nextParcelId = -1;
+    while (activeOrders.containsKey(nextParcelId)) {
+      nextParcelId--;
+    }
+
+    final Map<String, int> parcelCart = {};
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('नया पार्सल (P-${-nextParcelId}) पैक ऑर्डर'),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 350,
             child: ListView.builder(
-              itemCount: menu.length,
-              itemBuilder: (ctx, i) {
-                final item = menu[i];
-                final qty = cart[item['name']] ?? 0;
+              itemCount: hotelMenu.where((m) => m['available'] == true).length,
+              itemBuilder: (c, i) {
+                final itm = hotelMenu.where((m) => m['available'] == true).toList()[i];
+                final qty = parcelCart[itm['name']] ?? 0;
                 return ListTile(
-                  title: Text(item['name'], style: const TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text('₹${item['price']}'),
+                  dense: true,
+                  title: Text(itm['name'], style: const TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text('₹${itm['price']}'),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (qty > 0)
-                        IconButton(
-                          icon: const Icon(Icons.remove_circle, color: Colors.red),
-                          onPressed: () => setState(() => cart[item['name']] = qty - 1),
-                        ),
-                      if (qty > 0) Text('$qty', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      IconButton(
-                        icon: const Icon(Icons.add_circle, color: Colors.green),
-                        onPressed: () => setState(() => cart[item['name']] = qty + 1),
-                      ),
+                      if (qty > 0) IconButton(icon: const Icon(Icons.remove_circle, color: Colors.red), onPressed: () => setDState(() => parcelCart[itm['name']] = qty - 1)),
+                      if (qty > 0) Text('$qty', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      IconButton(icon: const Icon(Icons.add_circle, color: Colors.green), onPressed: () => setDState(() => parcelCart[itm['name']] = qty + 1)),
                     ],
                   ),
                 );
               },
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
-                onPressed: _sendOrder,
-                child: const Text('KOT भेजें (किचन + काउंटर)', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-              ),
-            ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('रद्द')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+              onPressed: () {
+                if (parcelCart.isEmpty) return;
+                List<Map<String, dynamic>> items = [];
+                parcelCart.forEach((k, v) {
+                  if (v > 0) {
+                    final it = hotelMenu.firstWhere((e) => e['name'] == k);
+                    items.add({'name': k, 'qty': v, 'price': it['price']});
+                  }
+                });
+                setState(() {
+                  activeOrders[nextParcelId] = items;
+                });
+                Navigator.pop(context);
+              },
+              child: const Text('पार्सल बिल बनाएँ', style: TextStyle(color: Colors.white)),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  // नया मेन्यू आइटम जोड़ना / एडिट करना
+  void _itemDialog([Map<String, dynamic>? item]) {
+    final nameCtrl = TextEditingController(text: item?['name'] ?? '');
+    final priceCtrl = TextEditingController(text: item != null ? item['price'].toString() : '');
+    String cat = item?['cat'] ?? 'सब्जी/दाल';
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(item == null ? 'नया व्यंजन जोड़ें' : 'व्यंजन संपादित करें'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'व्यंजन का नाम', border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: priceCtrl, decoration: const InputDecoration(labelText: 'कीमत (₹)', border: OutlineInputBorder()), keyboardType: TextInputType.number),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: cat,
+              items: ['सब्जी/दाल', 'रोटी', 'चावल', 'पेय', 'स्नैक्स', 'अन्य'].map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+              onChanged: (v) => cat = v!,
+              decoration: const InputDecoration(labelText: 'कैटेगरी', border: OutlineInputBorder()),
+            )
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('रद्द')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+            onPressed: () {
+              if (nameCtrl.text.isEmpty || priceCtrl.text.isEmpty) return;
+              setState(() {
+                if (item == null) {
+                  hotelMenu.add({
+                    'id': DateTime.now().millisecondsSinceEpoch,
+                    'name': nameCtrl.text.trim(),
+                    'price': double.parse(priceCtrl.text.trim()),
+                    'cat': cat,
+                    'available': true,
+                  });
+                } else {
+                  item['name'] = nameCtrl.text.trim();
+                  item['price'] = double.parse(priceCtrl.text.trim());
+                  item['cat'] = cat;
+                }
+              });
+              _saveLocalMenu();
+              Navigator.pop(context);
+            },
+            child: const Text('सेव करें', style: TextStyle(color: Colors.white)),
           )
         ],
       ),
     );
   }
-}
 
-// ---------------- 3. कुक स्क्रीन (KDS + राशन) ----------------
-class CookDashboard extends StatefulWidget {
-  final String storeCode;
-  const CookDashboard({super.key, required this.storeCode});
-  @override
-  State<CookDashboard> createState() => _CookDashboardState();
-}
+  // स्टाफ़ पिन बदलने का फ़ीचर
+  void _updateStaffPinDialog() {
+    final wPinCtrl = TextEditingController(text: waiterPin);
+    final cPinCtrl = TextEditingController(text: cookPin);
 
-class _CookDashboardState extends State<CookDashboard> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  final _ipCtrl = TextEditingController(text: '192.168.1.');
-  Socket? kitchenSocket;
-  bool isConnected = false;
-  List<Map<String, dynamic>> kitchenOrders = [];
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('स्टाफ लॉगिन पिन बदलें'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: wPinCtrl, decoration: const InputDecoration(labelText: 'वेटर पिन (4 अंक)', border: OutlineInputBorder()), keyboardType: TextInputType.number),
+            const SizedBox(height: 12),
+            TextField(controller: cPinCtrl, decoration: const InputDecoration(labelText: 'कुक पिन (4 अंक)', border: OutlineInputBorder()), keyboardType: TextInputType.number),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('रद्द')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+            onPressed: () async {
+              try {
+                await Supabase.instance.client.from('restaurants').update({
+                  'waiter_pin': wPinCtrl.text.trim(),
+                  'cook_pin': cPinCtrl.text.trim(),
+                }).eq('store_code', widget.storeCode);
 
-  // राशन कंट्रोलर
-  final _itemCtrl = TextEditingController();
-  final _qtyCtrl = TextEditingController();
-  bool _rationLoading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+                setState(() {
+                  waiterPin = wPinCtrl.text.trim();
+                  cookPin = cPinCtrl.text.trim();
+                });
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('पिन अपडेट हो गया!')));
+                }
+              } catch (e) {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('त्रुटि: $e')));
+              }
+            },
+            child: const Text('अपडेट करें', style: TextStyle(color: Colors.white)),
+          )
+        ],
+      ),
+    );
   }
 
-  void _connectToCounter() async {
-    try {
-      kitchenSocket = await Socket.connect(_ipCtrl.text.trim(), 4040, timeout: const Duration(seconds: 3));
-      setState(() => isConnected = true);
-      kitchenSocket!.listen((data) {
-        try {
-          final lines = utf8.decode(data).split("\n");
-          for (var line in lines) {
-            if (line.trim().isEmpty) continue;
-            final msg = jsonDecode(line);
-            if (msg['type'] == 'NEW_ORDER') {
+  // दैनिक खर्च जोड़ने का डायलॉग
+  void _addExpenseDialog() {
+    final itemCtrl = TextEditingController();
+    final amtCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('दुकान का खर्च दर्ज करें'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: itemCtrl, decoration: const InputDecoration(labelText: 'खर्च का नाम (उदा. दूध/सब्जी/बर्फ)', border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: amtCtrl, decoration: const InputDecoration(labelText: 'रकम ₹', border: OutlineInputBorder()), keyboardType: TextInputType.number),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('रद्द')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+            onPressed: () {
+              if (itemCtrl.text.isEmpty || amtCtrl.text.isEmpty) return;
               setState(() {
-                kitchenOrders.insert(0, Map<String, dynamic>.from(msg));
+                dailyExpenses.add({
+                  'name': itemCtrl.text.trim(),
+                  'amount': double.parse(amtCtrl.text.trim()),
+                  'time': DateTime.now().toLocal().toString().substring(11, 16)
+                });
               });
-            }
-          }
-        } catch (_) {}
-      }, onDone: () => setState(() => isConnected = false), onError: (_) => setState(() => isConnected = false));
-    } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('काउंटर से कनेक्ट नहीं हो सका! IP चेक करें।')));
-    }
-  }
-
-  void _sendRationDemand() async {
-    if (_itemCtrl.text.isEmpty || _qtyCtrl.text.isEmpty) return;
-    setState(() => _rationLoading = true);
-    try {
-      await Supabase.instance.client.from('ration_demands').insert({
-        'store_code': widget.storeCode,
-        'item_name': _itemCtrl.text.trim(),
-        'quantity': _qtyCtrl.text.trim(),
-      });
-      _itemCtrl.clear();
-      _qtyCtrl.clear();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✓ राशन मांग पोर्टल पर भेज दी गई!'), backgroundColor: Colors.green));
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('एरर: $e')));
-    } finally {
-      if (mounted) setState(() => _rationLoading = false);
-    }
-  }
-
-  @override
-  void dispose() {
-    kitchenSocket?.destroy();
-    _tabController.dispose();
-    super.dispose();
+              Navigator.pop(context);
+            },
+            child: const Text('जोड़ें', style: TextStyle(color: Colors.white)),
+          )
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    double totalExpenses = dailyExpenses.fold(0, (sum, it) => sum + it['amount']);
+    double netSales = (totalCashSales + totalOnlineSales) - totalExpenses;
+
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: Text('किचन - ${widget.storeCode}'),
-        backgroundColor: Colors.teal,
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.restaurant), text: 'लाइव KOT ऑर्डर्स'),
-            Tab(icon: Icon(Icons.shopping_cart), text: 'राशन मांग (थोक)'),
-          ],
+        title: Text('${widget.storeCode} - काउंटर'),
+        backgroundColor: const Color(0xFF0F172A),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.print, color: isPrinterConnected ? Colors.greenAccent : Colors.white),
+            onPressed: _openPrinterDialog,
+            tooltip: 'प्रिंटर कनेक्ट करें',
+          ),
+          IconButton(
+            icon: const Icon(Icons.lock_person, color: Colors.amberAccent),
+            onPressed: _updateStaffPinDialog,
+            tooltip: 'स्टाफ पिन बदलें',
+          )
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(26),
+          child: Container(
+            color: const Color(0xFF1E293B),
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Center(child: Text('वाई-फाई IP: $localIp (हॉटस्पॉट चालू रखें)', style: const TextStyle(color: Colors.yellowAccent, fontSize: 13, fontWeight: FontWeight.bold))),
+          ),
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          // KOT स्क्रीन
-          Column(
-            children: [
+      body: [
+        // 1. टेबल्स व पार्सल स्क्रीन
+        Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('डाइन-इन टेबल्स व पार्सल:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEA580C)),
+                    onPressed: _createTakeawayOrder,
+                    icon: const Icon(Icons.takeout_dining, color: Colors.white, size: 18),
+                    label: const Text('+ नया पार्सल', style: TextStyle(color: Colors.white)),
+                  )
+                ],
+              ),
+            ),
+            // अगर कोई पार्सल एक्टिव है तो उसकी पट्टी
+            if (activeOrders.keys.any((k) => k < 0))
               Container(
-                padding: const EdgeInsets.all(8),
-                color: Colors.grey.shade200,
-                child: Row(
-                  children: [
-                    Expanded(child: TextField(controller: _ipCtrl, decoration: const InputDecoration(labelText: 'काउंटर IP', isDense: true, border: OutlineInputBorder()))),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: isConnected ? Colors.green : Colors.teal),
-                      onPressed: _connectToCounter,
-                      child: Text(isConnected ? 'कनेक्टेड ✓' : 'कनेक्ट करें', style: const TextStyle(color: Colors.white)),
-                    )
-                  ],
+                height: 50,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: activeOrders.keys.where((k) => k < 0).map((pId) {
+                    double pBill = activeOrders[pId]!.fold(0, (s, it) => s + (it['price'] * it['qty']));
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8.0),
+                      child: ActionChip(
+                        backgroundColor: Colors.amber.shade200,
+                        avatar: const Icon(Icons.shopping_bag, size: 16, color: Colors.brown),
+                        label: Text('P-${-pId} (₹$pBill)'),
+                        onPressed: () => _settleBill(pId),
+                      ),
+                    );
+                  }).toList(),
                 ),
               ),
+            Expanded(
+              child: GridView.builder(
+                padding: const EdgeInsets.all(12),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10),
+                itemCount: widget.tables,
+                itemBuilder: (ctx, i) {
+                  int tbl = i + 1;
+                  bool hasOrder = activeOrders.containsKey(tbl) && activeOrders[tbl]!.isNotEmpty;
+                  double bill = (activeOrders[tbl] ?? []).fold(0, (sum, it) => sum + (it['price'] * it['qty']));
+                  return InkWell(
+                    onTap: hasOrder ? () => _settleBill(tbl) : null,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: hasOrder ? const Color(0xFFEF4444) : const Color(0xFF22C55E),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text('T-$tbl', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          Text(hasOrder ? '₹$bill' : 'खाली', style: const TextStyle(color: Colors.white, fontSize: 14)),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+
+        // 2. मेन्यू प्रबंधन (नया व्यंजन व स्टॉक टॉगल)
+        Scaffold(
+          backgroundColor: Colors.transparent,
+          floatingActionButton: FloatingActionButton.extended(
+            backgroundColor: const Color(0xFF0F172A),
+            onPressed: () => _itemDialog(),
+            icon: const Icon(Icons.add, color: Colors.white),
+            label: const Text('नया व्यंजन जोड़ें', style: TextStyle(color: Colors.white)),
+          ),
+          body: ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: hotelMenu.length,
+            itemBuilder: (ctx, i) {
+              final itm = hotelMenu[i];
+              bool isAvail = itm['available'] ?? true;
+              return Card(
+                elevation: 1,
+                margin: const EdgeInsets.only(bottom: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                child: ListTile(
+                  title: Text(itm['name'], style: TextStyle(fontWeight: FontWeight.bold, decoration: isAvail ? null : TextDecoration.lineThrough)),
+                  subtitle: Text('${itm['cat']} • ₹${itm['price']}'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Switch(
+                        value: isAvail,
+                        activeColor: Colors.green,
+                        onChanged: (val) {
+                          setState(() => itm['available'] = val);
+                          _saveLocalMenu();
+                        },
+                      ),
+                      IconButton(icon: const Icon(Icons.edit, color: Colors.blueGrey), onPressed: () => _itemDialog(itm)),
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.redAccent),
+                        onPressed: () {
+                          setState(() => hotelMenu.removeAt(i));
+                          _saveLocalMenu();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+
+        // 3. गल्ला व दैनिक खर्च
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('💵 नकद बिक्री:'), Text('₹$totalCashSales', style: const TextStyle(fontWeight: FontWeight.bold))]),
+                      const SizedBox(height: 8),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('📱 ऑनलाइन बिक्री:'), Text('₹$totalOnlineSales', style: const TextStyle(fontWeight: FontWeight.bold))]),
+                      const SizedBox(height: 8),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('🔻 दैनिक खर्च:'), Text('- ₹$totalExpenses', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red))]),
+                      const Divider(),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        const Text('शुद्ध गल्ला बैलेंस:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        Text('₹$netSales', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green))
+                      ]),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('दुकान का दैनिक खर्च', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+                    onPressed: _addExpenseDialog,
+                    child: const Text('+ खर्च जोड़ें', style: TextStyle(color: Colors.white)),
+                  )
+                ],
+              ),
+              const SizedBox(height: 8),
               Expanded(
-                child: kitchenOrders.isEmpty
-                    ? const Center(child: Text('अभी कोई नया ऑर्डर नहीं है...', style: TextStyle(color: Colors.grey)))
+                child: dailyExpenses.isEmpty
+                    ? const Center(child: Text('आज कोई खर्च दर्ज नहीं है', style: TextStyle(color: Colors.grey)))
                     : ListView.builder(
-                        itemCount: kitchenOrders.length,
+                        itemCount: dailyExpenses.length,
                         itemBuilder: (ctx, i) {
-                          final order = kitchenOrders[i];
-                          final items = order['items'] as List;
-                          return Card(
-                            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text('Table ${order['table']}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
-                                      ElevatedButton(
-                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
-                                        onPressed: () => setState(() => kitchenOrders.removeAt(i)),
-                                        child: const Text('तैयार (Done)', style: TextStyle(color: Colors.white, fontSize: 12)),
-                                      )
-                                    ],
-                                  ),
-                                  const Divider(),
-                                  ...items.map((it) => Text('• ${it['name']}  x  ${it['qty']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
-                                ],
-                              ),
-                            ),
+                          final exp = dailyExpenses[i];
+                          return ListTile(
+                            dense: true,
+                            title: Text(exp['name'], style: const TextStyle(fontWeight: FontWeight.w600)),
+                            subtitle: Text('समय: ${exp['time']}'),
+                            trailing: Text('- ₹${exp['amount']}', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
                           );
                         },
                       ),
               )
             ],
           ),
-
-          // राशन स्क्रीन
-          Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              children: [
-                TextField(controller: _itemCtrl, decoration: const InputDecoration(labelText: 'सामग्री नाम (उदा. बासमती चावल / तेल / पनीर)', border: OutlineInputBorder())),
-                const SizedBox(height: 16),
-                TextField(controller: _qtyCtrl, decoration: const InputDecoration(labelText: 'मात्रा (उदा. 25 KG / 15 Ltr)', border: OutlineInputBorder())),
-                const SizedBox(height: 24),
-                _rationLoading
-                    ? const CircularProgressIndicator()
-                    : SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
-                          onPressed: _sendRationDemand,
-                          child: const Text('मांग पोर्टल पर दर्ज करें', style: TextStyle(color: Colors.white, fontSize: 16)),
-                        ),
-                      )
-              ],
-            ),
-          )
+        ),
+      ][_currentTab],
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentTab,
+        selectedItemColor: const Color(0xFF0F172A),
+        onTap: (idx) => setState(() => _currentTab = idx),
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.table_bar), label: 'टेबल्स व पार्सल'),
+          BottomNavigationBarItem(icon: Icon(Icons.menu_book), label: 'मेन्यू कार्ड'),
+          BottomNavigationBarItem(icon: Icon(Icons.calculate), label: 'गल्ला व हिसाब'),
         ],
       ),
+    );
+  }
+}
+
+// ---------------- 2. वेटर ऐप (कदम 2 में अपग्रेड होगा) ----------------
+class WaiterApp extends StatelessWidget {
+  final String storeCode;
+  final int tables;
+  const WaiterApp({super.key, required this.storeCode, required this.tables});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('वेटर - $storeCode'), backgroundColor: const Color(0xFFEA580C)),
+      body: const Center(child: Text('वेटर मॉड्यूल (कदम 2 में पूरी तरह अपग्रेड होगा)')),
+    );
+  }
+}
+
+// ---------------- 3. कुक ऐप (कदम 3 में अपग्रेड होगा) ----------------
+class CookApp extends StatelessWidget {
+  final String storeCode;
+  const CookApp({super.key, required this.storeCode});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('कुक - $storeCode'), backgroundColor: const Color(0xFF0D9488)),
+      body: const Center(child: Text('कुक मॉड्यूल (कदम 3 में पूरी तरह अपग्रेड होगा)')),
     );
   }
 }
