@@ -296,7 +296,7 @@ class _WaiterScreenState extends State<WaiterScreen> {
                   title: Text(item['name']),
                   subtitle: Text('₹${item['price']}'),
                   trailing: Row(
-                    mainAxisSize: intelligence_min,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
                         icon: const Icon(Icons.remove_circle_outline),
