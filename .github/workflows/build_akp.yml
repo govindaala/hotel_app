@@ -1,11 +1,12 @@
-name: Build Android APK
+name: Build and Release Android APK
 
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -32,18 +33,21 @@ jobs:
         run: |
           flutter create . --platforms=android --org com.hotelpos
           
-          # 1. Kotlin 1.9.20 इंजेक्ट करना
+          # Kotlin Version
           echo 'buildscript { ext.kotlin_version = "1.9.20" }' | cat - android/build.gradle > /tmp/bg && mv /tmp/bg android/build.gradle
           if [ -f "android/settings.gradle" ]; then
             sed -i -E "s/(org\.jetbrains\.kotlin\.android.*version )['\"][^'\"]+['\"]/\1\"1.9.20\"/g" android/settings.gradle
           fi
 
-          # 2. minSdkVersion को 21 पर सेट करना (flutter_tts एरर समाधान)
+          # minSdkVersion 21
           sed -i -E "s/minSdkVersion [^0-9]*/minSdkVersion 21/g" android/app/build.gradle
           sed -i -E "s/minSdkVersion = .*/minSdkVersion = 21/g" android/app/build.gradle
 
-          # 3. ऐप का नाम 'AALA' करना
+          # App Name 'AALA'
           sed -i 's/android:label="[^"]*"/android:label="AALA"/g' android/app/src/main/AndroidManifest.xml
+
+          # ऐप के अंदर ऑटो-अपडेट इंस्टॉल की अनुमति
+          sed -i '/<manifest/a \    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />' android/app/src/main/AndroidManifest.xml
 
       - name: Install dependencies
         run: flutter pub get
@@ -51,8 +55,11 @@ jobs:
       - name: Build APK
         run: flutter build apk --release
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Publish Direct APK Release (No Zip)
+        uses: softprops/action-gh-release@v2
         with:
-          name: AALA-Release-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          tag_name: latest
+          name: "AALA POS Latest Version"
+          files: build/app/outputs/flutter-apk/app-release.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
