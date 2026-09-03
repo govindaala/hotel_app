@@ -8,7 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:screenshot/screenshot.dart';
-import 'package:image/image.dart' as img;
+import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -29,8 +29,7 @@ class VoiceService {
     try {
       await _tts.setLanguage("hi-IN");
       await _tts.setPitch(1.0);
-      // आवाज़ की गति धीमी (0.32) कर दी गई है ताकि यह ठहर-ठहर कर साफ़ बोले
-      await _tts.setSpeechRate(0.32);
+      await _tts.setSpeechRate(0.32); // धीमी और स्पष्ट आवाज़
       _isInit = true;
     } catch (_) {}
   }
@@ -133,7 +132,7 @@ class AppGateway extends StatelessWidget {
 }
 
 // ==========================================
-// 3. लॉगिन स्क्रीन (स्थाई ऑटो-लॉगिन)
+// 3. लॉगिन स्क्रीन
 // ==========================================
 class StaffAuthScreen extends StatefulWidget {
   final String role;
@@ -238,7 +237,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 }
 
 // ==========================================
-// 4. काउंटर मास्टर ऐप (प्रिंटर + स्टाफ़ मैनेजमेंट + सिंक)
+// 4. काउंटर मास्टर ऐप
 // ==========================================
 class FullCounterApp extends StatefulWidget {
   final String storeCode, hotelName;
@@ -261,7 +260,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
   final Set<int> _spokenBillTables = {};
   Timer? _cloudSyncTimer;
 
-  // ब्लूटूथ प्रिंटर वेरिएबल्स
   bool _isPrinterConnected = false;
   String _connectedPrinterMac = '';
 
@@ -289,7 +287,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
-  // स्थानीय सॉकेट सर्वर शुरू करना
   void _startLocalSocketServer() async {
     try {
       for (var interface in await NetworkInterface.list()) {
@@ -418,36 +415,281 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
-  Future<void> _exportRationPdf() async {
-    if (rationDemands.isEmpty) return;
-    final pdf = pw.Document();
-    pdf.addPage(
-      pw.Page(
-        build: (pw.Context context) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Text('${widget.hotelName} - राशन मांग सूची (10 दिन का रिकॉर्ड)', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
-            pw.Divider(),
-            ...rationDemands.map((r) => pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(vertical: 4),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('${r['item_name']} (${r['quantity']})', style: const pw.TextStyle(fontSize: 14)),
-                  pw.Text(r['is_received'] == true ? '[आ गया]' : '[पेंडिंग]', style: const pw.TextStyle(fontSize: 14)),
-                  pw.Text((r['created_at'] ?? '').substring(0, 10), style: const pw.TextStyle(fontSize: 12)),
-                ],
+  // ==================================================================
+  // स्मार्ट राशन रिपोर्ट: फ़िल्टर, ऑटो-योग और शुद्ध हिंदी PDF जनरेशन
+  // ==================================================================
+  void _openRationExportFilterModal() {
+    if (rationDemands.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('निर्यात के लिए कोई राशन डेटा उपलब्ध नहीं है')));
+      return;
+    }
+
+    String selectedPeriod = '10_days'; // 'today', '3_days', '10_days'
+    bool onlyPending = true;
+    bool autoMergeQty = true;
+
+    // उपलब्ध सभी अद्वितीय सामग्रियों की सूची
+    final Set<String> allItems = rationDemands.map((e) => e['item_name'].toString().trim()).toSet();
+    final Set<String> selectedItems = Set.from(allItems);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (c, setDState) {
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.picture_as_pdf, color: Colors.amber),
+                SizedBox(width: 8),
+                Text('राशन PDF फ़िल्टर', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('समय सीमा चुनें:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('आज का'),
+                          selected: selectedPeriod == 'today',
+                          onSelected: (v) => setDState(() => selectedPeriod = 'today'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('पिछले 3 दिन'),
+                          selected: selectedPeriod == '3_days',
+                          onSelected: (v) => setDState(() => selectedPeriod = '3_days'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('पूरे 10 दिन'),
+                          selected: selectedPeriod == '10_days',
+                          onSelected: (v) => setDState(() => selectedPeriod = '10_days'),
+                        ),
+                      ],
+                    ),
+                    const Divider(),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('केवल पेंडिंग सामान (बाज़ार पर्ची)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      subtitle: const Text('जो सामान आ चुका है उसे न जोड़ें', style: TextStyle(fontSize: 12)),
+                      value: onlyPending,
+                      onChanged: (val) => setDState(() => onlyPending = val),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('समान सामग्री की मात्रा जोड़ें (Merge)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      subtitle: const Text('उदा. आलू 5kg + आलू 10kg = आलू 15kg', style: TextStyle(fontSize: 12)),
+                      value: autoMergeQty,
+                      onChanged: (val) => setDState(() => autoMergeQty = val),
+                    ),
+                    const Divider(),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('सामग्री का चुनाव:', style: TextStyle(fontWeight: FontWeight.bold)),
+                        TextButton(
+                          onPressed: () {
+                            setDState(() {
+                              if (selectedItems.length == allItems.length) {
+                                selectedItems.clear();
+                              } else {
+                                selectedItems.addAll(allItems);
+                              }
+                            });
+                          },
+                          child: Text(selectedItems.length == allItems.length ? 'सब हटाएं' : 'सब चुनें'),
+                        )
+                      ],
+                    ),
+                    Wrap(
+                      spacing: 6,
+                      children: allItems.map((name) {
+                        final isChecked = selectedItems.contains(name);
+                        return FilterChip(
+                          label: Text(name),
+                          selected: isChecked,
+                          onSelected: (val) {
+                            setDState(() {
+                              if (val) {
+                                selectedItems.add(name);
+                              } else {
+                                selectedItems.remove(name);
+                              }
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
               ),
-            )),
-          ],
-        ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द करें')),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+                icon: const Icon(Icons.download, color: Colors.white, size: 18),
+                label: const Text('PDF तैयार करें', style: TextStyle(color: Colors.white)),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _processAndExportRationPdf(selectedPeriod, onlyPending, autoMergeQty, selectedItems);
+                },
+              ),
+            ],
+          );
+        },
       ),
     );
+  }
 
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/ration_summary_${DateTime.now().millisecondsSinceEpoch}.pdf');
-    await file.writeAsBytes(await pdf.save());
-    await Share.shareXFiles([XFile(file.path)], text: '🛒 ${widget.hotelName} राशन पर्ची');
+  void _processAndExportRationPdf(String period, bool onlyPending, bool autoMergeQty, Set<String> selectedItems) async {
+    DateTime cutoff = DateTime.now().subtract(const Duration(days: 10));
+    if (period == 'today') {
+      cutoff = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    } else if (period == '3_days') {
+      cutoff = DateTime.now().subtract(const Duration(days: 3));
+    }
+
+    // 1. प्राथमिक फ़िल्टरिंग
+    List<Map<String, dynamic>> filtered = rationDemands.where((r) {
+      final String name = r['item_name'].toString().trim();
+      if (!selectedItems.contains(name)) return false;
+      if (onlyPending && r['is_received'] == true) return false;
+
+      final createdAt = DateTime.tryParse(r['created_at'] ?? '') ?? DateTime.now();
+      return createdAt.isAfter(cutoff) || createdAt.isAtSameMomentAs(cutoff);
+    }).toList();
+
+    if (filtered.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('चुने गए फ़िल्टर के अनुसार कोई रिकॉर्ड नहीं मिला!')));
+      return;
+    }
+
+    // 2. मात्रा का स्वतः जोड़ (Auto-Merge)
+    List<Map<String, dynamic>> finalRows = [];
+    if (autoMergeQty) {
+      Map<String, Map<String, dynamic>> mergedMap = {};
+      for (var r in filtered) {
+        String name = r['item_name'].toString().trim();
+        String rawQty = r['quantity'].toString().trim();
+        final match = RegExp(r'(\d+(?:\.\d+)?)').firstMatch(rawQty);
+        double val = match != null ? (double.tryParse(match.group(1)!) ?? 1.0) : 1.0;
+        String unit = rawQty.replaceAll(RegExp(r'[\d\.\s]'), '');
+        if (unit.isEmpty) unit = 'यूनिट';
+
+        if (!mergedMap.containsKey(name)) {
+          mergedMap[name] = {
+            'item_name': name,
+            'total_qty': val,
+            'unit': unit,
+            'is_received': r['is_received'] == true,
+            'date': (r['created_at'] ?? '').substring(0, 10),
+          };
+        } else {
+          mergedMap[name]!['total_qty'] = (mergedMap[name]!['total_qty'] as double) + val;
+          if (r['is_received'] != true) mergedMap[name]!['is_received'] = false;
+        }
+      }
+
+      mergedMap.forEach((k, v) {
+        double q = v['total_qty'];
+        String formattedQty = q % 1 == 0 ? q.toInt().toString() : q.toStringAsFixed(1);
+        finalRows.add({
+          'item_name': v['item_name'],
+          'quantity': '$formattedQty ${v['unit']}',
+          'is_received': v['is_received'],
+          'created_at': v['date'],
+        });
+      });
+    } else {
+      finalRows = filtered;
+    }
+
+    // 3. शुद्ध हिंदी स्क्रीनशॉट रेंडरिंग व PDF निर्माण
+    try {
+      final Uint8List imageBytes = await ScreenshotController().captureFromWidget(
+        Container(
+          width: 600,
+          color: Colors.white,
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('${widget.hotelName} - राशन मांग सूची', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black)),
+              const SizedBox(height: 4),
+              Text(
+                'पर्ची प्रकार: ${onlyPending ? "केवल बाज़ार मांग (पेंडिंग)" : "समग्र राशन रिकॉर्ड"} | दिनांक: ${DateTime.now().toString().substring(0, 10)}',
+                style: const TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(height: 10),
+              const Divider(color: Colors.black, thickness: 1.5),
+              const SizedBox(height: 10),
+              Table(
+                columnWidths: const {
+                  0: FlexColumnWidth(4.5),
+                  1: FlexColumnWidth(2.5),
+                  2: FlexColumnWidth(3),
+                },
+                children: [
+                  const TableRow(
+                    decoration: BoxDecoration(color: Color(0xFFF1F5F9)),
+                    children: [
+                      Padding(padding: EdgeInsets.all(8), child: Text('सामग्री व मात्रा', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black))),
+                      Padding(padding: EdgeInsets.all(8), child: Text('स्थिति', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black))),
+                      Padding(padding: EdgeInsets.all(8), child: Text('दिनांक', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black))),
+                    ],
+                  ),
+                  ...finalRows.map((r) {
+                    final bool isRec = r['is_received'] == true;
+                    return TableRow(
+                      children: [
+                        Padding(padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8), child: Text('${r['item_name']} (${r['quantity']})', style: const TextStyle(fontSize: 15, color: Colors.black, fontWeight: FontWeight.w500))),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                          child: Text(
+                            isRec ? 'आ गया ✓' : 'पेंडिंग ⏳',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: isRec ? Colors.green.shade800 : Colors.orange.shade900),
+                          ),
+                        ),
+                        Padding(padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8), child: Text((r['created_at'] ?? '').substring(0, 10), style: const TextStyle(fontSize: 14, color: Colors.black87))),
+                      ],
+                    );
+                  }),
+                ],
+              ),
+              const SizedBox(height: 20),
+              const Divider(color: Colors.black26),
+              Align(alignment: Alignment.centerRight, child: Text('कुल सामग्री: ${finalRows.length}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
+            ],
+          ),
+        ),
+        delay: const Duration(milliseconds: 50),
+        pixelRatio: 2.0,
+      );
+
+      final pdf = pw.Document();
+      final pdfImage = pw.MemoryImage(imageBytes);
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(20),
+          build: (pw.Context context) => pw.Center(child: pw.Image(pdfImage)),
+        ),
+      );
+
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/ration_report_${DateTime.now().millisecondsSinceEpoch}.pdf');
+      await file.writeAsBytes(await pdf.save());
+      await Share.shareXFiles([XFile(file.path)], text: '🛒 ${widget.hotelName} राशन पर्ची');
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF जनरेशन त्रुटि: $e')));
+    }
   }
 
   // ==========================================
@@ -533,7 +775,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // थर्मल प्रिंटर से रसीद निकालना
+  // थर्मल प्रिंटर से बिल रसीद प्रिंट करना
   Future<void> _printBillReceipt(int tbl, List<Map<String, dynamic>> items, double total) async {
     final bool isConn = await PrintBluetoothThermal.connectionStatus;
     if (!isConn) {
@@ -582,7 +824,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
   }
 
   // ==========================================
-  // स्टाफ़ जोड़ना / हटाना (Staff Management)
+  // स्टाफ़ प्रबंधन (कुक/वेटर जोड़ें या हटाएँ)
   // ==========================================
   void _showStaffManagementDialog() {
     final staffIdCtrl = TextEditingController();
@@ -621,7 +863,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
               height: 380,
               child: Column(
                 children: [
-                  // नया स्टाफ़ जोड़ने का फ़ॉर्म
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
@@ -849,7 +1090,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
               tooltip: 'स्टाफ़ प्रबंधन (कुक/वेटर)',
               onPressed: _showStaffManagementDialog,
             ),
-            IconButton(icon: const Icon(Icons.picture_as_pdf, color: Colors.amber), tooltip: 'राशन PDF डाउनलोड', onPressed: _exportRationPdf),
+            IconButton(icon: const Icon(Icons.picture_as_pdf, color: Colors.amber), tooltip: 'राशन PDF डाउनलोड', onPressed: _openRationExportFilterModal),
             IconButton(icon: const Icon(Icons.logout, color: Colors.redAccent), tooltip: 'लॉगआउट', onPressed: _logout),
           ],
           bottom: PreferredSize(
@@ -950,7 +1191,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 }
 
 // ==========================================
-// 5. वेटर ऐप (लोकल सॉकेट + क्लाउड डुअल सिंक)
+// 5. वेटर ऐप
 // ==========================================
 class FullWaiterApp extends StatefulWidget {
   final String storeCode, staffId;
@@ -1278,7 +1519,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
 }
 
 // ==========================================
-// 6. कुक ऐप (लोकल सॉकेट KDS + क्लाउड)
+// 6. कुक ऐप
 // ==========================================
 class FullCookApp extends StatefulWidget {
   final String storeCode;
