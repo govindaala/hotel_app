@@ -46,7 +46,7 @@ class AppGateway extends StatelessWidget {
           children: [
             _roleCard(context, '🖥️ मास्टर / ओनर', 'बिलिंग, मेन्यू, स्टाफ व गल्ला', const Color(0xFF0F172A), 'counter'),
             const SizedBox(height: 18),
-            _roleCard(context, '📱 वेटर मोड', 'टेबल ऑर्डर, सर्च व त्वरित KOT', const Color(0xFFEA580C), 'waiter'),
+            _roleCard(context, '📱 वेटर मोड', 'टेबल ऑर्डर, सर्च व ऑटो-सिंक KOT', const Color(0xFFEA580C), 'waiter'),
             const SizedBox(height: 18),
             _roleCard(context, '👨‍🍳 कुक मोड (KDS)', 'लाइव किचन KOT व राशन मांग', const Color(0xFF0D9488), 'cook'),
           ],
@@ -84,7 +84,7 @@ class AppGateway extends StatelessWidget {
 }
 
 // ==========================================
-// 2. लॉगिन स्क्रीन (ऑफ़लाइन कैशिंग सपोर्ट)
+// 2. लॉगिन स्क्रीन
 // ==========================================
 class StaffAuthScreen extends StatefulWidget {
   final String role;
@@ -235,7 +235,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 }
 
 // ==========================================
-// 3. काउंटर मास्टर ऐप (ओनर / बिलिंग)
+// 3. काउंटर मास्टर ऐप
 // ==========================================
 class FullCounterApp extends StatefulWidget {
   final String storeCode;
@@ -270,6 +270,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     _loadLocalMenu();
     _startServer();
     _checkPrinterStatus();
+    _loadCloudRations();
   }
 
   void _loadLocalMenu() async {
@@ -281,6 +282,22 @@ class _FullCounterAppState extends State<FullCounterApp> {
   void _saveLocalMenu() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('custom_menu_${widget.storeCode}', jsonEncode(hotelMenu));
+    _broadcastMenuUpdate();
+  }
+
+  void _loadCloudRations() async {
+    try {
+      final res = await Supabase.instance.client
+          .from('ration_demands')
+          .select()
+          .eq('store_code', widget.storeCode)
+          .order('created_at', { 'ascending': false });
+      if (res != null && mounted) {
+        setState(() {
+          liveRationDemands = List<Map<String, dynamic>>.from(res);
+        });
+      }
+    } catch (_) {}
   }
 
   void _checkPrinterStatus() async {
@@ -334,6 +351,16 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
+  void _broadcastMenuUpdate() {
+    for (var c in List<Socket>.from(connectedClients)) {
+      try {
+        c.write(jsonEncode({'type': 'MENU_DATA', 'menu': hotelMenu}) + "\n");
+      } catch (_) {
+        connectedClients.remove(c);
+      }
+    }
+  }
+
   void _broadcastToKitchen(dynamic data) {
     for (var c in List<Socket>.from(connectedClients)) {
       try {
@@ -344,7 +371,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     }
   }
 
-  // संपूर्ण स्टाफ प्रबंधन (लिस्ट, जोड़ना, पिन बदलना, हटाना)
   void _openStaffManager() async {
     List<Map<String, dynamic>> staffList = [];
     final prefs = await SharedPreferences.getInstance();
@@ -705,6 +731,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
         title: Text('${widget.storeCode} - मास्टर', style: const TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFF0F172A),
         actions: [
+          IconButton(icon: const Icon(Icons.refresh, color: Colors.white), tooltip: 'रिफ्रेश करें', onPressed: () { _loadCloudRations(); setState(() {}); }),
           IconButton(icon: const Icon(Icons.group, color: Colors.amberAccent), onPressed: _openStaffManager, tooltip: 'स्टाफ प्रबंधन'),
           IconButton(icon: Icon(Icons.print, color: isPrinterConnected ? Colors.greenAccent : Colors.white), onPressed: _openPrinterDialog),
         ],
@@ -717,24 +744,30 @@ class _FullCounterAppState extends State<FullCounterApp> {
         ),
       ),
       body: [
-        GridView.builder(
-          padding: const EdgeInsets.all(12),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10),
-          itemCount: widget.tables,
-          itemBuilder: (ctx, i) {
-            int tbl = i + 1;
-            bool hasOrder = activeOrders.containsKey(tbl) && activeOrders[tbl]!.isNotEmpty;
-            return InkWell(
-              onTap: hasOrder ? () => _settleBill(tbl) : null,
-              child: Container(
-                decoration: BoxDecoration(color: hasOrder ? Colors.red : Colors.green, borderRadius: BorderRadius.circular(10)),
-                child: Center(
-                  child: Text('T-$tbl\n${hasOrder ? "ऑर्डर चालू" : "खाली"}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+        // Tab 0: टेबल (Pull-to-Refresh सहित)
+        RefreshIndicator(
+          onRefresh: () async { setState(() {}); },
+          child: GridView.builder(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(12),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10),
+            itemCount: widget.tables,
+            itemBuilder: (ctx, i) {
+              int tbl = i + 1;
+              bool hasOrder = activeOrders.containsKey(tbl) && activeOrders[tbl]!.isNotEmpty;
+              return InkWell(
+                onTap: hasOrder ? () => _settleBill(tbl) : null,
+                child: Container(
+                  decoration: BoxDecoration(color: hasOrder ? Colors.red : Colors.green, borderRadius: BorderRadius.circular(10)),
+                  child: Center(
+                    child: Text('T-$tbl\n${hasOrder ? "ऑर्डर चालू" : "खाली"}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
+        // Tab 1: मेन्यू
         Scaffold(
           floatingActionButton: FloatingActionButton(
             backgroundColor: const Color(0xFF0F172A),
@@ -788,18 +821,23 @@ class _FullCounterAppState extends State<FullCounterApp> {
             },
           ),
         ),
-        liveRationDemands.isEmpty
-            ? const Center(child: Text('कुक ने अभी कोई राशन मांग नहीं भेजी है'))
-            : ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: liveRationDemands.length,
-                itemBuilder: (ctx, i) => Card(
-                  child: ListTile(
-                    title: Text(liveRationDemands[i]['item_name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                    trailing: Text(liveRationDemands[i]['quantity'], style: const TextStyle(color: Colors.red, fontSize: 16, fontWeight: FontWeight.bold)),
+        // Tab 2: राशन मांग (Pull-to-Refresh सहित)
+        RefreshIndicator(
+          onRefresh: () async { _loadCloudRations(); },
+          child: liveRationDemands.isEmpty
+              ? ListView(physics: const AlwaysScrollableScrollPhysics(), children: const [SizedBox(height: 120), Center(child: Text('कुक ने अभी कोई राशन मांग नहीं भेजी है\n(नीचे खींचकर रिफ्रेश करें)', textAlign: TextAlign.center))])
+              : ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(12),
+                  itemCount: liveRationDemands.length,
+                  itemBuilder: (ctx, i) => Card(
+                    child: ListTile(
+                      title: Text(liveRationDemands[i]['item_name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                      trailing: Text(liveRationDemands[i]['quantity'], style: const TextStyle(color: Colors.red, fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
                   ),
                 ),
-              ),
+        ),
       ][_currentTab],
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentTab,
@@ -816,7 +854,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 }
 
 // ==========================================
-// 4. वेटर ऐप (मेन्यू ऑर्डर बॉटम-शीट)
+// 4. वेटर ऐप (100% ऑटो सिंक + Pull to Refresh)
 // ==========================================
 class FullWaiterApp extends StatefulWidget {
   final String storeCode, staffId;
@@ -827,30 +865,41 @@ class FullWaiterApp extends StatefulWidget {
 }
 
 class _FullWaiterAppState extends State<FullWaiterApp> {
-  final _counterIpCtrl = TextEditingController(text: '192.168.43.1');
+  String _counterIp = '192.168.43.1';
   bool _isConnected = false;
   List<Map<String, dynamic>> menu = [];
   Map<int, List<Map<String, dynamic>>> liveTables = {};
+  Timer? _autoSyncTimer;
 
   @override
   void initState() {
     super.initState();
-    _loadSavedCounterIp();
+    _initAutoSync();
   }
 
-  void _loadSavedCounterIp() async {
+  @override
+  void dispose() {
+    _autoSyncTimer?.cancel();
+    super.dispose();
+  }
+
+  void _initAutoSync() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('saved_counter_ip');
-    if (saved != null && mounted) setState(() => _counterIpCtrl.text = saved);
+    if (saved != null && saved.isNotEmpty) {
+      _counterIp = saved;
+    }
     _syncWithCounter();
+
+    // हर 4 सेकंड में ऑटो सिंक (हाथ से सिंक दबाने की कोई ज़रूरत नहीं)
+    _autoSyncTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      _syncWithCounter();
+    });
   }
 
-  void _syncWithCounter() async {
-    final ip = _counterIpCtrl.text.trim();
-    if (ip.isEmpty) return;
-
+  Future<void> _syncWithCounter() async {
     try {
-      final socket = await Socket.connect(ip, 4040, timeout: const Duration(seconds: 3));
+      final socket = await Socket.connect(_counterIp, 4040, timeout: const Duration(seconds: 2));
       socket.write(jsonEncode({'type': 'GET_MENU'}) + "\n");
       socket.write(jsonEncode({'type': 'GET_RUNNING_TABLES'}) + "\n");
 
@@ -868,16 +917,15 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                   liveTables = Map<int, List<Map<String, dynamic>>>.from(
                     (res['data'] as Map).map((k, v) => MapEntry(int.parse(k.toString()), List<Map<String, dynamic>>.from(v))),
                   );
+                  _isConnected = true;
                 });
               }
             }
           } catch (_) {}
         }
       });
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('saved_counter_ip', ip);
     } catch (_) {
-      if (mounted) setState(() => _isConnected = false);
+      if (mounted && _isConnected) setState(() => _isConnected = false);
     }
   }
 
@@ -890,8 +938,8 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
         builder: (context, setBState) {
           double currentTotal = 0;
           cart.forEach((id, qty) {
-            final it = menu.firstWhere((e) => e['id'] == id);
-            currentTotal += (it['price'] * qty);
+            final it = menu.firstWhere((e) => e['id'] == id, orElse: () => {'price': 0});
+            currentTotal += ((it['price'] ?? 0) * qty);
           });
 
           return Container(
@@ -909,7 +957,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                 const Divider(),
                 Expanded(
                   child: menu.isEmpty
-                      ? const Center(child: Text('काउंटर से मेन्यू लोड नहीं हुआ। कृपया सिंक करें।'))
+                      ? const Center(child: Text('काउंटर से मेन्यू लोड हो रहा है... कृपया 1 सेकंड रुकें'))
                       : ListView.builder(
                           itemCount: menu.length,
                           itemBuilder: (c, idx) {
@@ -951,17 +999,17 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                                 }
                               });
                               try {
-                                final socket = await Socket.connect(_counterIpCtrl.text.trim(), 4040, timeout: const Duration(seconds: 3));
+                                final socket = await Socket.connect(_counterIp, 4040, timeout: const Duration(seconds: 3));
                                 socket.write(jsonEncode({'type': 'NEW_KOT', 'table': tableNum, 'items': orderItems}) + "\n");
                                 await socket.flush();
                                 await socket.close();
                                 if (mounted) {
                                   Navigator.pop(context);
-                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('T-$tableNum का KOT भेजा गया!'), backgroundColor: Colors.green));
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('T-$tableNum का KOT काउंटर पर भेजा गया!'), backgroundColor: Colors.green));
                                 }
                                 _syncWithCounter();
                               } catch (_) {
-                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('काउंटर से कनेक्शन फेल!')));
+                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('काउंटर से कनेक्शन फेल! हॉटस्पॉट चेक करें')));
                               }
                             },
                       child: const Text('KOT भेजें', style: TextStyle(color: Colors.white)),
@@ -976,42 +1024,77 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
     );
   }
 
+  void _manualIpDialog() {
+    final ipCtrl = TextEditingController(text: _counterIp);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('काउंटर IP बदलें'),
+        content: TextField(controller: ipCtrl, decoration: const InputDecoration(labelText: 'मास्टर का IP एड्रेस')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
+          ElevatedButton(
+            onPressed: () async {
+              setState(() => _counterIp = ipCtrl.text.trim());
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setString('saved_counter_ip', _counterIp);
+              Navigator.pop(ctx);
+              _syncWithCounter();
+            },
+            child: const Text('सेव करें'),
+          )
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text('वेटर: ${widget.staffId}', style: const TextStyle(color: Colors.white)),
         backgroundColor: Colors.orange,
-        actions: [IconButton(icon: const Icon(Icons.refresh, color: Colors.white), onPressed: _syncWithCounter)],
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh, color: Colors.white), tooltip: 'रीफ्रेश करें', onPressed: _syncWithCounter),
+          IconButton(icon: const Icon(Icons.settings, color: Colors.white70), tooltip: 'IP सेटिंग्स', onPressed: _manualIpDialog),
+        ],
       ),
       body: Column(
         children: [
           Container(
-            color: Colors.deepOrange,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            color: _isConnected ? Colors.green.shade700 : Colors.red.shade700,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Expanded(child: TextField(controller: _counterIpCtrl, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(hintText: 'काउंटर IP', border: InputBorder.none))),
-                TextButton(onPressed: _syncWithCounter, child: Text(_isConnected ? '● कनेक्टेड' : 'सिंक करें', style: TextStyle(color: _isConnected ? Colors.greenAccent : Colors.yellowAccent, fontWeight: FontWeight.bold)))
+                Text(
+                  _isConnected ? '🟢 काउंटर से ऑटो-कनेक्टेड ($_counterIp)' : '🔴 काउंटर ढूँढ रहा है... (हॉटस्पॉट जोड़ें)',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                const Text('ऑटो-सिंक चालू', style: TextStyle(color: Colors.white70, fontSize: 11)),
               ],
             ),
           ),
           Expanded(
-            child: GridView.builder(
-              padding: const EdgeInsets.all(12),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10),
-              itemCount: widget.tables,
-              itemBuilder: (ctx, i) {
-                int tbl = i + 1;
-                bool isOccupied = liveTables.containsKey(tbl) && liveTables[tbl]!.isNotEmpty;
-                return InkWell(
-                  onTap: () => _openOrderSheet(tbl),
-                  child: Container(
-                    decoration: BoxDecoration(color: isOccupied ? Colors.red : Colors.green, borderRadius: BorderRadius.circular(10)),
-                    child: Center(child: Text('T-$tbl\n${isOccupied ? "रनिंग" : "खाली"}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
-                  ),
-                );
-              },
+            child: RefreshIndicator(
+              onRefresh: () => _syncWithCounter(),
+              child: GridView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(12),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10),
+                itemCount: widget.tables,
+                itemBuilder: (ctx, i) {
+                  int tbl = i + 1;
+                  bool isOccupied = liveTables.containsKey(tbl) && liveTables[tbl]!.isNotEmpty;
+                  return InkWell(
+                    onTap: () => _openOrderSheet(tbl),
+                    child: Container(
+                      decoration: BoxDecoration(color: isOccupied ? Colors.red : Colors.green, borderRadius: BorderRadius.circular(10)),
+                      child: Center(child: Text('T-$tbl\n${isOccupied ? "रनिंग" : "खाली"}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ],
@@ -1021,7 +1104,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
 }
 
 // ==========================================
-// 5. कुक ऐप (लाइव KOT व स्थाई राशन मांग)
+// 5. कुक ऐप (ऑटो-कनेक्ट + Pull to Refresh)
 // ==========================================
 class FullCookApp extends StatefulWidget {
   final String storeCode;
@@ -1031,10 +1114,11 @@ class FullCookApp extends StatefulWidget {
 }
 
 class _FullCookAppState extends State<FullCookApp> {
-  final _ipCtrl = TextEditingController();
+  String _counterIp = '192.168.43.1';
   Socket? kitchenSocket;
   bool isConnected = false;
   List<Map<String, dynamic>> kitchenOrders = [];
+  Timer? _reconnectTimer;
 
   List<String> presetRations = ['आटा', 'चावल', 'तेल', 'पनीर', 'शक्कर'];
   final Map<String, String> selectedRations = {};
@@ -1047,16 +1131,28 @@ class _FullCookAppState extends State<FullCookApp> {
     _loadSavedData();
   }
 
+  @override
+  void dispose() {
+    _reconnectTimer?.cancel();
+    kitchenSocket?.destroy();
+    super.dispose();
+  }
+
   void _loadSavedData() async {
     final prefs = await SharedPreferences.getInstance();
     final savedIp = prefs.getString('saved_counter_ip');
-    if (savedIp != null && mounted) setState(() => _ipCtrl.text = savedIp);
+    if (savedIp != null && savedIp.isNotEmpty) _counterIp = savedIp;
 
     final savedList = prefs.getStringList('custom_ration_list_${widget.storeCode}');
     if (savedList != null && savedList.isNotEmpty && mounted) {
       setState(() => presetRations = savedList);
     }
     _connectToCounter();
+
+    // हर 5 सेकंड में ऑटो-रिकनेक्ट
+    _reconnectTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!isConnected) _connectToCounter();
+    });
   }
 
   void _saveRationList() async {
@@ -1066,7 +1162,7 @@ class _FullCookAppState extends State<FullCookApp> {
 
   void _connectToCounter() async {
     try {
-      kitchenSocket = await Socket.connect(_ipCtrl.text.trim(), 4040, timeout: const Duration(seconds: 3));
+      kitchenSocket = await Socket.connect(_counterIp, 4040, timeout: const Duration(seconds: 2));
       if (mounted) setState(() => isConnected = true);
       kitchenSocket!.listen((data) {
         final lines = utf8.decode(data).split("\n");
@@ -1079,9 +1175,9 @@ class _FullCookAppState extends State<FullCookApp> {
             }
           } catch (_) {}
         }
-      }, onDone: () { if (mounted) setState(() => isConnected = false); });
+      }, onDone: () { if (mounted) setState(() => isConnected = false); }, onError: (_) { if (mounted) setState(() => isConnected = false); });
     } catch (_) {
-      if (mounted) setState(() => isConnected = false);
+      if (mounted && isConnected) setState(() => isConnected = false);
     }
   }
 
@@ -1128,6 +1224,9 @@ class _FullCookAppState extends State<FullCookApp> {
         appBar: AppBar(
           title: const Text('कुक KDS', style: TextStyle(color: Colors.white)),
           backgroundColor: Colors.teal,
+          actions: [
+            IconButton(icon: const Icon(Icons.refresh, color: Colors.white), onPressed: _connectToCounter),
+          ],
           bottom: const TabBar(labelColor: Colors.white, unselectedLabelColor: Colors.white54, tabs: [Tab(text: 'लाइव KOT'), Tab(text: 'थोक राशन')]),
         ),
         body: TabBarView(
@@ -1135,45 +1234,50 @@ class _FullCookAppState extends State<FullCookApp> {
             Column(
               children: [
                 Container(
-                  color: Colors.teal.shade800,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  color: isConnected ? Colors.teal.shade800 : Colors.red.shade700,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                   child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Expanded(child: TextField(controller: _ipCtrl, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(hintText: 'काउंटर IP', border: InputBorder.none))),
-                      TextButton(onPressed: _connectToCounter, child: Text(isConnected ? '● कनेक्टेड' : 'कनेक्ट करें', style: TextStyle(color: isConnected ? Colors.greenAccent : Colors.yellowAccent, fontWeight: FontWeight.bold)))
+                      Text(isConnected ? '🟢 काउंटर से लाइव कनेक्टेड' : '🔴 काउंटर कनेक्ट कर रहा है...', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      const Text('ऑटो सिंक चालू', style: TextStyle(color: Colors.white70, fontSize: 11)),
                     ],
                   ),
                 ),
                 Expanded(
-                  child: kitchenOrders.isEmpty
-                      ? const Center(child: Text('कोई नया KOT नहीं है 👨‍🍳'))
-                      : ListView.builder(
-                          itemCount: kitchenOrders.length,
-                          itemBuilder: (ctx, i) {
-                            final order = kitchenOrders[i];
-                            final items = order['items'] as List;
-                            return Card(
-                              margin: const EdgeInsets.all(8),
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text('टेबल: T-${order['table']}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.teal)),
-                                        ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.teal), onPressed: () => setState(() => kitchenOrders.removeAt(i)), child: const Text('तैयार ✓', style: TextStyle(color: Colors.white)))
-                                      ],
-                                    ),
-                                    const Divider(),
-                                    ...items.map((it) => Text('${it['name']} x ${it['qty']}', style: const TextStyle(fontSize: 18))),
-                                  ],
+                  child: RefreshIndicator(
+                    onRefresh: () async { _connectToCounter(); },
+                    child: kitchenOrders.isEmpty
+                        ? ListView(physics: const AlwaysScrollableScrollPhysics(), children: const [SizedBox(height: 120), Center(child: Text('कोई नया KOT नहीं है 👨‍🍳\n(नीचे खींचकर रिफ्रेश करें)', textAlign: TextAlign.center))])
+                        : ListView.builder(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            itemCount: kitchenOrders.length,
+                            itemBuilder: (ctx, i) {
+                              final order = kitchenOrders[i];
+                              final items = order['items'] as List;
+                              return Card(
+                                margin: const EdgeInsets.all(8),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text('टेबल: T-${order['table']}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.teal)),
+                                          ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.teal), onPressed: () => setState(() => kitchenOrders.removeAt(i)), child: const Text('तैयार ✓', style: TextStyle(color: Colors.white)))
+                                        ],
+                                      ),
+                                      const Divider(),
+                                      ...items.map((it) => Text('${it['name']} x ${it['qty']}', style: const TextStyle(fontSize: 18))),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
-                        ),
+                              );
+                            },
+                          ),
+                  ),
                 )
               ],
             ),
