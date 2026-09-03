@@ -1,30 +1,12 @@
 name: hotel_pos
-description: "Zero Cost Offline First Hotel POS and Supply System"
-publish_to: "none"
+description: "Hotel POS System"
+publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.0.0 <4.0.0"
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
-  flutter:
-    sdk: flutter
-  
-  # Backend and Storage (डेटाबेस और लोकल स्टोरेज)
-  supabase_flutter: ^2.5.6
-  shared_preferences: ^2.2.3
-  http: ^1.2.0
-  
-  # Bluetooth Printer (थर्मल प्रिंटर के लिए)
-  print_bluetooth_thermal: ^1.1.2
-  esc_pos_utils_plus: ^2.0.4
-  
-  # Hindi Bill Printing (हिंदी बिल को फोटो में बदलकर प्रिंट करने के लिए)
-  screenshot: ^2.1.1
-  path_provider: ^2.1.1
-  image: ^4.1.3
-
-  dependencies:
   flutter:
     sdk: flutter
   flutter_tts: ^4.2.2
