@@ -32,13 +32,15 @@ jobs:
         run: |
           flutter create . --platforms=android --org com.hotelpos
           
-          # 1. build.gradle में सीधे Kotlin 1.9.20 इंजेक्ट करना
+          # 1. Kotlin 1.9.20 इंजेक्ट करना
           echo 'buildscript { ext.kotlin_version = "1.9.20" }' | cat - android/build.gradle > /tmp/bg && mv /tmp/bg android/build.gradle
-          
-          # 2. settings.gradle में भी Kotlin 1.9.20 सेट करना
           if [ -f "android/settings.gradle" ]; then
             sed -i -E "s/(org\.jetbrains\.kotlin\.android.*version )['\"][^'\"]+['\"]/\1\"1.9.20\"/g" android/settings.gradle
           fi
+
+          # 2. minSdkVersion को 21 पर सेट करना (flutter_tts एरर समाधान)
+          sed -i -E "s/minSdkVersion [^0-9]*/minSdkVersion 21/g" android/app/build.gradle
+          sed -i -E "s/minSdkVersion = .*/minSdkVersion = 21/g" android/app/build.gradle
 
           # 3. ऐप का नाम 'AALA' करना
           sed -i 's/android:label="[^"]*"/android:label="AALA"/g' android/app/src/main/AndroidManifest.xml
