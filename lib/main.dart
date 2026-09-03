@@ -13,9 +13,14 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:http/http.dart' as http;
+import 'package:ota_update/ota_update.dart';
 
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
+
+// ऐप का वर्तमान वर्शन कोड (जब नया अपडेट देना हो, app_config.json में वर्शन 2, 3 कर दें)
+const int currentAppVersionCode = 1;
 
 // ==========================================
 // 1. हिंदी वॉयस इंजन (Text-to-Speech)
@@ -29,7 +34,7 @@ class VoiceService {
     try {
       await _tts.setLanguage("hi-IN");
       await _tts.setPitch(1.0);
-      await _tts.setSpeechRate(0.32); // धीमी और स्पष्ट आवाज़
+      await _tts.setSpeechRate(0.32); // धीमी और साफ़ आवाज़
       _isInit = true;
     } catch (_) {}
   }
@@ -41,6 +46,87 @@ class VoiceService {
       await _tts.speak(text);
     } catch (_) {}
   }
+}
+
+// ==========================================
+// बैकग्राउंड ऑटो-अपडेट चेकर व डाउनलोडर
+// ==========================================
+Future<void> checkForAppUpdates(BuildContext context) async {
+  try {
+    final response = await http.get(Uri.parse('https://govindaala.github.io/hotel_app/app_config.json'));
+    if (response.statusCode != 200) return;
+
+    final config = jsonDecode(response.body);
+    final int latestVersionCode = config['version_code'] ?? 1;
+    final String apkUrl = config['apk_url'] ?? '';
+    final String updateMsg = config['update_message'] ?? 'होटल POS का नया वर्शन उपलब्ध है! कृपया अपडेट करें।';
+
+    if (latestVersionCode > currentAppVersionCode && apkUrl.isNotEmpty && context.mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) {
+          String downloadProgress = "0";
+          bool isDownloading = false;
+
+          return StatefulBuilder(
+            builder: (dialogCtx, setDState) {
+              return AlertDialog(
+                title: const Row(
+                  children: [
+                    Icon(Icons.system_update, color: Colors.blueAccent),
+                    SizedBox(width: 8),
+                    Text('ऐप अपडेट उपलब्ध है', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(updateMsg, style: const TextStyle(fontSize: 14)),
+                    const SizedBox(height: 16),
+                    if (isDownloading) ...[
+                      LinearProgressIndicator(value: (double.tryParse(downloadProgress) ?? 0) / 100),
+                      const SizedBox(height: 10),
+                      Text('डाउनलोड हो रहा है: $downloadProgress%', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ]
+                  ],
+                ),
+                actions: [
+                  if (!isDownloading) ...[
+                    TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('बाद में')),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+                      onPressed: () {
+                        setDState(() => isDownloading = true);
+                        try {
+                          OtaUpdate().execute(apkUrl, destinationFilename: 'aala_pos.apk').listen(
+                            (OtaEvent event) {
+                              if (event.status == OtaStatus.DOWNLOADING) {
+                                setDState(() => downloadProgress = event.value ?? "0");
+                              } else if (event.status == OtaStatus.INSTALLING) {
+                                Navigator.pop(ctx);
+                              }
+                            },
+                            onError: (e) {
+                              setDState(() => isDownloading = false);
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('डाउनलोड एरर: $e')));
+                            },
+                          );
+                        } catch (e) {
+                          setDState(() => isDownloading = false);
+                        }
+                      },
+                      child: const Text('अपडेट करें', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                ],
+              );
+            },
+          );
+        },
+      );
+    }
+  } catch (_) {}
 }
 
 final List<Map<String, dynamic>> defaultHotelMenu = [
@@ -85,8 +171,18 @@ void main() async {
 // ==========================================
 // 2. ऐप गेटवे (रोल चयन)
 // ==========================================
-class AppGateway extends StatelessWidget {
+class AppGateway extends StatefulWidget {
   const AppGateway({super.key});
+  @override
+  State<AppGateway> createState() => _AppGatewayState();
+}
+
+class _AppGatewayState extends State<AppGateway> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => checkForAppUpdates(context));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -271,6 +367,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     _syncMasterData();
     _checkPrinterStatus();
     _cloudSyncTimer = Timer.periodic(const Duration(seconds: 4), (_) => _syncMasterData());
+    WidgetsBinding.instance.addPostFrameCallback((_) => checkForAppUpdates(context));
   }
 
   @override
@@ -415,20 +512,16 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
-  // ==================================================================
-  // स्मार्ट राशन रिपोर्ट: फ़िल्टर, ऑटो-योग और शुद्ध हिंदी PDF जनरेशन
-  // ==================================================================
   void _openRationExportFilterModal() {
     if (rationDemands.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('निर्यात के लिए कोई राशन डेटा उपलब्ध नहीं है')));
       return;
     }
 
-    String selectedPeriod = '10_days'; // 'today', '3_days', '10_days'
+    String selectedPeriod = '10_days';
     bool onlyPending = true;
     bool autoMergeQty = true;
 
-    // उपलब्ध सभी अद्वितीय सामग्रियों की सूची
     final Set<String> allItems = rationDemands.map((e) => e['item_name'].toString().trim()).toSet();
     final Set<String> selectedItems = Set.from(allItems);
 
@@ -555,7 +648,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
       cutoff = DateTime.now().subtract(const Duration(days: 3));
     }
 
-    // 1. प्राथमिक फ़िल्टरिंग
     List<Map<String, dynamic>> filtered = rationDemands.where((r) {
       final String name = r['item_name'].toString().trim();
       if (!selectedItems.contains(name)) return false;
@@ -570,7 +662,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
       return;
     }
 
-    // 2. मात्रा का स्वतः जोड़ (Auto-Merge)
     List<Map<String, dynamic>> finalRows = [];
     if (autoMergeQty) {
       Map<String, Map<String, dynamic>> mergedMap = {};
@@ -610,7 +701,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
       finalRows = filtered;
     }
 
-    // 3. शुद्ध हिंदी स्क्रीनशॉट रेंडरिंग व PDF निर्माण
     try {
       final Uint8List imageBytes = await ScreenshotController().captureFromWidget(
         Container(
@@ -692,9 +782,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     }
   }
 
-  // ==========================================
-  // ब्लूटूथ प्रिंटर स्कैन व कनेक्शन डायलॉग
-  // ==========================================
   void _showPrinterDialog() async {
     List<BluetoothInfo> availablePrinters = [];
     bool scanning = true;
@@ -775,7 +862,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // थर्मल प्रिंटर से बिल रसीद प्रिंट करना
   Future<void> _printBillReceipt(int tbl, List<Map<String, dynamic>> items, double total) async {
     final bool isConn = await PrintBluetoothThermal.connectionStatus;
     if (!isConn) {
@@ -823,9 +909,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     }
   }
 
-  // ==========================================
-  // स्टाफ़ प्रबंधन (कुक/वेटर जोड़ें या हटाएँ)
-  // ==========================================
   void _showStaffManagementDialog() {
     final staffIdCtrl = TextEditingController();
     final pinCtrl = TextEditingController();
@@ -1220,6 +1303,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
       if (!_socketConnected) _connectToSocket();
       _syncFromCloud();
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) => checkForAppUpdates(context));
   }
 
   @override
@@ -1548,6 +1632,7 @@ class _FullCookAppState extends State<FullCookApp> {
       if (!_socketConnected) _connectToSocket();
       _syncFromCloud();
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) => checkForAppUpdates(context));
   }
 
   @override
@@ -1595,7 +1680,8 @@ class _FullCookAppState extends State<FullCookApp> {
       setState(() => presetRations = local);
     }
     try {
-      final res = await Supabase.instance.client.from('hotel_preset_rations').select().eq('store_code', widget.storeCode);
+      final res = await Supabase.instance.client
+          .from('hotel_preset_rations').select().eq('store_code', widget.storeCode);
       if (res != null) {
         for (var r in res) {
           if (!presetRations.contains(r['item_name'])) presetRations.add(r['item_name']);
