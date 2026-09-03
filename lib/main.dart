@@ -25,7 +25,7 @@ void main() async {
 }
 
 // ==========================================
-// 1. ऐप गेटवे (रोल चुनें)
+// 1. ऐप गेटवे (रोल चयन स्क्रीन)
 // ==========================================
 class AppGateway extends StatelessWidget {
   const AppGateway({super.key});
@@ -84,7 +84,7 @@ class AppGateway extends StatelessWidget {
 }
 
 // ==========================================
-// 2. लॉगिन स्क्रीन (3-स्टेप + ऑफ़लाइन फर्स्ट)
+// 2. लॉगिन स्क्रीन (ऑफ़लाइन कैशिंग सपोर्ट)
 // ==========================================
 class StaffAuthScreen extends StatefulWidget {
   final String role;
@@ -134,7 +134,6 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
             await prefs.setInt('cached_tables_$code', res['total_tables'] ?? 10);
           }
         } catch (_) {
-          // ऑफलाइन फॉलबैक
           final cachedPin = prefs.getString('cached_master_pin_$code');
           if (cachedPin != null) {
             res = {
@@ -159,7 +158,6 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('कोड या पिन गलत है!')));
         }
       } else {
-        // वेटर और कुक लॉगिन (अनलिमिटेड स्टाफ ID)
         bool isValid = false;
         try {
           final res = await Supabase.instance.client
@@ -176,7 +174,6 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
             await prefs.setString('cached_staff_pin_${code}_${staffId}', pin);
           }
         } catch (_) {
-          // ऑफलाइन फॉलबैक
           final cachedStaffPin = prefs.getString('cached_staff_pin_${code}_${staffId}');
           if (cachedStaffPin == pin) isValid = true;
         }
@@ -214,7 +211,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
             TextField(controller: _codeCtrl, decoration: const InputDecoration(labelText: 'स्टोर कोड (उदा. 111)', border: OutlineInputBorder())),
             const SizedBox(height: 16),
             if (widget.role != 'counter') ...[
-              TextField(controller: _idCtrl, decoration: const InputDecoration(labelText: 'स्टाफ ID (उदा. Waiter01)', border: OutlineInputBorder())),
+              TextField(controller: _idCtrl, decoration: const InputDecoration(labelText: 'स्टाफ ID (उदा. Waiter1)', border: OutlineInputBorder())),
               const SizedBox(height: 16),
             ],
             TextField(controller: _pinCtrl, decoration: const InputDecoration(labelText: 'पिन कोड', border: OutlineInputBorder()), obscureText: true, keyboardType: TextInputType.number),
@@ -238,7 +235,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 }
 
 // ==========================================
-// 3. काउंटर मास्टर ऐप (ओनर)
+// 3. काउंटर मास्टर ऐप (ओनर / बिलिंग)
 // ==========================================
 class FullCounterApp extends StatefulWidget {
   final String storeCode;
@@ -347,7 +344,248 @@ class _FullCounterAppState extends State<FullCounterApp> {
     }
   }
 
-  // हिंदी बिल इमेज फॉर्मेट में प्रिंट करना
+  // संपूर्ण स्टाफ प्रबंधन (लिस्ट, जोड़ना, पिन बदलना, हटाना)
+  void _openStaffManager() async {
+    List<Map<String, dynamic>> staffList = [];
+    final prefs = await SharedPreferences.getInstance();
+
+    try {
+      final res = await Supabase.instance.client
+          .from('hotel_staff')
+          .select()
+          .eq('store_code', widget.storeCode);
+      if (res != null) {
+        staffList = List<Map<String, dynamic>>.from(res);
+        await prefs.setString('cached_staff_list_${widget.storeCode}', jsonEncode(staffList));
+      }
+    } catch (_) {
+      final cached = prefs.getString('cached_staff_list_${widget.storeCode}');
+      if (cached != null) staffList = List<Map<String, dynamic>>.from(jsonDecode(cached));
+    }
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => Container(
+          height: MediaQuery.of(context).size.height * 0.85,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('👥 स्टाफ प्रबंधन (वेटर व कुक)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                ],
+              ),
+              const Divider(),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A), minimumSize: const Size.fromHeight(45)),
+                icon: const Icon(Icons.add, color: Colors.white),
+                label: const Text('+ नया स्टाफ जोड़ें', style: TextStyle(color: Colors.white, fontSize: 16)),
+                onPressed: () => _addNewStaffDialog(context, () async {
+                  final cached = prefs.getString('cached_staff_list_${widget.storeCode}');
+                  if (cached != null) setModalState(() => staffList = List<Map<String, dynamic>>.from(jsonDecode(cached)));
+                }),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: staffList.isEmpty
+                    ? const Center(child: Text('कोई स्टाफ नहीं जुड़ा है। ऊपर बटन दबाकर जोड़ें।'))
+                    : ListView.builder(
+                        itemCount: staffList.length,
+                        itemBuilder: (c, idx) {
+                          final st = staffList[idx];
+                          final bool isWaiter = st['role'] == 'waiter';
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 6),
+                            child: ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: isWaiter ? Colors.orange : Colors.teal,
+                                child: Text(isWaiter ? 'W' : 'C', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              ),
+                              title: Text('${st['staff_id']} (${isWaiter ? 'वेटर' : 'कुक'})', style: const TextStyle(fontWeight: FontWeight.bold)),
+                              subtitle: Text('पिन: ${st['pin']}'),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.edit, color: Colors.blue),
+                                    onPressed: () => _editStaffPin(st['staff_id'], st['pin'], () async {
+                                      final cached = prefs.getString('cached_staff_list_${widget.storeCode}');
+                                      if (cached != null) setModalState(() => staffList = List<Map<String, dynamic>>.from(jsonDecode(cached)));
+                                    }),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete, color: Colors.red),
+                                    onPressed: () => _deleteStaff(st['staff_id'], () {
+                                      setModalState(() => staffList.removeAt(idx));
+                                    }),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _addNewStaffDialog(BuildContext ctx, VoidCallback onSuccess) {
+    final idCtrl = TextEditingController();
+    final pinCtrl = TextEditingController();
+    String selectedRole = 'waiter';
+
+    showDialog(
+      context: ctx,
+      builder: (dCtx) => StatefulBuilder(
+        builder: (context, setDState) => AlertDialog(
+          title: const Text('नया स्टाफ जोड़ें'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: idCtrl, decoration: const InputDecoration(labelText: 'स्टाफ ID / नाम (उदा. Waiter1)')),
+              TextField(controller: pinCtrl, decoration: const InputDecoration(labelText: '4-अंकों का पिन'), keyboardType: TextInputType.number),
+              const SizedBox(height: 12),
+              DropdownButton<String>(
+                value: selectedRole,
+                isExpanded: true,
+                items: const [
+                  DropdownMenuItem(value: 'waiter', child: Text('वेटर (Waiter)')),
+                  DropdownMenuItem(value: 'cook', child: Text('कुक (Cook)')),
+                ],
+                onChanged: (v) => setDState(() => selectedRole = v!),
+              )
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dCtx), child: const Text('रद्द')),
+            ElevatedButton(
+              onPressed: () async {
+                final sId = idCtrl.text.trim();
+                final sPin = pinCtrl.text.trim();
+                if (sId.isEmpty || sPin.isEmpty) return;
+
+                final prefs = await SharedPreferences.getInstance();
+                try {
+                  await Supabase.instance.client.from('hotel_staff').insert({
+                    'store_code': widget.storeCode,
+                    'staff_id': sId,
+                    'pin': sPin,
+                    'role': selectedRole,
+                  });
+                } catch (_) {}
+
+                List<Map<String, dynamic>> current = [];
+                final cached = prefs.getString('cached_staff_list_${widget.storeCode}');
+                if (cached != null) current = List<Map<String, dynamic>>.from(jsonDecode(cached));
+                current.add({'store_code': widget.storeCode, 'staff_id': sId, 'pin': sPin, 'role': selectedRole});
+                await prefs.setString('cached_staff_list_${widget.storeCode}', jsonEncode(current));
+                await prefs.setString('cached_staff_pin_${widget.storeCode}_$sId', sPin);
+
+                Navigator.pop(dCtx);
+                onSuccess();
+              },
+              child: const Text('सेव करें'),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _editStaffPin(String staffId, String oldPin, VoidCallback onSuccess) {
+    final pinCtrl = TextEditingController(text: oldPin);
+    showDialog(
+      context: context,
+      builder: (dCtx) => AlertDialog(
+        title: Text('$staffId का पिन बदलें'),
+        content: TextField(controller: pinCtrl, decoration: const InputDecoration(labelText: 'नया 4-अंकों का पिन'), keyboardType: TextInputType.number),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dCtx), child: const Text('रद्द')),
+          ElevatedButton(
+            onPressed: () async {
+              final newPin = pinCtrl.text.trim();
+              if (newPin.isEmpty) return;
+
+              final prefs = await SharedPreferences.getInstance();
+              try {
+                await Supabase.instance.client
+                    .from('hotel_staff')
+                    .update({'pin': newPin})
+                    .eq('store_code', widget.storeCode)
+                    .eq('staff_id', staffId);
+              } catch (_) {}
+
+              final cached = prefs.getString('cached_staff_list_${widget.storeCode}');
+              if (cached != null) {
+                List<Map<String, dynamic>> list = List<Map<String, dynamic>>.from(jsonDecode(cached));
+                for (var s in list) {
+                  if (s['staff_id'] == staffId) s['pin'] = newPin;
+                }
+                await prefs.setString('cached_staff_list_${widget.storeCode}', jsonEncode(list));
+              }
+              await prefs.setString('cached_staff_pin_${widget.storeCode}_$staffId', newPin);
+
+              Navigator.pop(dCtx);
+              onSuccess();
+            },
+            child: const Text('अपडेट करें'),
+          )
+        ],
+      ),
+    );
+  }
+
+  void _deleteStaff(String staffId, VoidCallback onDeleted) {
+    showDialog(
+      context: context,
+      builder: (dCtx) => AlertDialog(
+        title: const Text('स्टाफ हटाएं'),
+        content: Text('क्या आप सचमुच $staffId को हटाना चाहते हैं?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dCtx), child: const Text('रद्द')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              final prefs = await SharedPreferences.getInstance();
+              try {
+                await Supabase.instance.client
+                    .from('hotel_staff')
+                    .delete()
+                    .eq('store_code', widget.storeCode)
+                    .eq('staff_id', staffId);
+              } catch (_) {}
+
+              final cached = prefs.getString('cached_staff_list_${widget.storeCode}');
+              if (cached != null) {
+                List<Map<String, dynamic>> list = List<Map<String, dynamic>>.from(jsonDecode(cached));
+                list.removeWhere((item) => item['staff_id'] == staffId);
+                await prefs.setString('cached_staff_list_${widget.storeCode}', jsonEncode(list));
+              }
+              await prefs.remove('cached_staff_pin_${widget.storeCode}_$staffId');
+
+              Navigator.pop(dCtx);
+              onDeleted();
+            },
+            child: const Text('हटाएं', style: TextStyle(color: Colors.white)),
+          )
+        ],
+      ),
+    );
+  }
+
   Future<void> _printHindiReceipt(int id, double total, List<Map<String, dynamic>> items) async {
     if (!await PrintBluetoothThermal.connectionStatus) return;
 
@@ -435,64 +673,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // अनलिमिटेड स्टाफ ID बनाने का फीचर
-  void _openStaffManager() {
-    final idCtrl = TextEditingController();
-    final pinCtrl = TextEditingController();
-    String role = 'waiter';
-
-    showDialog(
-      context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setDState) => AlertDialog(
-          title: const Text('नया स्टाफ जोड़ें'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(controller: idCtrl, decoration: const InputDecoration(labelText: 'स्टाफ ID (उदा. Waiter1 / Cook1)')),
-              TextField(controller: pinCtrl, decoration: const InputDecoration(labelText: '4-अंकों का पिन'), keyboardType: TextInputType.number),
-              const SizedBox(height: 12),
-              DropdownButton<String>(
-                value: role,
-                isExpanded: true,
-                items: const [
-                  DropdownMenuItem(value: 'waiter', child: Text('वेटर')),
-                  DropdownMenuItem(value: 'cook', child: Text('कुक')),
-                ],
-                onChanged: (v) => setDState(() => role = v!),
-              )
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('रद्द')),
-            ElevatedButton(
-              onPressed: () async {
-                if (idCtrl.text.isEmpty || pinCtrl.text.isEmpty) return;
-                try {
-                  await Supabase.instance.client.from('hotel_staff').insert({
-                    'store_code': widget.storeCode,
-                    'staff_id': idCtrl.text.trim(),
-                    'pin': pinCtrl.text.trim(),
-                    'role': role,
-                  });
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setString('cached_staff_pin_${widget.storeCode}_${idCtrl.text.trim()}', pinCtrl.text.trim());
-                  if (mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('नया स्टाफ सफलतापुर्वक जुड़ गया!'), backgroundColor: Colors.green));
-                  }
-                } catch (e) {
-                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('एरर: $e')));
-                }
-              },
-              child: const Text('सेव करें'),
-            )
-          ],
-        ),
-      ),
-    );
-  }
-
   void _settleBill(int id) {
     List<Map<String, dynamic>> items = activeOrders[id] ?? [];
     double total = items.fold(0, (sum, it) => sum + (it['price'] * it['qty']));
@@ -525,8 +705,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
         title: Text('${widget.storeCode} - मास्टर', style: const TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFF0F172A),
         actions: [
+          IconButton(icon: const Icon(Icons.group, color: Colors.amberAccent), onPressed: _openStaffManager, tooltip: 'स्टाफ प्रबंधन'),
           IconButton(icon: Icon(Icons.print, color: isPrinterConnected ? Colors.greenAccent : Colors.white), onPressed: _openPrinterDialog),
-          IconButton(icon: const Icon(Icons.person_add, color: Colors.amberAccent), onPressed: _openStaffManager, tooltip: 'नया स्टाफ जोड़ें'),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(26),
@@ -537,7 +717,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
         ),
       ),
       body: [
-        // Tab 0: टेबल्स
         GridView.builder(
           padding: const EdgeInsets.all(12),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10),
@@ -556,8 +735,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
             );
           },
         ),
-
-        // Tab 1: मेन्यू एडिटर
         Scaffold(
           floatingActionButton: FloatingActionButton(
             backgroundColor: const Color(0xFF0F172A),
@@ -611,8 +788,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
             },
           ),
         ),
-
-        // Tab 2: कुक की लाइव राशन मांग
         liveRationDemands.isEmpty
             ? const Center(child: Text('कुक ने अभी कोई राशन मांग नहीं भेजी है'))
             : ListView.builder(
@@ -641,7 +816,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 }
 
 // ==========================================
-// 4. वेटर ऐप (मेन्यू न खुलने का बग फिक्स)
+// 4. वेटर ऐप (मेन्यू ऑर्डर बॉटम-शीट)
 // ==========================================
 class FullWaiterApp extends StatefulWidget {
   final String storeCode, staffId;
@@ -846,7 +1021,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
 }
 
 // ==========================================
-// 5. कुक ऐप (हमेशा सेव रहने वाला राशन)
+// 5. कुक ऐप (लाइव KOT व स्थाई राशन मांग)
 // ==========================================
 class FullCookApp extends StatefulWidget {
   final String storeCode;
@@ -931,11 +1106,9 @@ class _FullCookAppState extends State<FullCookApp> {
     selectedRations.forEach((name, qty) => itemsToSend.add({'item_name': name, 'quantity': qty}));
 
     try {
-      // 1. क्लाउड में सेव
       List<Map<String, dynamic>> dbInsert = itemsToSend.map((e) => {'store_code': widget.storeCode, 'item_name': e['item_name'], 'quantity': e['quantity']}).toList();
       await Supabase.instance.client.from('ration_demands').insert(dbInsert);
 
-      // 2. काउंटर को लोकल सॉकेट से लाइव भेजना
       if (isConnected && kitchenSocket != null) {
         kitchenSocket!.write(jsonEncode({'type': 'RATION_DEMAND', 'items': itemsToSend}) + "\n");
       }
@@ -959,7 +1132,6 @@ class _FullCookAppState extends State<FullCookApp> {
         ),
         body: TabBarView(
           children: [
-            // KOT Tab
             Column(
               children: [
                 Container(
@@ -1005,8 +1177,6 @@ class _FullCookAppState extends State<FullCookApp> {
                 )
               ],
             ),
-
-            // राशन Tab
             Padding(
               padding: const EdgeInsets.all(12.0),
               child: Column(
