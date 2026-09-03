@@ -18,7 +18,7 @@ const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
 
 // ==========================================
-// वॉयस सर्विस (हिंदी आवाज़ इंजन)
+// 1. हिंदी वॉयस इंजन (Text-to-Speech)
 // ==========================================
 class VoiceService {
   static final FlutterTts _tts = FlutterTts();
@@ -83,7 +83,7 @@ void main() async {
 }
 
 // ==========================================
-// 1. ऐप गेटवे
+// 2. ऐप गेटवे (रोल चयन)
 // ==========================================
 class AppGateway extends StatelessWidget {
   const AppGateway({super.key});
@@ -92,7 +92,11 @@ class AppGateway extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
-      appBar: AppBar(title: const Text('होटल POS सिस्टम', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), backgroundColor: const Color(0xFF0F172A), centerTitle: true),
+      appBar: AppBar(
+        title: const Text('होटल POS सिस्टम', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFF0F172A),
+        centerTitle: true,
+      ),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
@@ -114,7 +118,8 @@ class AppGateway extends StatelessWidget {
       onTap: () => Navigator.push(ctx, MaterialPageRoute(builder: (_) => StaffAuthScreen(role: role))),
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        width: double.infinity, padding: const EdgeInsets.all(20),
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(color: col, borderRadius: BorderRadius.circular(16)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
@@ -127,7 +132,7 @@ class AppGateway extends StatelessWidget {
 }
 
 // ==========================================
-// 2. लॉगिन स्क्रीन (स्थाई ऑटो-लॉगिन सेव)
+// 3. लॉगिन स्क्रीन (स्थाई ऑटो-लॉगिन)
 // ==========================================
 class StaffAuthScreen extends StatefulWidget {
   final String role;
@@ -153,27 +158,41 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 
     try {
       if (widget.role == 'counter') {
-        final res = await Supabase.instance.client.from('restaurants').select().eq('store_code', code).maybeSingle();
-        if (res != null && res['master_pin'] == pin) {
+        Map<String, dynamic>? res;
+        try {
+          res = await Supabase.instance.client.from('restaurants').select().eq('store_code', code).maybeSingle();
+        } catch (_) {}
+
+        final cachedPin = prefs.getString('cached_master_pin_$code');
+        if ((res != null && res['master_pin'] == pin) || cachedPin == pin) {
           await prefs.setBool('is_logged_in', true);
           await prefs.setString('saved_role', 'counter');
           await prefs.setString('saved_store_code', code);
-          await prefs.setString('saved_hotel_name', res['name'] ?? 'होटल');
-          await prefs.setInt('saved_tables', res['total_tables'] ?? 10);
+          await prefs.setString('saved_hotel_name', res?['name'] ?? 'होटल');
+          await prefs.setInt('saved_tables', res?['total_tables'] ?? 10);
+          await prefs.setString('cached_master_pin_$code', pin);
 
           if (mounted) {
-            Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => FullCounterApp(storeCode: code, hotelName: res['name'] ?? 'होटल', tables: res['total_tables'] ?? 10)), (r) => false);
+            Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => FullCounterApp(storeCode: code, hotelName: res?['name'] ?? 'होटल', tables: res?['total_tables'] ?? 10)), (r) => false);
           }
         } else {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('कोड या पिन गलत है!')));
         }
       } else {
-        final res = await Supabase.instance.client.from('hotel_staff').select().eq('store_code', code).eq('staff_id', staffId).eq('pin', pin).eq('role', widget.role).maybeSingle();
-        if (res != null) {
+        bool isValid = false;
+        try {
+          final res = await Supabase.instance.client.from('hotel_staff').select().eq('store_code', code).eq('staff_id', staffId).eq('pin', pin).eq('role', widget.role).maybeSingle();
+          if (res != null) isValid = true;
+        } catch (_) {}
+
+        if (prefs.getString('cached_staff_pin_${code}_$staffId') == pin) isValid = true;
+
+        if (isValid) {
           await prefs.setBool('is_logged_in', true);
           await prefs.setString('saved_role', widget.role);
           await prefs.setString('saved_store_code', code);
           await prefs.setString('saved_staff_id', staffId);
+          await prefs.setString('cached_staff_pin_${code}_$staffId', pin);
 
           if (mounted) {
             if (widget.role == 'waiter') {
@@ -206,7 +225,11 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
           ],
           TextField(controller: _pinCtrl, decoration: const InputDecoration(labelText: 'पिन कोड', border: OutlineInputBorder()), obscureText: true, keyboardType: TextInputType.number),
           const SizedBox(height: 24),
-          _loading ? const CircularProgressIndicator() : ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A), minimumSize: const Size.fromHeight(50)), onPressed: _verify, child: const Text('लॉगिन करें', style: TextStyle(color: Colors.white, fontSize: 18))),
+          _loading ? const CircularProgressIndicator() : ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A), minimumSize: const Size.fromHeight(50)),
+            onPressed: _verify,
+            child: const Text('लॉगिन करें', style: TextStyle(color: Colors.white, fontSize: 18)),
+          ),
         ]),
       ),
     );
@@ -214,7 +237,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 }
 
 // ==========================================
-// 3. काउंटर मास्टर ऐप (मेन्यू CRUD, राशन 10 दिन, वॉयस)
+// 4. काउंटर मास्टर ऐप (लोकल सॉकेट सर्वर + क्लाउड)
 // ==========================================
 class FullCounterApp extends StatefulWidget {
   final String storeCode, hotelName;
@@ -226,25 +249,91 @@ class FullCounterApp extends StatefulWidget {
 
 class _FullCounterAppState extends State<FullCounterApp> {
   int _currentTab = 0;
+  String localIp = 'IP ढूँढ रहा है...';
+  ServerSocket? server;
+  final List<Socket> connectedClients = [];
+
   List<Map<String, dynamic>> hotelMenu = [];
   Map<int, List<Map<String, dynamic>>> activeOrders = {};
   Map<int, String> tableStateMap = {};
   List<Map<String, dynamic>> rationDemands = [];
   final Set<int> _spokenBillTables = {};
-  Timer? _syncTimer;
+  Timer? _cloudSyncTimer;
 
   @override
   void initState() {
     super.initState();
     _loadMenu();
+    _startLocalSocketServer();
     _syncMasterData();
-    _syncTimer = Timer.periodic(const Duration(seconds: 4), (_) => _syncMasterData());
+    _cloudSyncTimer = Timer.periodic(const Duration(seconds: 4), (_) => _syncMasterData());
   }
 
   @override
   void dispose() {
-    _syncTimer?.cancel();
+    _cloudSyncTimer?.cancel();
+    server?.close();
     super.dispose();
+  }
+
+  // स्थानीय सॉकेट सर्वर शुरू करना (बिना इंटरनेट ऑफ़लाइन चलने के लिए)
+  void _startLocalSocketServer() async {
+    try {
+      for (var interface in await NetworkInterface.list()) {
+        for (var addr in interface.addresses) {
+          if (addr.type == InternetAddressType.IPv4 && !addr.isLoopback) {
+            if (mounted) setState(() => localIp = addr.address);
+            break;
+          }
+        }
+      }
+      server = await ServerSocket.bind(InternetAddress.anyIPv4, 4040);
+      server!.listen((Socket client) {
+        connectedClients.add(client);
+        client.listen((data) {
+          try {
+            final lines = utf8.decode(data).split("\n");
+            for (var line in lines) {
+              if (line.trim().isEmpty) continue;
+              final msg = jsonDecode(line);
+
+              if (msg['type'] == 'GET_MENU') {
+                client.write(jsonEncode({'type': 'MENU_DATA', 'menu': hotelMenu}) + "\n");
+              } else if (msg['type'] == 'NEW_KOT') {
+                int tbl = msg['table'];
+                setState(() {
+                  if (!activeOrders.containsKey(tbl)) activeOrders[tbl] = [];
+                  activeOrders[tbl]!.addAll(List<Map<String, dynamic>>.from(msg['items']));
+                  tableStateMap[tbl] = 'running';
+                });
+                _broadcastLocal(msg); // कुक ऐप को सॉकेट पर आगे भेजना
+              } else if (msg['type'] == 'BILL_READY') {
+                int tbl = msg['table'];
+                setState(() => tableStateMap[tbl] = 'bill_ready');
+                if (!_spokenBillTables.contains(tbl)) {
+                  _spokenBillTables.add(tbl);
+                  VoiceService.speak("टेबल $tbl का बिल तैयार है");
+                }
+              } else if (msg['type'] == 'ORDER_READY') {
+                _broadcastLocal(msg); // वेटर को आगे भेजना
+              } else if (msg['type'] == 'RATION_DEMAND') {
+                _syncMasterData();
+              }
+            }
+          } catch (_) {}
+        }, onDone: () => connectedClients.remove(client), onError: (_) => connectedClients.remove(client));
+      });
+    } catch (_) {}
+  }
+
+  void _broadcastLocal(dynamic data) {
+    for (var c in List<Socket>.from(connectedClients)) {
+      try {
+        c.write(jsonEncode(data) + "\n");
+      } catch (_) {
+        connectedClients.remove(c);
+      }
+    }
   }
 
   void _loadMenu() async {
@@ -261,10 +350,11 @@ class _FullCounterAppState extends State<FullCounterApp> {
   void _saveMenu() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
+    _broadcastLocal({'type': 'MENU_DATA', 'menu': hotelMenu});
   }
 
   void _syncMasterData() async {
-    // 1. 10 दिन पुराना राशन लोड करना
+    // 1. 10 दिन का राशन लोड करना
     try {
       final tenDaysAgo = DateTime.now().subtract(const Duration(days: 10)).toIso8601String();
       final res = await Supabase.instance.client
@@ -297,7 +387,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
           if (st == 'bill_ready') tempStates[tbl] = 'bill_ready';
           else if (!tempStates.containsKey(tbl)) tempStates[tbl] = 'running';
 
-          // वॉयस अलर्ट: जब वेटर खाना पूरा करे (Done दबाए)
           if (st == 'bill_ready' && !_spokenBillTables.contains(tbl)) {
             _spokenBillTables.add(tbl);
             VoiceService.speak("टेबल $tbl का बिल तैयार है");
@@ -419,7 +508,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
             style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
             onPressed: () async {
               Navigator.pop(ctx);
-              await Supabase.instance.client.from('hotel_kots').update({'status': 'settled'}).eq('store_code', widget.storeCode).eq('table_no', tbl);
+              try {
+                await Supabase.instance.client.from('hotel_kots').update({'status': 'settled'}).eq('store_code', widget.storeCode).eq('table_no', tbl);
+              } catch (_) {}
               _spokenBillTables.remove(tbl);
               setState(() {
                 activeOrders.remove(tbl);
@@ -451,9 +542,15 @@ class _FullCounterAppState extends State<FullCounterApp> {
             IconButton(icon: const Icon(Icons.picture_as_pdf, color: Colors.amber), tooltip: 'राशन PDF डाउनलोड', onPressed: _exportRationPdf),
             IconButton(icon: const Icon(Icons.logout, color: Colors.redAccent), tooltip: 'लॉगआउट', onPressed: _logout),
           ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(26),
+            child: Container(
+              color: const Color(0xFF1E293B),
+              child: Center(child: Text('हॉटस्पॉट चालू रखें | वाई-फ़ाई सर्वर IP: $localIp', style: const TextStyle(color: Colors.yellowAccent, fontSize: 13))),
+            ),
+          ),
         ),
         body: [
-          // 0: टेबल्स
           GridView.builder(
             padding: const EdgeInsets.all(12),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10),
@@ -473,7 +570,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
               );
             },
           ),
-          // 1: मेन्यू CRUD
           Scaffold(
             floatingActionButton: FloatingActionButton(
               backgroundColor: const Color(0xFF0F172A),
@@ -501,7 +597,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
               },
             ),
           ),
-          // 2: 10-दिन राशन मांग सूची
           rationDemands.isEmpty
               ? const Center(child: Text('10 दिनों में कोई राशन मांग दर्ज नहीं है'))
               : ListView.builder(
@@ -545,7 +640,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 }
 
 // ==========================================
-// 4. वेटर ऐप (री-ऑर्डर, खाना पूरा 'Done', वॉयस)
+// 5. वेटर ऐप (लोकल सॉकेट + क्लाउड डुअल सिंक)
 // ==========================================
 class FullWaiterApp extends StatefulWidget {
   final String storeCode, staffId;
@@ -556,24 +651,64 @@ class FullWaiterApp extends StatefulWidget {
 }
 
 class _FullWaiterAppState extends State<FullWaiterApp> {
+  String _counterIp = '192.168.43.1';
+  bool _socketConnected = false;
+  Socket? _waiterSocket;
   List<Map<String, dynamic>> menu = [];
   Map<int, List<Map<String, dynamic>>> liveTables = {};
   Map<int, String> tableStatus = {};
   final Set<String> _spokenReadyKots = {};
-  Timer? _waiterTimer;
+  Timer? _waiterSyncTimer;
 
   @override
   void initState() {
     super.initState();
     _loadMenu();
-    _syncWaiterData();
-    _waiterTimer = Timer.periodic(const Duration(seconds: 4), (_) => _syncWaiterData());
+    _initNetworkAndSync();
+    _waiterSyncTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!_socketConnected) _connectToSocket();
+      _syncFromCloud();
+    });
   }
 
   @override
   void dispose() {
-    _waiterTimer?.cancel();
+    _waiterSyncTimer?.cancel();
+    _waiterSocket?.destroy();
     super.dispose();
+  }
+
+  void _initNetworkAndSync() async {
+    final prefs = await SharedPreferences.getInstance();
+    _counterIp = prefs.getString('saved_counter_ip') ?? '192.168.43.1';
+    _connectToSocket();
+    _syncFromCloud();
+  }
+
+  void _connectToSocket() async {
+    try {
+      _waiterSocket = await Socket.connect(_counterIp, 4040, timeout: const Duration(seconds: 2));
+      if (mounted) setState(() => _socketConnected = true);
+      _waiterSocket!.write(jsonEncode({'type': 'GET_MENU'}) + "\n");
+
+      _waiterSocket!.listen((data) {
+        final lines = utf8.decode(data).split("\n");
+        for (var l in lines) {
+          if (l.trim().isEmpty) continue;
+          try {
+            final msg = jsonDecode(l);
+            if (msg['type'] == 'MENU_DATA' && mounted) {
+              setState(() => menu = List<Map<String, dynamic>>.from(msg['menu']));
+            } else if (msg['type'] == 'ORDER_READY') {
+              int tbl = msg['table'];
+              VoiceService.speak("टेबल $tbl का ऑर्डर तैयार है");
+            }
+          } catch (_) {}
+        }
+      }, onDone: () => setState(() => _socketConnected = false), onError: (_) => setState(() => _socketConnected = false));
+    } catch (_) {
+      if (mounted && _socketConnected) setState(() => _socketConnected = false);
+    }
   }
 
   void _loadMenu() async {
@@ -586,7 +721,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
     }
   }
 
-  void _syncWaiterData() async {
+  void _syncFromCloud() async {
     try {
       final kots = await Supabase.instance.client
           .from('hotel_kots')
@@ -607,7 +742,6 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
           tempOrders[tbl]!.addAll(List<Map<String, dynamic>>.from(items));
           tempStatus[tbl] = st;
 
-          // वॉयस अलर्ट: जब कुक ऑर्डर तैयार करे
           if (st == 'ready' && !_spokenReadyKots.contains(id)) {
             _spokenReadyKots.add(id);
             VoiceService.speak("टेबल $tbl का ऑर्डर तैयार है");
@@ -689,13 +823,20 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
                         onPressed: () async {
-                          // वेटर द्वारा खाना पूरा (Done) मार्क करना
-                          await Supabase.instance.client.from('hotel_kots').update({'status': 'bill_ready'}).eq('store_code', widget.storeCode).eq('table_no', tableNum);
+                          // 1. लोकल सॉकेट सिग्नल
+                          if (_socketConnected && _waiterSocket != null) {
+                            try { _waiterSocket!.write(jsonEncode({'type': 'BILL_READY', 'table': tableNum}) + "\n"); } catch (_) {}
+                          }
+                          // 2. क्लाउड अपडेट
+                          try {
+                            await Supabase.instance.client.from('hotel_kots').update({'status': 'bill_ready'}).eq('store_code', widget.storeCode).eq('table_no', tableNum);
+                          } catch (_) {}
+
                           if (mounted) {
                             Navigator.pop(context);
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('T-$tableNum का खाना पूरा (Done) हुआ! मास्टर को अलर्ट भेजा गया।')));
                           }
-                          _syncWaiterData();
+                          _syncFromCloud();
                         },
                         child: const Text('खाना पूरा (Done)', style: TextStyle(color: Colors.white)),
                       ),
@@ -710,18 +851,28 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                           }
                         });
 
-                        await Supabase.instance.client.from('hotel_kots').insert({
-                          'store_code': widget.storeCode,
-                          'table_no': tableNum,
-                          'items': jsonEncode(newOrderItems),
-                          'status': 'pending'
-                        });
+                        // 1. ऑफ़लाइन लोकल सॉकेट पर तुरंत भेजना (0 सेकंड)
+                        if (_socketConnected && _waiterSocket != null) {
+                          try {
+                            _waiterSocket!.write(jsonEncode({'type': 'NEW_KOT', 'table': tableNum, 'items': newOrderItems}) + "\n");
+                          } catch (_) {}
+                        }
+
+                        // 2. क्लाउड डेटाबेस में सुरक्षित दर्ज करना
+                        try {
+                          await Supabase.instance.client.from('hotel_kots').insert({
+                            'store_code': widget.storeCode,
+                            'table_no': tableNum,
+                            'items': jsonEncode(newOrderItems),
+                            'status': 'pending'
+                          });
+                        } catch (_) {}
 
                         if (mounted) {
                           Navigator.pop(context);
                           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('T-$tableNum का KOT कुक को भेजा गया!'), backgroundColor: Colors.green));
                         }
-                        _syncWaiterData();
+                        _syncFromCloud();
                       },
                       child: const Text('KOT भेजें', style: TextStyle(color: Colors.white)),
                     )
@@ -731,6 +882,30 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  void _manualIpDialog() {
+    final ipCtrl = TextEditingController(text: _counterIp);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('काउंटर IP बदलें'),
+        content: TextField(controller: ipCtrl, decoration: const InputDecoration(labelText: 'मास्टर का IP एड्रेस')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
+          ElevatedButton(
+            onPressed: () async {
+              setState(() => _counterIp = ipCtrl.text.trim());
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setString('saved_counter_ip', _counterIp);
+              Navigator.pop(ctx);
+              _connectToSocket();
+            },
+            child: const Text('सेव करें'),
+          )
+        ],
       ),
     );
   }
@@ -750,28 +925,46 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
           title: Text('वेटर: ${widget.staffId}', style: const TextStyle(color: Colors.white)),
           backgroundColor: Colors.orange,
           actions: [
-            IconButton(icon: const Icon(Icons.logout, color: Colors.white), onPressed: _logout),
+            IconButton(icon: const Icon(Icons.settings, color: Colors.white), tooltip: 'काउंटर IP', onPressed: _manualIpDialog),
+            IconButton(icon: const Icon(Icons.logout, color: Colors.white), tooltip: 'लॉगआउट', onPressed: _logout),
           ],
         ),
-        body: GridView.builder(
-          padding: const EdgeInsets.all(12),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10),
-          itemCount: widget.tables,
-          itemBuilder: (ctx, i) {
-            int tbl = i + 1;
-            bool isOccupied = liveTables.containsKey(tbl) && liveTables[tbl]!.isNotEmpty;
-            String st = tableStatus[tbl] ?? '';
-            Color c = st == 'bill_ready' ? Colors.purple : (isOccupied ? Colors.red : Colors.green);
-            String txt = st == 'bill_ready' ? 'बिल तैयार' : (isOccupied ? 'रनिंग' : 'खाली');
-
-            return InkWell(
-              onTap: () => _openOrderSheet(tbl),
-              child: Container(
-                decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(10)),
-                child: Center(child: Text('T-$tbl\n$txt', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
+        body: Column(
+          children: [
+            Container(
+              color: _socketConnected ? Colors.green.shade700 : Colors.blueGrey,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(_socketConnected ? '🟢 लोकल LAN कनेक्टेड ($_counterIp)' : '⚪ क्लाउड सिंक मोड (इंटरनेट चालू रखें)', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                  const Text('ऑटो-सिंक चालू', style: TextStyle(color: Colors.white70, fontSize: 11)),
+                ],
               ),
-            );
-          },
+            ),
+            Expanded(
+              child: GridView.builder(
+                padding: const EdgeInsets.all(12),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10),
+                itemCount: widget.tables,
+                itemBuilder: (ctx, i) {
+                  int tbl = i + 1;
+                  bool isOccupied = liveTables.containsKey(tbl) && liveTables[tbl]!.isNotEmpty;
+                  String st = tableStatus[tbl] ?? '';
+                  Color c = st == 'bill_ready' ? Colors.purple : (isOccupied ? Colors.red : Colors.green);
+                  String txt = st == 'bill_ready' ? 'बिल तैयार' : (isOccupied ? 'रनिंग' : 'खाली');
+
+                  return InkWell(
+                    onTap: () => _openOrderSheet(tbl),
+                    child: Container(
+                      decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(10)),
+                      child: Center(child: Text('T-$tbl\n$txt', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -779,7 +972,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
 }
 
 // ==========================================
-// 5. कुक ऐप (स्थाई राशन लिस्ट, KOT वॉयस अलर्ट)
+// 6. कुक ऐप (लोकल सॉकेट KDS + क्लाउड)
 // ==========================================
 class FullCookApp extends StatefulWidget {
   final String storeCode;
@@ -789,26 +982,63 @@ class FullCookApp extends StatefulWidget {
 }
 
 class _FullCookAppState extends State<FullCookApp> {
+  String _counterIp = '192.168.43.1';
+  bool _socketConnected = false;
+  Socket? _cookSocket;
   List<Map<String, dynamic>> kitchenOrders = [];
   List<String> presetRations = ['आटा', 'चावल', 'तेल', 'पनीर', 'शक्कर'];
   final Map<String, String> selectedRations = {};
   final _customItemCtrl = TextEditingController();
-  final _customQtyCtrl = TextEditingController();
   final Set<String> _spokenOrderKots = {};
-  Timer? _cookTimer;
+  Timer? _cookSyncTimer;
 
   @override
   void initState() {
     super.initState();
     _loadPresetRations();
-    _syncCookData();
-    _cookTimer = Timer.periodic(const Duration(seconds: 4), (_) => _syncCookData());
+    _initNetworkAndSync();
+    _cookSyncTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!_socketConnected) _connectToSocket();
+      _syncFromCloud();
+    });
   }
 
   @override
   void dispose() {
-    _cookTimer?.cancel();
+    _cookSyncTimer?.cancel();
+    _cookSocket?.destroy();
     super.dispose();
+  }
+
+  void _initNetworkAndSync() async {
+    final prefs = await SharedPreferences.getInstance();
+    _counterIp = prefs.getString('saved_counter_ip') ?? '192.168.43.1';
+    _connectToSocket();
+    _syncFromCloud();
+  }
+
+  void _connectToSocket() async {
+    try {
+      _cookSocket = await Socket.connect(_counterIp, 4040, timeout: const Duration(seconds: 2));
+      if (mounted) setState(() => _socketConnected = true);
+
+      _cookSocket!.listen((data) {
+        final lines = utf8.decode(data).split("\n");
+        for (var l in lines) {
+          if (l.trim().isEmpty) continue;
+          try {
+            final msg = jsonDecode(l);
+            if (msg['type'] == 'NEW_KOT' && mounted) {
+              int tbl = msg['table'];
+              setState(() => kitchenOrders.insert(0, Map<String, dynamic>.from(msg)));
+              VoiceService.speak("टेबल $tbl पर नया ऑर्डर आया है");
+            }
+          } catch (_) {}
+        }
+      }, onDone: () => setState(() => _socketConnected = false), onError: (_) => setState(() => _socketConnected = false));
+    } catch (_) {
+      if (mounted && _socketConnected) setState(() => _socketConnected = false);
+    }
   }
 
   void _loadPresetRations() async {
@@ -817,7 +1047,6 @@ class _FullCookAppState extends State<FullCookApp> {
     if (local != null && local.isNotEmpty) {
       setState(() => presetRations = local);
     }
-    // Supabase क्लाउड से स्थाई राशन लिस्ट सिंक
     try {
       final res = await Supabase.instance.client.from('hotel_preset_rations').select().eq('store_code', widget.storeCode);
       if (res != null) {
@@ -830,7 +1059,7 @@ class _FullCookAppState extends State<FullCookApp> {
     } catch (_) {}
   }
 
-  void _syncCookData() async {
+  void _syncFromCloud() async {
     try {
       final res = await Supabase.instance.client
           .from('hotel_kots')
@@ -846,7 +1075,6 @@ class _FullCookAppState extends State<FullCookApp> {
           int tbl = r['table_no'];
           loaded.add({'id': id, 'table': tbl, 'items': jsonDecode(r['items'].toString())});
 
-          // वॉयस अलर्ट: नया ऑर्डर आने पर बोलना
           if (!_spokenOrderKots.contains(id)) {
             _spokenOrderKots.add(id);
             VoiceService.speak("टेबल $tbl पर नया ऑर्डर आया है");
@@ -860,9 +1088,18 @@ class _FullCookAppState extends State<FullCookApp> {
   void _markOrderReady(int index) async {
     final order = kitchenOrders[index];
     setState(() => kitchenOrders.removeAt(index));
-    try {
-      await Supabase.instance.client.from('hotel_kots').update({'status': 'ready'}).eq('id', order['id']);
-    } catch (_) {}
+
+    // 1. लोकल सॉकेट सिग्नल
+    if (_socketConnected && _cookSocket != null) {
+      try { _cookSocket!.write(jsonEncode({'type': 'ORDER_READY', 'table': order['table']}) + "\n"); } catch (_) {}
+    }
+
+    // 2. क्लाउड अपडेट
+    if (order['id'] != null) {
+      try {
+        await Supabase.instance.client.from('hotel_kots').update({'status': 'ready'}).eq('id', order['id']);
+      } catch (_) {}
+    }
   }
 
   void _addPermanentRationItem() async {
@@ -890,7 +1127,14 @@ class _FullCookAppState extends State<FullCookApp> {
         inserts.add({'store_code': widget.storeCode, 'item_name': name, 'quantity': qty, 'is_received': false});
       });
 
+      // 1. क्लाउड में दर्ज करना
       await Supabase.instance.client.from('ration_demands').insert(inserts);
+
+      // 2. लोकल सॉकेट सिग्नल
+      if (_socketConnected && _cookSocket != null) {
+        try { _cookSocket!.write(jsonEncode({'type': 'RATION_DEMAND'}) + "\n"); } catch (_) {}
+      }
+
       setState(() => selectedRations.clear());
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('राशन मांग मास्टर को भेज दी गई!'), backgroundColor: Colors.green));
     } catch (e) {
@@ -921,37 +1165,52 @@ class _FullCookAppState extends State<FullCookApp> {
           ),
           body: TabBarView(
             children: [
-              // 0: लाइव KOT
-              kitchenOrders.isEmpty
-                  ? const Center(child: Text('कोई नया KOT नहीं है 👨‍🍳', style: TextStyle(fontSize: 16)))
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(8),
-                      itemCount: kitchenOrders.length,
-                      itemBuilder: (ctx, i) {
-                        final ord = kitchenOrders[i];
-                        final items = ord['items'] as List;
-                        return Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text('टेबल: T-${ord['table']}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
-                                    ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.teal), onPressed: () => _markOrderReady(i), child: const Text('तैयार ✓', style: TextStyle(color: Colors.white))),
-                                  ],
-                                ),
-                                const Divider(),
-                                ...items.map((it) => Text('${it['name']} x ${it['qty']}', style: const TextStyle(fontSize: 16))),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
+              Column(
+                children: [
+                  Container(
+                    color: _socketConnected ? Colors.teal.shade800 : Colors.blueGrey,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(_socketConnected ? '🟢 लोकल LAN कनेक्टेड' : '⚪ क्लाउड सिंक मोड', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                        const Text('ऑटो-सिंक चालू', style: TextStyle(color: Colors.white70, fontSize: 11)),
+                      ],
                     ),
-              // 1: स्थाई राशन मांग
+                  ),
+                  Expanded(
+                    child: kitchenOrders.isEmpty
+                        ? const Center(child: Text('कोई नया KOT नहीं है 👨‍🍳', style: TextStyle(fontSize: 16)))
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(8),
+                            itemCount: kitchenOrders.length,
+                            itemBuilder: (ctx, i) {
+                              final ord = kitchenOrders[i];
+                              final items = ord['items'] as List;
+                              return Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text('टेबल: T-${ord['table']}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
+                                          ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.teal), onPressed: () => _markOrderReady(i), child: const Text('तैयार ✓', style: TextStyle(color: Colors.white))),
+                                        ],
+                                      ),
+                                      const Divider(),
+                                      ...items.map((it) => Text('${it['name']} x ${it['qty']}', style: const TextStyle(fontSize: 16))),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
               Padding(
                 padding: const EdgeInsets.all(12.0),
                 child: Column(
