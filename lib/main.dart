@@ -291,7 +291,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
           .from('ration_demands')
           .select()
           .eq('store_code', widget.storeCode)
-          .order('created_at', { 'ascending': false });
+          .order('created_at', ascending: false);
       if (res != null && mounted) {
         setState(() {
           liveRationDemands = List<Map<String, dynamic>>.from(res);
@@ -744,7 +744,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
         ),
       ),
       body: [
-        // Tab 0: टेबल (Pull-to-Refresh सहित)
         RefreshIndicator(
           onRefresh: () async { setState(() {}); },
           child: GridView.builder(
@@ -767,7 +766,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
             },
           ),
         ),
-        // Tab 1: मेन्यू
         Scaffold(
           floatingActionButton: FloatingActionButton(
             backgroundColor: const Color(0xFF0F172A),
@@ -821,7 +819,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
             },
           ),
         ),
-        // Tab 2: राशन मांग (Pull-to-Refresh सहित)
         RefreshIndicator(
           onRefresh: () async { _loadCloudRations(); },
           child: liveRationDemands.isEmpty
@@ -891,7 +888,6 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
     }
     _syncWithCounter();
 
-    // हर 4 सेकंड में ऑटो सिंक (हाथ से सिंक दबाने की कोई ज़रूरत नहीं)
     _autoSyncTimer = Timer.periodic(const Duration(seconds: 4), (_) {
       _syncWithCounter();
     });
@@ -1149,7 +1145,6 @@ class _FullCookAppState extends State<FullCookApp> {
     }
     _connectToCounter();
 
-    // हर 5 सेकंड में ऑटो-रिकनेक्ट
     _reconnectTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!isConnected) _connectToCounter();
     });
