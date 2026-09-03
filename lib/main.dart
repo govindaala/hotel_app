@@ -29,7 +29,8 @@ class VoiceService {
     try {
       await _tts.setLanguage("hi-IN");
       await _tts.setPitch(1.0);
-      await _tts.setSpeechRate(0.85);
+      // आवाज़ की गति धीमी (0.32) कर दी गई है ताकि यह ठहर-ठहर कर साफ़ बोले
+      await _tts.setSpeechRate(0.32);
       _isInit = true;
     } catch (_) {}
   }
@@ -93,7 +94,7 @@ class AppGateway extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
       appBar: AppBar(
-        title: const Text('होटल POS सिस्टम', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text('AALA POS सिस्टम', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFF0F172A),
         centerTitle: true,
       ),
@@ -102,7 +103,7 @@ class AppGateway extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _roleCard(context, '🖥️ मास्टर / ओनर', 'बिलिंग, मेन्यू, राशन व गल्ला', const Color(0xFF0F172A), 'counter'),
+            _roleCard(context, '🖥️ मास्टर / ओनर', 'बिलिंग, मेन्यू, राशन व स्टाफ़ प्रबंधन', const Color(0xFF0F172A), 'counter'),
             const SizedBox(height: 18),
             _roleCard(context, '📱 वेटर मोड', 'टेबल ऑर्डर, री-ऑर्डर व KOT', const Color(0xFFEA580C), 'waiter'),
             const SizedBox(height: 18),
@@ -237,7 +238,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 }
 
 // ==========================================
-// 4. काउंटर मास्टर ऐप (लोकल सॉकेट सर्वर + क्लाउड)
+// 4. काउंटर मास्टर ऐप (प्रिंटर + स्टाफ़ मैनेजमेंट + सिंक)
 // ==========================================
 class FullCounterApp extends StatefulWidget {
   final String storeCode, hotelName;
@@ -260,12 +261,17 @@ class _FullCounterAppState extends State<FullCounterApp> {
   final Set<int> _spokenBillTables = {};
   Timer? _cloudSyncTimer;
 
+  // ब्लूटूथ प्रिंटर वेरिएबल्स
+  bool _isPrinterConnected = false;
+  String _connectedPrinterMac = '';
+
   @override
   void initState() {
     super.initState();
     _loadMenu();
     _startLocalSocketServer();
     _syncMasterData();
+    _checkPrinterStatus();
     _cloudSyncTimer = Timer.periodic(const Duration(seconds: 4), (_) => _syncMasterData());
   }
 
@@ -276,7 +282,14 @@ class _FullCounterAppState extends State<FullCounterApp> {
     super.dispose();
   }
 
-  // स्थानीय सॉकेट सर्वर शुरू करना (बिना इंटरनेट ऑफ़लाइन चलने के लिए)
+  void _checkPrinterStatus() async {
+    try {
+      final bool status = await PrintBluetoothThermal.connectionStatus;
+      if (mounted) setState(() => _isPrinterConnected = status);
+    } catch (_) {}
+  }
+
+  // स्थानीय सॉकेट सर्वर शुरू करना
   void _startLocalSocketServer() async {
     try {
       for (var interface in await NetworkInterface.list()) {
@@ -306,7 +319,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   activeOrders[tbl]!.addAll(List<Map<String, dynamic>>.from(msg['items']));
                   tableStateMap[tbl] = 'running';
                 });
-                _broadcastLocal(msg); // कुक ऐप को सॉकेट पर आगे भेजना
+                _broadcastLocal(msg);
               } else if (msg['type'] == 'BILL_READY') {
                 int tbl = msg['table'];
                 setState(() => tableStateMap[tbl] = 'bill_ready');
@@ -315,7 +328,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   VoiceService.speak("टेबल $tbl का बिल तैयार है");
                 }
               } else if (msg['type'] == 'ORDER_READY') {
-                _broadcastLocal(msg); // वेटर को आगे भेजना
+                _broadcastLocal(msg);
               } else if (msg['type'] == 'RATION_DEMAND') {
                 _syncMasterData();
               }
@@ -354,7 +367,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
   }
 
   void _syncMasterData() async {
-    // 1. 10 दिन का राशन लोड करना
     try {
       final tenDaysAgo = DateTime.now().subtract(const Duration(days: 10)).toIso8601String();
       final res = await Supabase.instance.client
@@ -366,7 +378,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
       if (res != null && mounted) setState(() => rationDemands = List<Map<String, dynamic>>.from(res));
     } catch (_) {}
 
-    // 2. KOT व टेबल स्टेट लोड करना
     try {
       final kots = await Supabase.instance.client
           .from('hotel_kots')
@@ -439,6 +450,279 @@ class _FullCounterAppState extends State<FullCounterApp> {
     await Share.shareXFiles([XFile(file.path)], text: '🛒 ${widget.hotelName} राशन पर्ची');
   }
 
+  // ==========================================
+  // ब्लूटूथ प्रिंटर स्कैन व कनेक्शन डायलॉग
+  // ==========================================
+  void _showPrinterDialog() async {
+    List<BluetoothInfo> availablePrinters = [];
+    bool scanning = true;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (c, setDState) {
+          if (scanning) {
+            PrintBluetoothThermal.pairedBluetooths.then((list) {
+              setDState(() {
+                availablePrinters = list;
+                scanning = false;
+              });
+            }).catchError((_) {
+              setDState(() => scanning = false);
+            });
+          }
+
+          return AlertDialog(
+            title: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('ब्लूटूथ प्रिंटर'),
+                _isPrinterConnected
+                    ? const Text('कनेक्टेड ✓', style: TextStyle(color: Colors.green, fontSize: 13, fontWeight: FontWeight.bold))
+                    : const Text('डिस्कनेक्टेड', style: TextStyle(color: Colors.red, fontSize: 13)),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 250,
+              child: scanning
+                  ? const Center(child: CircularProgressIndicator())
+                  : availablePrinters.isEmpty
+                      ? const Center(child: Text('कोई ब्लूटूथ प्रिंटर पेयर नहीं मिला!\nफ़ोन की ब्लूटूथ सेटिंग में जाकर प्रिंटर पेयर करें।', textAlign: TextAlign.center))
+                      : ListView.builder(
+                          itemCount: availablePrinters.length,
+                          itemBuilder: (context, index) {
+                            final p = availablePrinters[index];
+                            final bool isThisConnected = _isPrinterConnected && _connectedPrinterMac == p.macAdress;
+
+                            return ListTile(
+                              leading: Icon(Icons.print, color: isThisConnected ? Colors.green : Colors.grey),
+                              title: Text(p.name.isNotEmpty ? p.name : 'थर्मल प्रिंटर'),
+                              subtitle: Text(p.macAdress),
+                              trailing: ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: isThisConnected ? Colors.red : Colors.green),
+                                onPressed: () async {
+                                  if (isThisConnected) {
+                                    await PrintBluetoothThermal.disconnect;
+                                    setState(() => _isPrinterConnected = false);
+                                    setDState(() {});
+                                  } else {
+                                    final bool res = await PrintBluetoothThermal.connect(macPrinterAddress: p.macAdress);
+                                    setState(() {
+                                      _isPrinterConnected = res;
+                                      if (res) _connectedPrinterMac = p.macAdress;
+                                    });
+                                    setDState(() {});
+                                    if (res && mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('प्रिंटर सफलतापूर्वक कनेक्ट हुआ!'), backgroundColor: Colors.green));
+                                    }
+                                  }
+                                },
+                                child: Text(isThisConnected ? 'हटाएँ' : 'कनेक्ट', style: const TextStyle(color: Colors.white)),
+                              ),
+                            );
+                          },
+                        ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('बंद करें')),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // थर्मल प्रिंटर से रसीद निकालना
+  Future<void> _printBillReceipt(int tbl, List<Map<String, dynamic>> items, double total) async {
+    final bool isConn = await PrintBluetoothThermal.connectionStatus;
+    if (!isConn) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('⚠️ प्रिंटर कनेक्ट नहीं है! ऊपर 🖨️ आइकन से प्रिंटर कनेक्ट करें।'), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
+
+    try {
+      final profile = await CapabilityProfile.load();
+      final generator = Generator(PaperSize.mm58, profile);
+      List<int> bytes = [];
+
+      bytes += generator.text(widget.hotelName, styles: const PosStyles(align: PosAlign.center, bold: true, height: PosTextSize.size2, width: PosTextSize.size2));
+      bytes += generator.text('टेबल: T-$tbl', styles: const PosStyles(align: PosAlign.center, bold: true));
+      bytes += generator.text('दिनांक: ${DateTime.now().toString().substring(0, 16)}', styles: const PosStyles(align: PosAlign.center));
+      bytes += generator.hr();
+
+      for (var it in items) {
+        bytes += generator.row([
+          PosColumn(text: it['name'].toString(), width: 7),
+          PosColumn(text: 'x${it['qty']}', width: 2),
+          PosColumn(text: '${(it['price'] * it['qty']).toInt()}', width: 3, styles: const PosStyles(align: PosAlign.right)),
+        ]);
+      }
+
+      bytes += generator.hr();
+      bytes += generator.text('कुल बिल: Rs ${total.toStringAsFixed(2)}', styles: const PosStyles(bold: true, align: PosAlign.right, height: PosTextSize.size1, width: PosTextSize.size2));
+      bytes += generator.feed(1);
+      bytes += generator.text('धन्यवाद! फिर पधारें', styles: const PosStyles(align: PosAlign.center));
+      bytes += generator.feed(2);
+      bytes += generator.cut();
+
+      await PrintBluetoothThermal.writeBytes(bytes);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('पर्ची प्रिंट हो गई ✓'), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('प्रिंट एरर: $e')));
+      }
+    }
+  }
+
+  // ==========================================
+  // स्टाफ़ जोड़ना / हटाना (Staff Management)
+  // ==========================================
+  void _showStaffManagementDialog() {
+    final staffIdCtrl = TextEditingController();
+    final pinCtrl = TextEditingController();
+    String selectedRole = 'waiter';
+    List<Map<String, dynamic>> staffList = [];
+    bool loading = true;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (c, setDState) {
+          void fetchStaff() async {
+            try {
+              final res = await Supabase.instance.client
+                  .from('hotel_staff')
+                  .select()
+                  .eq('store_code', widget.storeCode);
+              if (res != null) {
+                setDState(() {
+                  staffList = List<Map<String, dynamic>>.from(res);
+                  loading = false;
+                });
+              }
+            } catch (_) {
+              setDState(() => loading = false);
+            }
+          }
+
+          if (loading) fetchStaff();
+
+          return AlertDialog(
+            title: const Text('👥 स्टाफ़ प्रबंधन (कुक/वेटर)'),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 380,
+              child: Column(
+                children: [
+                  // नया स्टाफ़ जोड़ने का फ़ॉर्म
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(child: TextField(controller: staffIdCtrl, decoration: const InputDecoration(labelText: 'स्टाफ़ ID (उदा. W1, C1)', isDense: true))),
+                            const SizedBox(width: 8),
+                            Expanded(child: TextField(controller: pinCtrl, decoration: const InputDecoration(labelText: '4-अंक पिन', isDense: true), keyboardType: TextInputType.number, obscureText: true)),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            DropdownButton<String>(
+                              value: selectedRole,
+                              items: const [
+                                DropdownMenuItem(value: 'waiter', child: Text('वेटर (Waiter)')),
+                                DropdownMenuItem(value: 'cook', child: Text('कुक (Cook)')),
+                              ],
+                              onChanged: (v) => setDState(() => selectedRole = v!),
+                            ),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+                              onPressed: () async {
+                                final sid = staffIdCtrl.text.trim();
+                                final spin = pinCtrl.text.trim();
+                                if (sid.isEmpty || spin.isEmpty) return;
+
+                                try {
+                                  await Supabase.instance.client.from('hotel_staff').insert({
+                                    'store_code': widget.storeCode,
+                                    'staff_id': sid,
+                                    'pin': spin,
+                                    'role': selectedRole,
+                                  });
+                                  staffIdCtrl.clear();
+                                  pinCtrl.clear();
+                                  fetchStaff();
+                                } catch (e) {
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('एरर: $e')));
+                                }
+                              },
+                              child: const Text('जोड़ें +', style: TextStyle(color: Colors.white)),
+                            )
+                          ],
+                        )
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Align(alignment: Alignment.centerLeft, child: Text('मौजूदा स्टाफ़ सूची:', style: TextStyle(fontWeight: FontWeight.bold))),
+                  Expanded(
+                    child: loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : staffList.isEmpty
+                            ? const Center(child: Text('कोई स्टाफ़ नहीं जुड़ा है'))
+                            : ListView.builder(
+                                itemCount: staffList.length,
+                                itemBuilder: (context, index) {
+                                  final s = staffList[index];
+                                  final isCook = s['role'] == 'cook';
+                                  return ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: CircleAvatar(
+                                      backgroundColor: isCook ? Colors.teal : Colors.orange,
+                                      child: Text(isCook ? '👨‍🍳' : '📱'),
+                                    ),
+                                    title: Text('${s['staff_id']} (${isCook ? 'कुक' : 'वेटर'})', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                    subtitle: Text('पिन: ${s['pin']}'),
+                                    trailing: IconButton(
+                                      icon: const Icon(Icons.delete, color: Colors.red),
+                                      onPressed: () async {
+                                        try {
+                                          await Supabase.instance.client
+                                              .from('hotel_staff')
+                                              .delete()
+                                              .eq('store_code', widget.storeCode)
+                                              .eq('staff_id', s['staff_id']);
+                                          fetchStaff();
+                                        } catch (_) {}
+                                      },
+                                    ),
+                                  );
+                                },
+                              ),
+                  )
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('बंद करें')),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   void _openAddEditMenuModal([Map<String, dynamic>? itemToEdit, int? editIndex]) {
     final nameCtrl = TextEditingController(text: itemToEdit?['name'] ?? '');
     final priceCtrl = TextEditingController(text: itemToEdit != null ? itemToEdit['price'].toString() : '');
@@ -501,9 +785,25 @@ class _FullCounterAppState extends State<FullCounterApp> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('टेबल T-$tbl का बिल: ₹$total'),
-        content: const Text('क्या आप बिल सेटल करना चाहते हैं?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('ऑर्डर किए गए व्यंजन:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            ...items.map((it) => Text('• ${it['name']} x ${it['qty']} = ₹${(it['price'] * it['qty']).toInt()}')),
+            const Divider(),
+            const Text('प्रिंट पर्ची निकालें या सीधे बिल सेटल करें:'),
+          ],
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+            icon: const Icon(Icons.print, color: Colors.white, size: 18),
+            label: const Text('प्रिंट पर्ची', style: TextStyle(color: Colors.white)),
+            onPressed: () => _printBillReceipt(tbl, items, total),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
             onPressed: () async {
@@ -539,6 +839,16 @@ class _FullCounterAppState extends State<FullCounterApp> {
           title: Text('${widget.hotelName} (मास्टर)', style: const TextStyle(color: Colors.white)),
           backgroundColor: const Color(0xFF0F172A),
           actions: [
+            IconButton(
+              icon: Icon(Icons.print, color: _isPrinterConnected ? Colors.greenAccent : Colors.white),
+              tooltip: 'ब्लूटूथ प्रिंटर कनेक्ट करें',
+              onPressed: _showPrinterDialog,
+            ),
+            IconButton(
+              icon: const Icon(Icons.group, color: Colors.orangeAccent),
+              tooltip: 'स्टाफ़ प्रबंधन (कुक/वेटर)',
+              onPressed: _showStaffManagementDialog,
+            ),
             IconButton(icon: const Icon(Icons.picture_as_pdf, color: Colors.amber), tooltip: 'राशन PDF डाउनलोड', onPressed: _exportRationPdf),
             IconButton(icon: const Icon(Icons.logout, color: Colors.redAccent), tooltip: 'लॉगआउट', onPressed: _logout),
           ],
@@ -823,11 +1133,9 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
                         onPressed: () async {
-                          // 1. लोकल सॉकेट सिग्नल
                           if (_socketConnected && _waiterSocket != null) {
                             try { _waiterSocket!.write(jsonEncode({'type': 'BILL_READY', 'table': tableNum}) + "\n"); } catch (_) {}
                           }
-                          // 2. क्लाउड अपडेट
                           try {
                             await Supabase.instance.client.from('hotel_kots').update({'status': 'bill_ready'}).eq('store_code', widget.storeCode).eq('table_no', tableNum);
                           } catch (_) {}
@@ -851,14 +1159,12 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                           }
                         });
 
-                        // 1. ऑफ़लाइन लोकल सॉकेट पर तुरंत भेजना (0 सेकंड)
                         if (_socketConnected && _waiterSocket != null) {
                           try {
                             _waiterSocket!.write(jsonEncode({'type': 'NEW_KOT', 'table': tableNum, 'items': newOrderItems}) + "\n");
                           } catch (_) {}
                         }
 
-                        // 2. क्लाउड डेटाबेस में सुरक्षित दर्ज करना
                         try {
                           await Supabase.instance.client.from('hotel_kots').insert({
                             'store_code': widget.storeCode,
@@ -1089,12 +1395,10 @@ class _FullCookAppState extends State<FullCookApp> {
     final order = kitchenOrders[index];
     setState(() => kitchenOrders.removeAt(index));
 
-    // 1. लोकल सॉकेट सिग्नल
     if (_socketConnected && _cookSocket != null) {
       try { _cookSocket!.write(jsonEncode({'type': 'ORDER_READY', 'table': order['table']}) + "\n"); } catch (_) {}
     }
 
-    // 2. क्लाउड अपडेट
     if (order['id'] != null) {
       try {
         await Supabase.instance.client.from('hotel_kots').update({'status': 'ready'}).eq('id', order['id']);
@@ -1127,10 +1431,8 @@ class _FullCookAppState extends State<FullCookApp> {
         inserts.add({'store_code': widget.storeCode, 'item_name': name, 'quantity': qty, 'is_received': false});
       });
 
-      // 1. क्लाउड में दर्ज करना
       await Supabase.instance.client.from('ration_demands').insert(inserts);
 
-      // 2. लोकल सॉकेट सिग्नल
       if (_socketConnected && _cookSocket != null) {
         try { _cookSocket!.write(jsonEncode({'type': 'RATION_DEMAND'}) + "\n"); } catch (_) {}
       }
