@@ -17,6 +17,7 @@ dependencies:
   printing: ^5.12.0
   ota_update: ^5.0.1
   http: ^1.2.0
+  print_bluetooth_thermal: ^1.1.1
   flutter_pos_printer_platform: ^1.0.8
 
 dev_dependencies:
