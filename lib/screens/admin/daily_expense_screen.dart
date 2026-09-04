@@ -1,127 +1,168 @@
 import 'package:flutter/material.dart';
-import '../../models/expense_model.dart';
+import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class DailyExpenseScreen extends StatefulWidget {
   final String restaurantId;
-  final double totalCashSalesToday; // आज की कुल नकद बिक्री
-  final List<ExpenseModel> initialExpenses;
-  final Function(ExpenseModel newExpense) onAddExpense;
-
-  const DailyExpenseScreen({
-    super.key,
-    required this.restaurantId,
-    required this.totalCashSalesToday,
-    required this.initialExpenses,
-    required this.onAddExpense,
-  });
+  const DailyExpenseScreen({super.key, required this.restaurantId});
 
   @override
   State<DailyExpenseScreen> createState() => _DailyExpenseScreenState();
 }
 
 class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
-  final _nameCtrl = TextEditingController();
-  final _amountCtrl = TextEditingController();
-  String _selectedMode = 'CASH';
+  final supabase = Supabase.instance.client;
+  String _selectedFilter = 'आज';
+  DateTimeRange? _customDateRange;
+  bool _isLoading = false;
+  List<Map<String, dynamic>> _records = [];
 
-  late List<ExpenseModel> _expenses;
+  final _titleCtrl = TextEditingController();
+  final _amountCtrl = TextEditingController();
+  String _type = 'EXPENSE'; // EXPENSE या CASH_IN
 
   @override
   void initState() {
     super.initState();
-    _expenses = List.from(widget.initialExpenses);
+    _fetchRecords();
   }
 
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _amountCtrl.dispose();
-    super.dispose();
+  DateTime get _now => DateTime.now();
+
+  DateTimeRange _calculateRange() {
+    if (_selectedFilter == 'कस्टम' && _customDateRange != null) {
+      return _customDateRange!;
+    }
+    final today = DateTime(_now.year, _now.month, _now.day);
+    if (_selectedFilter == 'साप्ताहिक') {
+      return DateTimeRange(
+        start: today.subtract(Duration(days: _now.weekday - 1)),
+        end: today.add(const Duration(days: 1)),
+      );
+    } else if (_selectedFilter == 'मासिक') {
+      return DateTimeRange(
+        start: DateTime(_now.year, _now.month, 1),
+        end: today.add(const Duration(days: 1)),
+      );
+    } else if (_selectedFilter == 'वार्षिक') {
+      return DateTimeRange(
+        start: DateTime(_now.year, 1, 1),
+        end: today.add(const Duration(days: 1)),
+      );
+    }
+    // आज
+    return DateTimeRange(
+      start: today,
+      end: today.add(const Duration(days: 1)),
+    );
   }
 
-  double get _totalCashExpense {
-    return _expenses
-        .where((e) => e.paymentMode == 'CASH')
-        .fold(0.0, (sum, e) => sum + e.amount);
+  Future<void> _fetchRecords() async {
+    setState(() => _isLoading = true);
+    try {
+      final range = _calculateRange();
+      final res = await supabase
+          .from('daily_expenses')
+          .select()
+          .eq('restaurant_id', widget.restaurantId)
+          .gte('created_at', range.start.toIso8601String())
+          .lt('created_at', range.end.toIso8601String())
+          .order('created_at', ascending: false);
+
+      setState(() {
+        _records = List<Map<String, dynamic>>.from(res);
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('डेटा लोड नहीं हुआ: $e')),
+      );
+    } finally {
+      setState(() => _isLoading = false);
+    }
   }
 
-  double get _netCashInHand {
-    return widget.totalCashSalesToday - _totalCashExpense;
+  Future<void> _addRecord() async {
+    final title = _titleCtrl.text.trim();
+    final amount = double.tryParse(_amountCtrl.text.trim()) ?? 0.0;
+    if (title.isEmpty || amount <= 0) return;
+
+    try {
+      await supabase.from('daily_expenses').insert({
+        'restaurant_id': widget.restaurantId,
+        'title': title,
+        'amount': amount,
+        'type': _type,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+      _titleCtrl.clear();
+      _amountCtrl.clear();
+      Navigator.pop(context);
+      _fetchRecords();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('सेव नहीं हुआ: $e')),
+      );
+    }
   }
 
-  void _showAddExpenseDialog() {
+  void _showAddDialog() {
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('नया खर्च दर्ज करें'),
+        builder: (context, setDlgState) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          title: const Text('गल्ले का नया लेन-देन', style: TextStyle(color: Colors.white)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: ChoiceChip(
+                      label: const Text('खर्च (Out)'),
+                      selected: _type == 'EXPENSE',
+                      selectedColor: Colors.redAccent,
+                      onSelected: (val) => setDlgState(() => _type = 'EXPENSE'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ChoiceChip(
+                      label: const Text('जमा (In)'),
+                      selected: _type == 'CASH_IN',
+                      selectedColor: Colors.green,
+                      onSelected: (val) => setDlgState(() => _type = 'CASH_IN'),
+                    ),
+                  ),
+                ],
+              ),
               TextField(
-                controller: _nameCtrl,
+                controller: _titleCtrl,
+                style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
-                  labelText: 'खर्च का विवरण (जैसे: सब्जी, दूध, गैस)',
-                  border: OutlineInputBorder(),
+                  labelText: 'विवरण (जैसे: दूध, सब्ज़ी, अतिरिक्त गल्ला)',
+                  labelStyle: TextStyle(color: Colors.white70),
                 ),
               ),
-              const SizedBox(height: 10),
               TextField(
                 controller: _amountCtrl,
                 keyboardType: TextInputType.number,
+                style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
                   labelText: 'रकम (₹)',
-                  border: OutlineInputBorder(),
+                  labelStyle: TextStyle(color: Colors.white70),
                 ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  const Text('भुगतान मोड: '),
-                  ChoiceChip(
-                    label: const Text('गल्ला (CASH)'),
-                    selected: _selectedMode == 'CASH',
-                    onSelected: (val) => setDialogState(() => _selectedMode = 'CASH'),
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('ऑनलाइन (UPI)'),
-                    selected: _selectedMode == 'UPI',
-                    onSelected: (val) => setDialogState(() => _selectedMode = 'UPI'),
-                  ),
-                ],
               ),
             ],
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('रद्द करें'),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('रद्द'),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
-              onPressed: () {
-                final name = _nameCtrl.text.trim();
-                final amount = double.tryParse(_amountCtrl.text.trim()) ?? 0.0;
-                if (name.isNotEmpty && amount > 0) {
-                  final expense = ExpenseModel(
-                    id: DateTime.now().millisecondsSinceEpoch.toString(),
-                    restaurantId: widget.restaurantId,
-                    expenseName: name,
-                    amount: amount,
-                    paymentMode: _selectedMode,
-                    createdAt: DateTime.now(),
-                  );
-                  widget.onAddExpense(expense);
-                  setState(() {
-                    _expenses.insert(0, expense);
-                  });
-                  _nameCtrl.clear();
-                  _amountCtrl.clear();
-                  Navigator.pop(ctx);
-                }
-              },
-              child: const Text('जोड़ें', style: TextStyle(color: Colors.white)),
+              onPressed: _addRecord,
+              child: const Text('सेव करें'),
             ),
           ],
         ),
@@ -131,112 +172,161 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
 
   @override
   Widget build(BuildContext context) {
+    double totalIn = 0;
+    double totalOut = 0;
+    for (var r in _records) {
+      final amt = (r['amount'] as num?)?.toDouble() ?? 0.0;
+      if (r['type'] == 'CASH_IN') {
+        totalIn += amt;
+      } else {
+        totalOut += amt;
+      }
+    }
+    final netCash = totalIn - totalOut;
+
     return Scaffold(
+      backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
-        title: const Text('दैनिक खर्च व गल्ला हिसाब'),
-        backgroundColor: Colors.deepOrange,
+        title: const Text('गल्ले का विस्तृत हिसाब'),
+        backgroundColor: const Color(0xFF1E293B),
+        actions: [
+          IconButton(
+            onPressed: _fetchRecords,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showAddDialog,
+        backgroundColor: Colors.amber[700],
+        icon: const Icon(Icons.add, color: Colors.black),
+        label: const Text(
+          'नया खर्च/जमा',
+          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+        ),
       ),
       body: Column(
         children: [
-          // 1. गल्ला समरी कार्ड
-          Container(
-            margin: const EdgeInsets.all(12),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.orange.shade50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.deepOrange.shade200),
-            ),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('आज की कुल नकद बिक्री:'),
-                    Text('₹ ${widget.totalCashSalesToday.toStringAsFixed(2)}',
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('गल्ले से नकद खर्च:'),
-                    Text('- ₹ ${_totalCashExpense.toStringAsFixed(2)}',
-                        style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                  ],
-                ),
-                const Divider(),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('शाम को गल्ले में शेष नकद (Net Cash):',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                    Text('₹ ${_netCashInHand.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.green)),
-                  ],
-                ),
-              ],
-            ),
-          ),
-
-          // 2. खर्चों की लिस्ट
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('आज के खर्चे (Petty Cash):',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                TextButton.icon(
-                  onPressed: _showAddExpenseDialog,
-                  icon: const Icon(Icons.add_circle, color: Colors.deepOrange),
-                  label: const Text('नया खर्च'),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-
-          Expanded(
-            child: _expenses.isEmpty
-                ? const Center(child: Text('आज कोई खर्च दर्ज नहीं किया गया।'))
-                : ListView.separated(
-                    itemCount: _expenses.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final item = _expenses[index];
-                      return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: item.paymentMode == 'CASH'
-                              ? Colors.amber.shade100
-                              : Colors.blue.shade100,
-                          child: Icon(
-                            item.paymentMode == 'CASH'
-                                ? Icons.payments_outlined
-                                : Icons.qr_code,
-                            color: Colors.black87,
-                            size: 20,
-                          ),
-                        ),
-                        title: Text(item.expenseName,
-                            style: const TextStyle(fontWeight: FontWeight.w600)),
-                        subtitle: Text(
-                            'मोड: ${item.paymentMode} • ${item.createdAt.hour}:${item.createdAt.minute.toString().padLeft(2, '0')}',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                        trailing: Text('₹ ${item.amount.toStringAsFixed(2)}',
-                            style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.red)),
-                      );
+              children: ['आज', 'साप्ताहिक', 'मासिक', 'वार्षिक', 'कस्टम'].map((filter) {
+                final isSelected = _selectedFilter == filter;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    label: Text(filter),
+                    selected: isSelected,
+                    selectedColor: Colors.amber[700],
+                    labelStyle: TextStyle(color: isSelected ? Colors.black : Colors.white),
+                    backgroundColor: const Color(0xFF1E293B),
+                    onSelected: (val) async {
+                      if (filter == 'कस्टम') {
+                        final picked = await showDateRangePicker(
+                          context: context,
+                          firstDate: DateTime(2023),
+                          lastDate: DateTime(2030),
+                        );
+                        if (picked != null) {
+                          _customDateRange = picked;
+                          _selectedFilter = 'कस्टम';
+                          _fetchRecords();
+                        }
+                      } else {
+                        setState(() => _selectedFilter = filter);
+                        _fetchRecords();
+                      }
                     },
                   ),
+                );
+              }).toList(),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                _buildSummaryBox('जमा (+)', '₹$totalIn', Colors.green),
+                const SizedBox(width: 8),
+                _buildSummaryBox('खर्च (-)', '₹$totalOut', Colors.redAccent),
+                const SizedBox(width: 8),
+                _buildSummaryBox('बचत', '₹$netCash', Colors.amber),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _records.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'इस अवधि में कोई रिकॉर्ड नहीं मिला',
+                          style: TextStyle(color: Colors.white54),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: _records.length,
+                        itemBuilder: (ctx, i) {
+                          final r = _records[i];
+                          final isIncome = r['type'] == 'CASH_IN';
+                          final date = DateTime.tryParse(r['created_at'] ?? '') ?? DateTime.now();
+                          return Card(
+                            color: const Color(0xFF1E293B),
+                            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            child: ListTile(
+                              leading: Icon(
+                                isIncome ? Icons.arrow_downward : Icons.arrow_upward,
+                                color: isIncome ? Colors.green : Colors.redAccent,
+                              ),
+                              title: Text(
+                                r['title'] ?? '',
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                              ),
+                              subtitle: Text(
+                                DateFormat('dd MMM yyyy, hh:mm a').format(date),
+                                style: const TextStyle(color: Colors.white54),
+                              ),
+                              trailing: Text(
+                                '${isIncome ? "+" : "-"}₹${r['amount']}',
+                                style: TextStyle(
+                                  color: isIncome ? Colors.green : Colors.redAccent,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryBox(String title, String val, MaterialColor color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.5)),
+        ),
+        child: Column(
+          children: [
+            Text(title, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                val,
+                style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
