@@ -305,7 +305,7 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
     );
   }
 
-  Widget _buildSummaryBox(String title, String val, color color) {
+  Widget _buildSummaryBox(String title, String val, Color color) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
