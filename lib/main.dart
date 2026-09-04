@@ -22,7 +22,7 @@ import 'models/expense_model.dart';
 import 'screens/admin/restaurant_settings_screen.dart';
 import 'screens/admin/daily_expense_screen.dart';
 import 'screens/waiter/waiter_menu_order_view.dart';
-import 'data/menu_data_source.dart';
+import 'Data/Menu_data_source.dart';
 
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
