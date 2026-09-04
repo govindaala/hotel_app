@@ -4,7 +4,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 class DailyExpenseScreen extends StatefulWidget {
   final String restaurantId;
-  const DailyExpenseScreen({super.key, required this.restaurantId});
+  final double totalCashSalesToday;
+
+  const DailyExpenseScreen({
+    super.key,
+    required this.restaurantId,
+    this.totalCashSalesToday = 0.0,
+  });
+
 
   @override
   State<DailyExpenseScreen> createState() => _DailyExpenseScreenState();
