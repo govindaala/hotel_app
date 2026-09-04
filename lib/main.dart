@@ -16,7 +16,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:ota_update/ota_update.dart';
 
-// नए मॉड्यूल्स इम्पोर्ट
+// नए मॉड्यूल्स
 import 'models/restaurant_profile_model.dart';
 import 'models/expense_model.dart';
 import 'screens/admin/restaurant_settings_screen.dart';
@@ -27,7 +27,8 @@ import 'data/menu_data_source.dart';
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
 
-const int currentAppVersionCode = 2; // नया वर्शन
+// ऐप का वर्तमान वर्शन कोड
+const int currentAppVersionCode = 2;
 
 // ==========================================
 // 1. हिंदी वॉयस इंजन (Text-to-Speech)
@@ -135,6 +136,14 @@ Future<void> checkForAppUpdates(BuildContext context) async {
     }
   } catch (_) {}
 }
+
+final List<Map<String, dynamic>> defaultHotelMenu = kRestaurantMenu.map((m) => {
+  'id': m.id,
+  'name': m.name,
+  'price': m.price,
+  'cat': m.category,
+  'available': true,
+}).toList();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -357,6 +366,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
   Timer? _cloudSyncTimer;
 
   bool _isPrinterConnected = false;
+  String _connectedPrinterMac = '';
   RestaurantProfileModel? _restoProfile;
 
   @override
@@ -385,7 +395,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
           .select()
           .eq('store_code', widget.storeCode)
           .maybeSingle();
-      if (res != null) {
+      if (res != null && mounted) {
         setState(() => _restoProfile = RestaurantProfileModel.fromMap(res));
       }
     } catch (_) {}
@@ -463,18 +473,15 @@ class _FullCounterAppState extends State<FullCounterApp> {
     if (saved != null) {
       setState(() => hotelMenu = List<Map<String, dynamic>>.from(jsonDecode(saved)));
     } else {
-      // 14 कैटेगरीज वाला नया मेन्यू
-      setState(() {
-        hotelMenu = kRestaurantMenu.map((m) => {
-          'id': m.id,
-          'name': m.name,
-          'price': m.price,
-          'cat': m.category,
-          'available': true,
-        }).toList();
-      });
+      setState(() => hotelMenu = List.from(defaultHotelMenu));
       await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
     }
+  }
+
+  void _saveMenu() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
+    _broadcastLocal({'type': 'MENU_DATA', 'menu': hotelMenu});
   }
 
   void _syncMasterData() async {
@@ -522,197 +529,814 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('${widget.hotelName} (मास्टर)', style: const TextStyle(color: Colors.white, fontSize: 17)),
-        backgroundColor: const Color(0xFF0F172A),
-        actions: [
-          // 1. दैनिक खर्च बटन
-          IconButton(
-            icon: const Icon(Icons.account_balance_wallet_outlined, color: Colors.white),
-            tooltip: 'दैनिक खर्च',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => DailyExpenseScreen(
-                    restaurantId: widget.storeCode,
-                    totalCashSalesToday: 0.0,
-                    initialExpenses: const [],
-                    onAddExpense: (newExpense) async {
-                      try {
-                        await Supabase.instance.client.from('daily_expenses').insert(newExpense.toMap());
-                      } catch (_) {}
-                    },
-                  ),
-                ),
-              );
-            },
-          ),
-          // 2. रेस्टोरेंट सेटिंग्स (⚙️) बटन
-          IconButton(
-            icon: const Icon(Icons.settings_outlined, color: Colors.white),
-            tooltip: 'होटल सेटिंग्स',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => RestaurantSettingsScreen(
-                    initialProfile: _restoProfile,
-                    onSave: (updated) async {
-                      setState(() => _restoProfile = updated);
-                      try {
-                        await Supabase.instance.client.from('restaurants').upsert(updated.toMap());
-                      } catch (_) {}
-                    },
-                  ),
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: () async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.clear();
-              if (mounted) Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const AppGateway()), (r) => false);
-            },
-          )
-        ],
-      ),
-      body: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: const Color(0xFF1E293B),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('हॉटस्पॉट IP: $localIp', style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 13)),
-                Text('कनेक्टेड: ${connectedClients.length}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
-              ],
-            ),
-          ),
-          Expanded(
-            child: _currentTab == 0 ? _buildTablesTab() : _buildRationTab(),
-          ),
-        ],
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentTab,
-        onTap: (i) => setState(() => _currentTab = i),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.table_restaurant), label: 'टेबल्स व बिल'),
-          BottomNavigationBarItem(icon: Icon(Icons.shopping_cart), label: 'राशन मांग'),
-        ],
-      ),
-    );
+  void _toggleRationReceived(String id, bool currentStatus) async {
+    try {
+      await Supabase.instance.client.from('ration_demands').update({'is_received': !currentStatus}).eq('id', id);
+      _syncMasterData();
+    } catch (_) {}
   }
 
-  Widget _buildTablesTab() {
-    return GridView.builder(
-      padding: const EdgeInsets.all(12),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10),
-      itemCount: widget.tables,
-      itemBuilder: (context, index) {
-        int tableNo = index + 1;
-        String state = tableStateMap[tableNo] ?? 'empty';
-        Color col = Colors.grey.shade300;
-        if (state == 'running') col = Colors.orange.shade200;
-        if (state == 'bill_ready') col = Colors.green.shade300;
+  void _openRationExportFilterModal() {
+    if (rationDemands.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('निर्यात के लिए कोई राशन डेटा उपलब्ध नहीं है')));
+      return;
+    }
 
-        return InkWell(
-          onTap: () => _openTableDetail(tableNo),
-          child: Container(
-            decoration: BoxDecoration(color: col, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.black12)),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text('टेबल $tableNo', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text(state == 'running' ? 'चल रहा है' : state == 'bill_ready' ? 'बिल तैयार' : 'खाली', style: const TextStyle(fontSize: 11)),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
+    String selectedPeriod = '10_days';
+    bool onlyPending = true;
+    bool autoMergeQty = true;
 
-  void _openTableDetail(int tbl) {
-    showModalBottomSheet(
+    final Set<String> allItems = rationDemands.map((e) => e['item_name'].toString().trim()).toSet();
+    final Set<String> selectedItems = Set.from(allItems);
+
+    showDialog(
       context: context,
-      isScrollControlled: true,
-      builder: (ctx) {
-        final items = activeOrders[tbl] ?? [];
-        double total = items.fold(0.0, (s, i) => s + ((i['price'] as num) * (i['qty'] as num)));
+      builder: (ctx) => StatefulBuilder(
+        builder: (c, setDState) {
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.picture_as_pdf, color: Colors.amber),
+                SizedBox(width: 8),
+                Text('राशन PDF फ़िल्टर', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('समय सीमा चुनें:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('आज का'),
+                          selected: selectedPeriod == 'today',
+                          onSelected: (v) => setDState(() => selectedPeriod = 'today'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('पिछले 3 दिन'),
+                          selected: selectedPeriod == '3_days',
+                          onSelected: (v) => setDState(() => selectedPeriod = '3_days'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('पूरे 10 दिन'),
+                          selected: selectedPeriod == '10_days',
+                          onSelected: (v) => setDState(() => selectedPeriod = '10_days'),
+                        ),
+                      ],
+                    ),
+                    const Divider(),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('केवल पेंडिंग सामान (बाज़ार पर्ची)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      subtitle: const Text('जो सामान आ चुका है उसे न जोड़ें', style: TextStyle(fontSize: 12)),
+                      value: onlyPending,
+                      onChanged: (val) => setDState(() => onlyPending = val),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('समान सामग्री की मात्रा जोड़ें (Merge)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      subtitle: const Text('उदा. आलू 5kg + आलू 10kg = आलू 15kg', style: TextStyle(fontSize: 12)),
+                      value: autoMergeQty,
+                      onChanged: (val) => setDState(() => autoMergeQty = val),
+                    ),
+                    const Divider(),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('सामग्री का चुनाव:', style: TextStyle(fontWeight: FontWeight.bold)),
+                        TextButton(
+                          onPressed: () {
+                            setDState(() {
+                              if (selectedItems.length == allItems.length) {
+                                selectedItems.clear();
+                              } else {
+                                selectedItems.addAll(allItems);
+                              }
+                            });
+                          },
+                          child: Text(selectedItems.length == allItems.length ? 'सब हटाएं' : 'सब चुनें'),
+                        )
+                      ],
+                    ),
+                    Wrap(
+                      spacing: 6,
+                      children: allItems.map((name) {
+                        final isChecked = selectedItems.contains(name);
+                        return FilterChip(
+                          label: Text(name),
+                          selected: isChecked,
+                          onSelected: (val) {
+                            setDState(() {
+                              if (val) {
+                                selectedItems.add(name);
+                              } else {
+                                selectedItems.remove(name);
+                              }
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द करें')),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+                icon: const Icon(Icons.download, color: Colors.white, size: 18),
+                label: const Text('PDF तैयार करें', style: TextStyle(color: Colors.white)),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _processAndExportRationPdf(selectedPeriod, onlyPending, autoMergeQty, selectedItems);
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 
-        return Container(
-          padding: const EdgeInsets.all(16),
-          height: MediaQuery.of(context).size.height * 0.7,
+  void _processAndExportRationPdf(String period, bool onlyPending, bool autoMergeQty, Set<String> selectedItems) async {
+    DateTime cutoff = DateTime.now().subtract(const Duration(days: 10));
+    if (period == 'today') {
+      cutoff = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    } else if (period == '3_days') {
+      cutoff = DateTime.now().subtract(const Duration(days: 3));
+    }
+
+    List<Map<String, dynamic>> filtered = rationDemands.where((r) {
+      final String name = r['item_name'].toString().trim();
+      if (!selectedItems.contains(name)) return false;
+      if (onlyPending && r['is_received'] == true) return false;
+
+      final createdAt = DateTime.tryParse(r['created_at'] ?? '') ?? DateTime.now();
+      return createdAt.isAfter(cutoff) || createdAt.isAtSameMomentAs(cutoff);
+    }).toList();
+
+    if (filtered.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('चुने गए फ़िल्टर के अनुसार कोई रिकॉर्ड नहीं मिला!')));
+      return;
+    }
+
+    List<Map<String, dynamic>> finalRows = [];
+    if (autoMergeQty) {
+      Map<String, Map<String, dynamic>> mergedMap = {};
+      for (var r in filtered) {
+        String name = r['item_name'].toString().trim();
+        String rawQty = r['quantity'].toString().trim();
+        final match = RegExp(r'(\d+(?:\.\d+)?)').firstMatch(rawQty);
+        double val = match != null ? (double.tryParse(match.group(1)!) ?? 1.0) : 1.0;
+        String unit = rawQty.replaceAll(RegExp(r'[\d\.\s]'), '');
+        if (unit.isEmpty) unit = 'यूनिट';
+
+        if (!mergedMap.containsKey(name)) {
+          mergedMap[name] = {
+            'item_name': name,
+            'total_qty': val,
+            'unit': unit,
+            'is_received': r['is_received'] == true,
+            'date': (r['created_at'] ?? '').substring(0, 10),
+          };
+        } else {
+          mergedMap[name]!['total_qty'] = (mergedMap[name]!['total_qty'] as double) + val;
+          if (r['is_received'] != true) mergedMap[name]!['is_received'] = false;
+        }
+      }
+
+      mergedMap.forEach((k, v) {
+        double q = v['total_qty'];
+        String formattedQty = q % 1 == 0 ? q.toInt().toString() : q.toStringAsFixed(1);
+        finalRows.add({
+          'item_name': v['item_name'],
+          'quantity': '$formattedQty ${v['unit']}',
+          'is_received': v['is_received'],
+          'created_at': v['date'],
+        });
+      });
+    } else {
+      finalRows = filtered;
+    }
+
+    try {
+      final Uint8List imageBytes = await ScreenshotController().captureFromWidget(
+        Container(
+          width: 600,
+          color: Colors.white,
+          padding: const EdgeInsets.all(28),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Text('टेबल $tbl - ऑर्डर विवरण', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const Divider(),
-              Expanded(
-                child: items.isEmpty
-                    ? const Center(child: Text('कोई सक्रिय ऑर्डर नहीं'))
-                    : ListView.builder(
-                        itemCount: items.length,
-                        itemBuilder: (_, i) => ListTile(
-                          dense: true,
-                          title: Text(items[i]['name']),
-                          trailing: Text('${items[i]['qty']} x ₹${items[i]['price']} = ₹${(items[i]['qty'] as num) * (items[i]['price'] as num)}'),
-                        ),
-                      ),
+              Text('${widget.hotelName} - राशन मांग सूची', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black)),
+              const SizedBox(height: 4),
+              Text(
+                'पर्ची प्रकार: ${onlyPending ? "केवल बाज़ार मांग (पेंडिंग)" : "समग्र राशन रिकॉर्ड"} | दिनांक: ${DateTime.now().toString().substring(0, 10)}',
+                style: const TextStyle(fontSize: 13, color: Colors.grey),
               ),
-              const Divider(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              const SizedBox(height: 10),
+              const Divider(color: Colors.black, thickness: 1.5),
+              const SizedBox(height: 10),
+              Table(
+                columnWidths: const {
+                  0: FlexColumnWidth(4.5),
+                  1: FlexColumnWidth(2.5),
+                  2: FlexColumnWidth(3),
+                },
                 children: [
-                  const Text('कुल राशि:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  Text('₹ $total', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green)),
+                  const TableRow(
+                    decoration: BoxDecoration(color: Color(0xFFF1F5F9)),
+                    children: [
+                      Padding(padding: EdgeInsets.all(8), child: Text('सामग्री व मात्रा', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black))),
+                      Padding(padding: EdgeInsets.all(8), child: Text('स्थिति', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black))),
+                      Padding(padding: EdgeInsets.all(8), child: Text('दिनांक', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black))),
+                    ],
+                  ),
+                  ...finalRows.map((r) {
+                    final bool isRec = r['is_received'] == true;
+                    return TableRow(
+                      children: [
+                        Padding(padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8), child: Text('${r['item_name']} (${r['quantity']})', style: const TextStyle(fontSize: 15, color: Colors.black, fontWeight: FontWeight.w500))),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                          child: Text(
+                            isRec ? 'आ गया ✓' : 'पेंडिंग ⏳',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: isRec ? Colors.green.shade800 : Colors.orange.shade900),
+                          ),
+                        ),
+                        Padding(padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8), child: Text((r['created_at'] ?? '').substring(0, 10), style: const TextStyle(fontSize: 14, color: Colors.black87))),
+                      ],
+                    );
+                  }),
                 ],
               ),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.green, minimumSize: const Size.fromHeight(48)),
-                onPressed: items.isEmpty ? null : () async {
-                  setState(() {
-                    activeOrders.remove(tbl);
-                    tableStateMap[tbl] = 'empty';
-                  });
-                  try {
-                    await Supabase.instance.client.from('hotel_kots').update({'status': 'settled'}).eq('store_code', widget.storeCode).eq('table_no', tbl);
-                  } catch (_) {}
-                  Navigator.pop(ctx);
-                },
-                child: const Text('बिल सेटल करें (भुगतान पूरा)', style: TextStyle(color: Colors.white, fontSize: 16)),
+              const SizedBox(height: 20),
+              const Divider(color: Colors.black26),
+              Align(alignment: Alignment.centerRight, child: Text('कुल सामग्री: ${finalRows.length}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
+            ],
+          ),
+        ),
+        delay: const Duration(milliseconds: 50),
+        pixelRatio: 2.0,
+      );
+
+      final pdf = pw.Document();
+      final pdfImage = pw.MemoryImage(imageBytes);
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(20),
+          build: (pw.Context context) => pw.Center(child: pw.Image(pdfImage)),
+        ),
+      );
+
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/ration_report_${DateTime.now().millisecondsSinceEpoch}.pdf');
+      await file.writeAsBytes(await pdf.save());
+      await Share.shareXFiles([XFile(file.path)], text: '🛒 ${widget.hotelName} राशन पर्ची');
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF जनरेशन त्रुटि: $e')));
+    }
+  }
+
+  void _showPrinterDialog() async {
+    List<BluetoothInfo> availablePrinters = [];
+    bool scanning = true;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (c, setDState) {
+          if (scanning) {
+            PrintBluetoothThermal.pairedBluetooths.then((list) {
+              setDState(() {
+                availablePrinters = list;
+                scanning = false;
+              });
+            }).catchError((_) {
+              setDState(() => scanning = false);
+            });
+          }
+
+          return AlertDialog(
+            title: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('ब्लूटूथ प्रिंटर'),
+                _isPrinterConnected
+                    ? const Text('कनेक्टेड ✓', style: TextStyle(color: Colors.green, fontSize: 13, fontWeight: FontWeight.bold))
+                    : const Text('डिस्कनेक्टेड', style: TextStyle(color: Colors.red, fontSize: 13)),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 250,
+              child: scanning
+                  ? const Center(child: CircularProgressIndicator())
+                  : availablePrinters.isEmpty
+                      ? const Center(child: Text('कोई ब्लूटूथ प्रिंटर पेयर नहीं मिला!\nफ़ोन की ब्लूटूथ सेटिंग में जाकर प्रिंटर पेयर करें।', textAlign: TextAlign.center))
+                      : ListView.builder(
+                          itemCount: availablePrinters.length,
+                          itemBuilder: (context, index) {
+                            final p = availablePrinters[index];
+                            final bool isThisConnected = _isPrinterConnected && _connectedPrinterMac == p.macAdress;
+
+                            return ListTile(
+                              leading: Icon(Icons.print, color: isThisConnected ? Colors.green : Colors.grey),
+                              title: Text(p.name.isNotEmpty ? p.name : 'थर्मल प्रिंटर'),
+                              subtitle: Text(p.macAdress),
+                              trailing: ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: isThisConnected ? Colors.red : Colors.green),
+                                onPressed: () async {
+                                  if (isThisConnected) {
+                                    await PrintBluetoothThermal.disconnect;
+                                    setState(() => _isPrinterConnected = false);
+                                    setDState(() {});
+                                  } else {
+                                    final bool res = await PrintBluetoothThermal.connect(macPrinterAddress: p.macAdress);
+                                    setState(() {
+                                      _isPrinterConnected = res;
+                                      if (res) _connectedPrinterMac = p.macAdress;
+                                    });
+                                    setDState(() {});
+                                    if (res && mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('प्रिंटर सफलतापूर्वक कनेक्ट हुआ!'), backgroundColor: Colors.green));
+                                    }
+                                  }
+                                },
+                                child: Text(isThisConnected ? 'हटाएँ' : 'कनेक्ट', style: const TextStyle(color: Colors.white)),
+                              ),
+                            );
+                          },
+                        ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('बंद करें')),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _printBillReceipt(int tbl, List<Map<String, dynamic>> items, double total) async {
+    final bool isConn = await PrintBluetoothThermal.connectionStatus;
+    if (!isConn) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('⚠️ प्रिंटर कनेक्ट नहीं है! ऊपर 🖨️ आइकन से प्रिंटर कनेक्ट करें।'), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
+
+    try {
+      final profile = await CapabilityProfile.load();
+      final generator = Generator(PaperSize.mm58, profile);
+      List<int> bytes = [];
+
+      bytes += generator.text(widget.hotelName, styles: const PosStyles(align: PosAlign.center, bold: true, height: PosTextSize.size2, width: PosTextSize.size2));
+      bytes += generator.text('टेबल: T-$tbl', styles: const PosStyles(align: PosAlign.center, bold: true));
+      bytes += generator.text('दिनांक: ${DateTime.now().toString().substring(0, 16)}', styles: const PosStyles(align: PosAlign.center));
+      bytes += generator.hr();
+
+      for (var it in items) {
+        bytes += generator.row([
+          PosColumn(text: it['name'].toString(), width: 7),
+          PosColumn(text: 'x${it['qty']}', width: 2),
+          PosColumn(text: '${(it['price'] * it['qty']).toInt()}', width: 3, styles: const PosStyles(align: PosAlign.right)),
+        ]);
+      }
+
+      bytes += generator.hr();
+      bytes += generator.text('कुल बिल: Rs ${total.toStringAsFixed(2)}', styles: const PosStyles(bold: true, align: PosAlign.right, height: PosTextSize.size1, width: PosTextSize.size2));
+      bytes += generator.feed(1);
+      bytes += generator.text('धन्यवाद! फिर पधारें', styles: const PosStyles(align: PosAlign.center));
+      bytes += generator.feed(2);
+      bytes += generator.cut();
+
+      await PrintBluetoothThermal.writeBytes(bytes);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('पर्ची प्रिंट हो गई ✓'), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('प्रिंट एरर: $e')));
+      }
+    }
+  }
+
+  void _showStaffManagementDialog() {
+    final staffIdCtrl = TextEditingController();
+    final pinCtrl = TextEditingController();
+    String selectedRole = 'waiter';
+    List<Map<String, dynamic>> staffList = [];
+    bool loading = true;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (c, setDState) {
+          void fetchStaff() async {
+            try {
+              final res = await Supabase.instance.client
+                  .from('hotel_staff')
+                  .select()
+                  .eq('store_code', widget.storeCode);
+              if (res != null) {
+                setDState(() {
+                  staffList = List<Map<String, dynamic>>.from(res);
+                  loading = false;
+                });
+              }
+            } catch (_) {
+              setDState(() => loading = false);
+            }
+          }
+
+          if (loading) fetchStaff();
+
+          return AlertDialog(
+            title: const Text('👥 स्टाफ़ प्रबंधन (कुक/वेटर)'),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 380,
+              child: Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(child: TextField(controller: staffIdCtrl, decoration: const InputDecoration(labelText: 'स्टाफ़ ID (उदा. W1, C1)', isDense: true))),
+                            const SizedBox(width: 8),
+                            Expanded(child: TextField(controller: pinCtrl, decoration: const InputDecoration(labelText: '4-अंक पिन', isDense: true), keyboardType: TextInputType.number, obscureText: true)),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            DropdownButton<String>(
+                              value: selectedRole,
+                              items: const [
+                                DropdownMenuItem(value: 'waiter', child: Text('वेटर (Waiter)')),
+                                DropdownMenuItem(value: 'cook', child: Text('कुक (Cook)')),
+                              ],
+                              onChanged: (v) => setDState(() => selectedRole = v!),
+                            ),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+                              onPressed: () async {
+                                final sid = staffIdCtrl.text.trim();
+                                final spin = pinCtrl.text.trim();
+                                if (sid.isEmpty || spin.isEmpty) return;
+
+                                try {
+                                  await Supabase.instance.client.from('hotel_staff').insert({
+                                    'store_code': widget.storeCode,
+                                    'staff_id': sid,
+                                    'pin': spin,
+                                    'role': selectedRole,
+                                  });
+                                  staffIdCtrl.clear();
+                                  pinCtrl.clear();
+                                  fetchStaff();
+                                } catch (e) {
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('एरर: $e')));
+                                }
+                              },
+                              child: const Text('जोड़ें +', style: TextStyle(color: Colors.white)),
+                            )
+                          ],
+                        )
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Align(alignment: Alignment.centerLeft, child: Text('मौजूदा स्टाफ़ सूची:', style: TextStyle(fontWeight: FontWeight.bold))),
+                  Expanded(
+                    child: loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : staffList.isEmpty
+                            ? const Center(child: Text('कोई स्टाफ़ नहीं जुड़ा है'))
+                            : ListView.builder(
+                                itemCount: staffList.length,
+                                itemBuilder: (context, index) {
+                                  final s = staffList[index];
+                                  final isCook = s['role'] == 'cook';
+                                  return ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: CircleAvatar(
+                                      backgroundColor: isCook ? Colors.teal : Colors.orange,
+                                      child: Text(isCook ? '👨‍🍳' : '📱'),
+                                    ),
+                                    title: Text('${s['staff_id']} (${isCook ? 'कुक' : 'वेटर'})', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                    subtitle: Text('पिन: ${s['pin']}'),
+                                    trailing: IconButton(
+                                      icon: const Icon(Icons.delete, color: Colors.red),
+                                      onPressed: () async {
+                                        try {
+                                          await Supabase.instance.client
+                                              .from('hotel_staff')
+                                              .delete()
+                                              .eq('store_code', widget.storeCode)
+                                              .eq('staff_id', s['staff_id']);
+                                          fetchStaff();
+                                        } catch (_) {}
+                                      },
+                                    ),
+                                  );
+                                },
+                              ),
+                  )
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('बंद करें')),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _openAddEditMenuModal([Map<String, dynamic>? itemToEdit, int? editIndex]) {
+    final nameCtrl = TextEditingController(text: itemToEdit?['name'] ?? '');
+    final priceCtrl = TextEditingController(text: itemToEdit != null ? itemToEdit['price'].toString() : '');
+    String cat = itemToEdit?['cat'] ?? 'सब्जी';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (c, setDState) => AlertDialog(
+          title: Text(itemToEdit == null ? 'नया व्यंजन जोड़ें' : 'व्यंजन एडिट करें'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'व्यंजन का नाम')),
+              TextField(controller: priceCtrl, decoration: const InputDecoration(labelText: 'कीमत ₹'), keyboardType: TextInputType.number),
+              const SizedBox(height: 10),
+              DropdownButton<String>(
+                isExpanded: true,
+                value: cat,
+                items: const [
+                  DropdownMenuItem(value: 'सब्जी', child: Text('सब्जी')),
+                  DropdownMenuItem(value: 'रोटी', child: Text('रोटी')),
+                  DropdownMenuItem(value: 'चावल', child: Text('चावल')),
+                  DropdownMenuItem(value: 'नाश्ता', child: Text('नाश्ता')),
+                ],
+                onChanged: (v) => setDState(() => cat = v!),
               )
             ],
           ),
-        );
-      },
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+              onPressed: () {
+                if (nameCtrl.text.isNotEmpty && priceCtrl.text.isNotEmpty) {
+                  setState(() {
+                    if (itemToEdit == null) {
+                      hotelMenu.add({'id': DateTime.now().millisecondsSinceEpoch, 'name': nameCtrl.text.trim(), 'price': double.parse(priceCtrl.text), 'cat': cat, 'available': true});
+                    } else {
+                      hotelMenu[editIndex!] = {'id': itemToEdit['id'], 'name': nameCtrl.text.trim(), 'price': double.parse(priceCtrl.text), 'cat': cat, 'available': itemToEdit['available'] ?? true};
+                    }
+                  });
+                  _saveMenu();
+                  Navigator.pop(ctx);
+                }
+              },
+              child: const Text('सेव करें', style: TextStyle(color: Colors.white)),
+            )
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _buildRationTab() {
-    return rationDemands.isEmpty
-        ? const Center(child: Text('कोई राशन मांग नहीं आई'))
-        : ListView.builder(
-            itemCount: rationDemands.length,
-            itemBuilder: (_, i) {
-              final r = rationDemands[i];
-              return ListTile(
-                title: Text(r['item_name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
-                trailing: Text('${r['qty'] ?? ''} ${r['unit'] ?? ''}', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                subtitle: Text('दिनांक: ${r['created_at']?.toString().split('T').first ?? ''}'),
+  void _settleBill(int tbl) {
+    List<Map<String, dynamic>> items = activeOrders[tbl] ?? [];
+    double total = items.fold(0, (sum, it) => sum + (it['price'] * it['qty']));
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('टेबल T-$tbl का बिल: ₹$total'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('ऑर्डर किए गए व्यंजन:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            ...items.map((it) => Text('• ${it['name']} x ${it['qty']} = ₹${(it['price'] * it['qty']).toInt()}')),
+            const Divider(),
+            const Text('प्रिंट पर्ची निकालें या सीधे बिल सेटल करें:'),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+            icon: const Icon(Icons.print, color: Colors.white, size: 18),
+            label: const Text('प्रिंट पर्ची', style: TextStyle(color: Colors.white)),
+            onPressed: () => _printBillReceipt(tbl, items, total),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await Supabase.instance.client.from('hotel_kots').update({'status': 'settled'}).eq('store_code', widget.storeCode).eq('table_no', tbl);
+              } catch (_) {}
+              _spokenBillTables.remove(tbl);
+              setState(() {
+                activeOrders.remove(tbl);
+                tableStateMap.remove(tbl);
+              });
+            },
+            child: const Text('बिल सेटल करें', style: TextStyle(color: Colors.white)),
+          )
+        ],
+      ),
+    );
+  }
+
+  void _logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    if (mounted) Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const AppGateway()), (r) => false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('${widget.hotelName} (मास्टर)', style: const TextStyle(color: Colors.white)),
+          backgroundColor: const Color(0xFF0F172A),
+          actions: [
+            // 1. दैनिक खर्च बटन
+            IconButton(
+              icon: const Icon(Icons.account_balance_wallet_outlined, color: Colors.white),
+              tooltip: 'दैनिक खर्च',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => DailyExpenseScreen(
+                      restaurantId: widget.storeCode,
+                      totalCashSalesToday: 0.0,
+                      initialExpenses: const [],
+                      onAddExpense: (newExpense) async {
+                        try {
+                          await Supabase.instance.client.from('daily_expenses').insert(newExpense.toMap());
+                        } catch (_) {}
+                      },
+                    ),
+                  ),
+                );
+              },
+            ),
+            // 2. रेस्टोरेंट प्रोफ़ाइल सेटिंग्स (⚙️) बटन
+            IconButton(
+              icon: const Icon(Icons.settings_outlined, color: Colors.white),
+              tooltip: 'होटल सेटिंग्स',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => RestaurantSettingsScreen(
+                      initialProfile: _restoProfile,
+                      onSave: (updated) async {
+                        setState(() => _restoProfile = updated);
+                        try {
+                          await Supabase.instance.client.from('restaurants').upsert(updated.toMap());
+                        } catch (_) {}
+                      },
+                    ),
+                  ),
+                );
+              },
+            ),
+            IconButton(
+              icon: Icon(Icons.print, color: _isPrinterConnected ? Colors.greenAccent : Colors.white),
+              tooltip: 'ब्लूटूथ प्रिंटर कनेक्ट करें',
+              onPressed: _showPrinterDialog,
+            ),
+            IconButton(
+              icon: const Icon(Icons.group, color: Colors.orangeAccent),
+              tooltip: 'स्टाफ़ प्रबंधन (कुक/वेटर)',
+              onPressed: _showStaffManagementDialog,
+            ),
+            IconButton(icon: const Icon(Icons.picture_as_pdf, color: Colors.amber), tooltip: 'राशन PDF डाउनलोड', onPressed: _openRationExportFilterModal),
+            IconButton(icon: const Icon(Icons.logout, color: Colors.redAccent), tooltip: 'लॉगआउट', onPressed: _logout),
+          ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(26),
+            child: Container(
+              color: const Color(0xFF1E293B),
+              child: Center(child: Text('हॉटस्पॉट चालू रखें | वाई-फ़ाई सर्वर IP: $localIp', style: const TextStyle(color: Colors.yellowAccent, fontSize: 13))),
+            ),
+          ),
+        ),
+        body: [
+          GridView.builder(
+            padding: const EdgeInsets.all(12),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10),
+            itemCount: widget.tables,
+            itemBuilder: (ctx, i) {
+              int tbl = i + 1;
+              String st = tableStateMap[tbl] ?? 'empty';
+              Color c = st == 'bill_ready' ? Colors.purple : (st == 'running' ? Colors.red : Colors.green);
+              String label = st == 'bill_ready' ? 'बिल तैयार 🔔' : (st == 'running' ? 'ऑर्डर चालू' : 'खाली');
+
+              return InkWell(
+                onTap: st != 'empty' ? () => _settleBill(tbl) : null,
+                child: Container(
+                  decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(10)),
+                  child: Center(child: Text('T-$tbl\n$label', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
+                ),
               );
             },
-          );
+          ),
+          Scaffold(
+            floatingActionButton: FloatingActionButton(
+              backgroundColor: const Color(0xFF0F172A),
+              child: const Icon(Icons.add, color: Colors.white),
+              onPressed: () => _openAddEditMenuModal(),
+            ),
+            body: ListView.builder(
+              itemCount: hotelMenu.length,
+              itemBuilder: (ctx, i) {
+                final item = hotelMenu[i];
+                return ListTile(
+                  title: Text(item['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text('₹${item['price']} (${item['cat']})'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(icon: const Icon(Icons.edit, color: Colors.blue), onPressed: () => _openAddEditMenuModal(item, i)),
+                      IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () {
+                        setState(() => hotelMenu.removeAt(i));
+                        _saveMenu();
+                      }),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          rationDemands.isEmpty
+              ? const Center(child: Text('10 दिनों में कोई राशन मांग दर्ज नहीं है'))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: rationDemands.length,
+                  itemBuilder: (ctx, i) {
+                    final r = rationDemands[i];
+                    final bool isRec = r['is_received'] == true;
+                    return Card(
+                      color: isRec ? Colors.green.shade50 : Colors.white,
+                      shape: RoundedRectangleBorder(
+                        side: BorderSide(color: isRec ? Colors.green : Colors.orange, width: 1.5),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: ListTile(
+                        title: Text(r['item_name'], style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: isRec ? Colors.green.shade900 : Colors.black)),
+                        subtitle: Text('मात्रा: ${r['quantity']} | दिनांक: ${(r['created_at'] ?? '').substring(0, 10)}'),
+                        trailing: ElevatedButton(
+                          style: ElevatedButton.styleFrom(backgroundColor: isRec ? Colors.green : Colors.orange),
+                          onPressed: () => _toggleRationReceived(r['id'], isRec),
+                          child: Text(isRec ? 'आ गया ✓' : 'पेंडिंग', style: const TextStyle(color: Colors.white)),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ][_currentTab],
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _currentTab,
+          selectedItemColor: const Color(0xFF0F172A),
+          onTap: (i) => setState(() => _currentTab = i),
+          items: const [
+            BottomNavigationBarItem(icon: Icon(Icons.table_bar), label: 'टेबल्स'),
+            BottomNavigationBarItem(icon: Icon(Icons.menu_book), label: 'मेन्यू'),
+            BottomNavigationBarItem(icon: Icon(Icons.shopping_basket), label: 'राशन रिकॉर्ड (10 दिन)'),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -720,152 +1344,324 @@ class _FullCounterAppState extends State<FullCounterApp> {
 // 5. वेटर ऐप (14 कैटेगरी मेन्यू फ़िल्टर के साथ)
 // ==========================================
 class FullWaiterApp extends StatefulWidget {
-  final String storeCode;
+  final String storeCode, staffId;
   final int tables;
-  final String staffId;
   const FullWaiterApp({super.key, required this.storeCode, required this.tables, required this.staffId});
   @override
   State<FullWaiterApp> createState() => _FullWaiterAppState();
 }
 
 class _FullWaiterAppState extends State<FullWaiterApp> {
-  int _selectedTable = 1;
-  final List<Map<String, dynamic>> _currentKot = [];
-  Socket? socket;
-  bool _isConnected = false;
+  String _counterIp = '192.168.43.1';
+  bool _socketConnected = false;
+  Socket? _waiterSocket;
+  List<Map<String, dynamic>> menu = [];
+  Map<int, List<Map<String, dynamic>>> liveTables = {};
+  Map<int, String> tableStatus = {};
+  final Set<String> _spokenReadyKots = {};
+  Timer? _waiterSyncTimer;
 
   @override
   void initState() {
     super.initState();
-    _connectSocket();
+    _loadMenu();
+    _initNetworkAndSync();
+    _waiterSyncTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!_socketConnected) _connectToSocket();
+      _syncFromCloud();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => checkForAppUpdates(context));
   }
 
-  void _connectSocket() async {
+  @override
+  void dispose() {
+    _waiterSyncTimer?.cancel();
+    _waiterSocket?.destroy();
+    super.dispose();
+  }
+
+  void _initNetworkAndSync() async {
+    final prefs = await SharedPreferences.getInstance();
+    _counterIp = prefs.getString('saved_counter_ip') ?? '192.168.43.1';
+    _connectToSocket();
+    _syncFromCloud();
+  }
+
+  void _connectToSocket() async {
     try {
-      socket = await Socket.connect('192.168.43.1', 4040, timeout: const Duration(seconds: 2));
-      setState(() => _isConnected = true);
+      _waiterSocket = await Socket.connect(_counterIp, 4040, timeout: const Duration(seconds: 2));
+      if (mounted) setState(() => _socketConnected = true);
+      _waiterSocket!.write(jsonEncode({'type': 'GET_MENU'}) + "\n");
+
+      _waiterSocket!.listen((data) {
+        final lines = utf8.decode(data).split("\n");
+        for (var l in lines) {
+          if (l.trim().isEmpty) continue;
+          try {
+            final msg = jsonDecode(l);
+            if (msg['type'] == 'MENU_DATA' && mounted) {
+              setState(() => menu = List<Map<String, dynamic>>.from(msg['menu']));
+            } else if (msg['type'] == 'ORDER_READY') {
+              int tbl = msg['table'];
+              VoiceService.speak("टेबल $tbl का ऑर्डर तैयार है");
+            }
+          } catch (_) {}
+        }
+      }, onDone: () => setState(() => _socketConnected = false), onError: (_) => setState(() => _socketConnected = false));
     } catch (_) {
-      setState(() => _isConnected = false);
+      if (mounted && _socketConnected) setState(() => _socketConnected = false);
     }
   }
 
-  void _sendKot() async {
-    if (_currentKot.isEmpty) return;
-    final kotData = {
-      'type': 'NEW_KOT',
-      'store_code': widget.storeCode,
-      'table': _selectedTable,
-      'staff_id': widget.staffId,
-      'items': _currentKot,
-    };
-
-    if (_isConnected && socket != null) {
-      try {
-        socket!.write(jsonEncode(kotData) + "\n");
-      } catch (_) {}
+  void _loadMenu() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString('saved_menu_${widget.storeCode}');
+    if (saved != null) {
+      setState(() => menu = List<Map<String, dynamic>>.from(jsonDecode(saved)));
+    } else {
+      setState(() => menu = List.from(defaultHotelMenu));
     }
+  }
 
+  void _syncFromCloud() async {
     try {
-      await Supabase.instance.client.from('hotel_kots').insert({
-        'store_code': widget.storeCode,
-        'table_no': _selectedTable,
-        'items': jsonEncode(_currentKot),
-        'status': 'running',
-      });
-    } catch (_) {}
+      final kots = await Supabase.instance.client
+          .from('hotel_kots')
+          .select()
+          .eq('store_code', widget.storeCode)
+          .neq('status', 'settled');
 
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('KOT किचन भेज दी गई!')));
-    setState(() => _currentKot.clear());
+      if (kots != null && mounted) {
+        Map<int, List<Map<String, dynamic>>> tempOrders = {};
+        Map<int, String> tempStatus = {};
+
+        for (var k in kots) {
+          int tbl = k['table_no'];
+          String st = k['status'];
+          String id = k['id'];
+          List items = jsonDecode(k['items'].toString());
+          if (!tempOrders.containsKey(tbl)) tempOrders[tbl] = [];
+          tempOrders[tbl]!.addAll(List<Map<String, dynamic>>.from(items));
+          tempStatus[tbl] = st;
+
+          if (st == 'ready' && !_spokenReadyKots.contains(id)) {
+            _spokenReadyKots.add(id);
+            VoiceService.speak("टेबल $tbl का ऑर्डर तैयार है");
+          }
+        }
+        setState(() {
+          liveTables = tempOrders;
+          tableStatus = tempStatus;
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _openOrderSheet(int tableNum) {
+    final Map<dynamic, int> cart = {};
+    final List<Map<String, dynamic>> existingItems = liveTables[tableNum] ?? [];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setBState) {
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.90,
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: [
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  Text('टेबल T-$tableNum ऑर्डर व री-ऑर्डर', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                ]),
+                const Divider(),
+                if (existingItems.isNotEmpty) ...[
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('चालू खाना (पहले से ऑर्डर्ड):', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ...existingItems.map((e) => Text('• ${e['name']} x ${e['qty']}')),
+                      ],
+                    ),
+                  ),
+                  const Divider(),
+                ],
+                const Align(alignment: Alignment.centerLeft, child: Text('+ नए व्यंजन जोड़ें (फ़िल्टर मेन्यू):', style: TextStyle(fontWeight: FontWeight.bold))),
+                
+                // नया फ़िल्टर विजेट
+                Expanded(
+                  child: WaiterMenuOrderView(
+                    onAddItem: (item) {
+                      setBState(() {
+                        cart[item.id] = (cart[item.id] ?? 0) + 1;
+                      });
+                    },
+                  ),
+                ),
+
+                if (cart.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6.0),
+                    child: Text('चुने गए आइटम: ${cart.values.fold(0, (s, q) => s + q)} नग', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+                  ),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    if (existingItems.isNotEmpty)
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
+                        onPressed: () async {
+                          if (_socketConnected && _waiterSocket != null) {
+                            try { _waiterSocket!.write(jsonEncode({'type': 'BILL_READY', 'table': tableNum}) + "\n"); } catch (_) {}
+                          }
+                          try {
+                            await Supabase.instance.client.from('hotel_kots').update({'status': 'bill_ready'}).eq('store_code', widget.storeCode).eq('table_no', tableNum);
+                          } catch (_) {}
+
+                          if (mounted) {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('T-$tableNum का खाना पूरा (Done) हुआ! मास्टर को अलर्ट भेजा गया।')));
+                          }
+                          _syncFromCloud();
+                        },
+                        child: const Text('खाना पूरा (Done)', style: TextStyle(color: Colors.white)),
+                      ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                      onPressed: cart.isEmpty ? null : () async {
+                        List<Map<String, dynamic>> newOrderItems = [];
+                        cart.forEach((id, qty) {
+                          if (qty > 0) {
+                            final it = kRestaurantMenu.firstWhere((e) => e.id == id);
+                            newOrderItems.add({'name': it.name, 'price': it.price, 'qty': qty});
+                          }
+                        });
+
+                        if (_socketConnected && _waiterSocket != null) {
+                          try {
+                            _waiterSocket!.write(jsonEncode({'type': 'NEW_KOT', 'table': tableNum, 'items': newOrderItems}) + "\n");
+                          } catch (_) {}
+                        }
+
+                        try {
+                          await Supabase.instance.client.from('hotel_kots').insert({
+                            'store_code': widget.storeCode,
+                            'table_no': tableNum,
+                            'items': jsonEncode(newOrderItems),
+                            'status': 'pending'
+                          });
+                        } catch (_) {}
+
+                        if (mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('T-$tableNum का KOT कुक को भेजा गया!'), backgroundColor: Colors.green));
+                        }
+                        _syncFromCloud();
+                      },
+                      child: const Text('KOT भेजें', style: TextStyle(color: Colors.white)),
+                    )
+                  ],
+                )
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _manualIpDialog() {
+    final ipCtrl = TextEditingController(text: _counterIp);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('काउंटर IP बदलें'),
+        content: TextField(controller: ipCtrl, decoration: const InputDecoration(labelText: 'मास्टर का IP एड्रेस')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
+          ElevatedButton(
+            onPressed: () async {
+              setState(() => _counterIp = ipCtrl.text.trim());
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setString('saved_counter_ip', _counterIp);
+              Navigator.pop(ctx);
+              _connectToSocket();
+            },
+            child: const Text('सेव करें'),
+          )
+        ],
+      ),
+    );
+  }
+
+  void _logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    if (mounted) Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const AppGateway()), (r) => false);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('वेटर - टेबल $_selectedTable', style: const TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFFEA580C),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: () async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.clear();
-              if (mounted) Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const AppGateway()), (r) => false);
-            },
-          )
-        ],
-      ),
-      body: Column(
-        children: [
-          // टेबल चयन रो
-          SizedBox(
-            height: 48,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: widget.tables,
-              itemBuilder: (ctx, i) {
-                int tbl = i + 1;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                  child: ChoiceChip(
-                    label: Text('T-$tbl'),
-                    selected: _selectedTable == tbl,
-                    onSelected: (s) => setState(() => _selectedTable = tbl),
-                  ),
-                );
-              },
-            ),
-          ),
-          const Divider(height: 1),
-
-          // नया 14-कैटेगरी वेटर मेन्यू विजेट
-          Expanded(
-            child: WaiterMenuOrderView(
-              onAddItem: (item) {
-                setState(() {
-                  final idx = _currentKot.indexWhere((e) => e['name'] == item.name);
-                  if (idx >= 0) {
-                    _currentKot[idx]['qty'] = (_currentKot[idx]['qty'] as int) + 1;
-                  } else {
-                    _currentKot.add({
-                      'id': item.id,
-                      'name': item.name,
-                      'price': item.price,
-                      'qty': 1,
-                    });
-                  }
-                });
-              },
-            ),
-          ),
-
-          // करेंट ऑर्डर समरी और KOT भेजें बटन
-          if (_currentKot.isNotEmpty)
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('वेटर: ${widget.staffId}', style: const TextStyle(color: Colors.white)),
+          backgroundColor: Colors.orange,
+          actions: [
+            IconButton(icon: const Icon(Icons.settings, color: Colors.white), tooltip: 'काउंटर IP', onPressed: _manualIpDialog),
+            IconButton(icon: const Icon(Icons.logout, color: Colors.white), tooltip: 'लॉगआउट', onPressed: _logout),
+          ],
+        ),
+        body: Column(
+          children: [
             Container(
-              padding: const EdgeInsets.all(12),
-              color: Colors.orange.shade50,
+              color: _socketConnected ? Colors.green.shade700 : Colors.blueGrey,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
-                    child: Text('चुने गए आइटम: ${_currentKot.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEA580C)),
-                    onPressed: _sendKot,
-                    icon: const Icon(Icons.send, color: Colors.white),
-                    label: const Text('KOT भेजें', style: TextStyle(color: Colors.white)),
-                  )
+                  Text(_socketConnected ? '🟢 लोकल LAN कनेक्टेड ($_counterIp)' : '⚪ क्लाउड सिंक मोड (इंटरनेट चालू रखें)', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                  const Text('ऑटो-सिंक चालू', style: TextStyle(color: Colors.white70, fontSize: 11)),
                 ],
               ),
-            )
-        ],
+            ),
+            Expanded(
+              child: GridView.builder(
+                padding: const EdgeInsets.all(12),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10),
+                itemCount: widget.tables,
+                itemBuilder: (ctx, i) {
+                  int tbl = i + 1;
+                  bool isOccupied = liveTables.containsKey(tbl) && liveTables[tbl]!.isNotEmpty;
+                  String st = tableStatus[tbl] ?? '';
+                  Color c = st == 'bill_ready' ? Colors.purple : (isOccupied ? Colors.red : Colors.green);
+                  String txt = st == 'bill_ready' ? 'बिल तैयार' : (isOccupied ? 'रनिंग' : 'खाली');
+
+                  return InkWell(
+                    onTap: () => _openOrderSheet(tbl),
+                    child: Container(
+                      decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(10)),
+                      child: Center(child: Text('T-$tbl\n$txt', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
 // ==========================================
-// 6. कुक KDS ऐप
+// 6. कुक ऐप
 // ==========================================
 class FullCookApp extends StatefulWidget {
   final String storeCode;
@@ -875,57 +1671,285 @@ class FullCookApp extends StatefulWidget {
 }
 
 class _FullCookAppState extends State<FullCookApp> {
-  final List<Map<String, dynamic>> _kots = [];
+  String _counterIp = '192.168.43.1';
+  bool _socketConnected = false;
+  Socket? _cookSocket;
+  List<Map<String, dynamic>> kitchenOrders = [];
+  List<String> presetRations = ['आटा', 'चावल', 'तेल', 'पनीर', 'शक्कर'];
+  final Map<String, String> selectedRations = {};
+  final _customItemCtrl = TextEditingController();
+  final Set<String> _spokenOrderKots = {};
+  Timer? _cookSyncTimer;
 
   @override
   void initState() {
     super.initState();
-    _fetchKots();
+    _loadPresetRations();
+    _initNetworkAndSync();
+    _cookSyncTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!_socketConnected) _connectToSocket();
+      _syncFromCloud();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => checkForAppUpdates(context));
   }
 
-  void _fetchKots() async {
+  @override
+  void dispose() {
+    _cookSyncTimer?.cancel();
+    _cookSocket?.destroy();
+    super.dispose();
+  }
+
+  void _initNetworkAndSync() async {
+    final prefs = await SharedPreferences.getInstance();
+    _counterIp = prefs.getString('saved_counter_ip') ?? '192.168.43.1';
+    _connectToSocket();
+    _syncFromCloud();
+  }
+
+  void _connectToSocket() async {
+    try {
+      _cookSocket = await Socket.connect(_counterIp, 4040, timeout: const Duration(seconds: 2));
+      if (mounted) setState(() => _socketConnected = true);
+
+      _cookSocket!.listen((data) {
+        final lines = utf8.decode(data).split("\n");
+        for (var l in lines) {
+          if (l.trim().isEmpty) continue;
+          try {
+            final msg = jsonDecode(l);
+            if (msg['type'] == 'NEW_KOT' && mounted) {
+              int tbl = msg['table'];
+              setState(() => kitchenOrders.insert(0, Map<String, dynamic>.from(msg)));
+              VoiceService.speak("टेबल $tbl पर नया ऑर्डर आया है");
+            }
+          } catch (_) {}
+        }
+      }, onDone: () => setState(() => _socketConnected = false), onError: (_) => setState(() => _socketConnected = false));
+    } catch (_) {
+      if (mounted && _socketConnected) setState(() => _socketConnected = false);
+    }
+  }
+
+  void _loadPresetRations() async {
+    final prefs = await SharedPreferences.getInstance();
+    final local = prefs.getStringList('custom_preset_rations_${widget.storeCode}');
+    if (local != null && local.isNotEmpty) {
+      setState(() => presetRations = local);
+    }
+    try {
+      final res = await Supabase.instance.client
+          .from('hotel_preset_rations').select().eq('store_code', widget.storeCode);
+      if (res != null) {
+        for (var r in res) {
+          if (!presetRations.contains(r['item_name'])) presetRations.add(r['item_name']);
+        }
+        await prefs.setStringList('custom_preset_rations_${widget.storeCode}', presetRations);
+        setState(() {});
+      }
+    } catch (_) {}
+  }
+
+  void _syncFromCloud() async {
     try {
       final res = await Supabase.instance.client
           .from('hotel_kots')
           .select()
           .eq('store_code', widget.storeCode)
-          .eq('status', 'running');
+          .eq('status', 'pending')
+          .order('created_at', ascending: false);
+
       if (res != null && mounted) {
-        setState(() => _kots.addAll(List<Map<String, dynamic>>.from(res)));
+        List<Map<String, dynamic>> loaded = [];
+        for (var r in res) {
+          String id = r['id'];
+          int tbl = r['table_no'];
+          loaded.add({'id': id, 'table': tbl, 'items': jsonDecode(r['items'].toString())});
+
+          if (!_spokenOrderKots.contains(id)) {
+            _spokenOrderKots.add(id);
+            VoiceService.speak("टेबल $tbl पर नया ऑर्डर आया है");
+          }
+        }
+        setState(() => kitchenOrders = loaded);
       }
     } catch (_) {}
   }
 
+  void _markOrderReady(int index) async {
+    final order = kitchenOrders[index];
+    setState(() => kitchenOrders.removeAt(index));
+
+    if (_socketConnected && _cookSocket != null) {
+      try { _cookSocket!.write(jsonEncode({'type': 'ORDER_READY', 'table': order['table']}) + "\n"); } catch (_) {}
+    }
+
+    if (order['id'] != null) {
+      try {
+        await Supabase.instance.client.from('hotel_kots').update({'status': 'ready'}).eq('id', order['id']);
+      } catch (_) {}
+    }
+  }
+
+  void _addPermanentRationItem() async {
+    final name = _customItemCtrl.text.trim();
+    if (name.isEmpty) return;
+
+    if (!presetRations.contains(name)) {
+      setState(() => presetRations.add(name));
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('custom_preset_rations_${widget.storeCode}', presetRations);
+
+      try {
+        await Supabase.instance.client.from('hotel_preset_rations').insert({'store_code': widget.storeCode, 'item_name': name});
+      } catch (_) {}
+    }
+    _customItemCtrl.clear();
+  }
+
+  void _sendRationDemand() async {
+    if (selectedRations.isEmpty) return;
+
+    try {
+      List<Map<String, dynamic>> inserts = [];
+      selectedRations.forEach((name, qty) {
+        inserts.add({'store_code': widget.storeCode, 'item_name': name, 'quantity': qty, 'is_received': false});
+      });
+
+      await Supabase.instance.client.from('ration_demands').insert(inserts);
+
+      if (_socketConnected && _cookSocket != null) {
+        try { _cookSocket!.write(jsonEncode({'type': 'RATION_DEMAND'}) + "\n"); } catch (_) {}
+      }
+
+      setState(() => selectedRations.clear());
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('राशन मांग मास्टर को भेज दी गई!'), backgroundColor: Colors.green));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('एरर: $e')));
+    }
+  }
+
+  void _logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    if (mounted) Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const AppGateway()), (r) => false);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('किचन KDS (कुक)', style: const TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFF0D9488),
-      ),
-      body: _kots.isEmpty
-          ? const Center(child: Text('कोई लंबित KOT नहीं है'))
-          : ListView.builder(
-              itemCount: _kots.length,
-              itemBuilder: (ctx, i) {
-                final k = _kots[i];
-                final items = jsonDecode(k['items'].toString());
-                return Card(
-                  margin: const EdgeInsets.all(8),
-                  child: ListTile(
-                    title: Text('टेबल #${k['table_no']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(items.map((e) => "${e['name']} x ${e['qty']}").join(", ")),
-                    trailing: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488)),
-                      onPressed: () {
-                        setState(() => _kots.removeAt(i));
-                      },
-                      child: const Text('तैयार', style: TextStyle(color: Colors.white)),
+    return PopScope(
+      canPop: false,
+      child: DefaultTabController(
+        length: 2,
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('कुक KDS', style: TextStyle(color: Colors.white)),
+            backgroundColor: Colors.teal,
+            actions: [
+              IconButton(icon: const Icon(Icons.logout, color: Colors.white), onPressed: _logout),
+            ],
+            bottom: const TabBar(labelColor: Colors.white, unselectedLabelColor: Colors.white54, tabs: [Tab(text: 'लाइव KOT'), Tab(text: 'राशन मांग')]),
+          ),
+          body: TabBarView(
+            children: [
+              Column(
+                children: [
+                  Container(
+                    color: _socketConnected ? Colors.teal.shade800 : Colors.blueGrey,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(_socketConnected ? '🟢 लोकल LAN कनेक्टेड' : '⚪ क्लाउड सिंक मोड', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                        const Text('ऑटो-सिंक चालू', style: TextStyle(color: Colors.white70, fontSize: 11)),
+                      ],
                     ),
                   ),
-                );
-              },
-            ),
+                  Expanded(
+                    child: kitchenOrders.isEmpty
+                        ? const Center(child: Text('कोई नया KOT नहीं है 👨‍🍳', style: TextStyle(fontSize: 16)))
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(8),
+                            itemCount: kitchenOrders.length,
+                            itemBuilder: (ctx, i) {
+                              final ord = kitchenOrders[i];
+                              final items = ord['items'] as List;
+                              return Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text('टेबल: T-${ord['table']}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
+                                          ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.teal), onPressed: () => _markOrderReady(i), child: const Text('तैयार ✓', style: TextStyle(color: Colors.white))),
+                                        ],
+                                      ),
+                                      const Divider(),
+                                      ...items.map((it) => Text('${it['name']} x ${it['qty']}', style: const TextStyle(fontSize: 16))),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: TextField(controller: _customItemCtrl, decoration: const InputDecoration(hintText: 'नया सामान (उदा. आलू, गोभी)'))),
+                        IconButton(icon: const Icon(Icons.add_box, color: Colors.teal, size: 36), onPressed: _addPermanentRationItem),
+                      ],
+                    ),
+                    const Divider(),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: presetRations.length,
+                        itemBuilder: (c, i) {
+                          String itemName = presetRations[i];
+                          bool isChecked = selectedRations.containsKey(itemName);
+                          return ListTile(
+                            leading: Checkbox(
+                              value: isChecked,
+                              onChanged: (val) {
+                                setState(() {
+                                  if (val!) selectedRations[itemName] = "1 KG";
+                                  else selectedRations.remove(itemName);
+                                });
+                              },
+                            ),
+                            title: Text(itemName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            trailing: isChecked
+                                ? SizedBox(
+                                    width: 80,
+                                    child: TextField(
+                                      onChanged: (v) => selectedRations[itemName] = v,
+                                      decoration: const InputDecoration(hintText: '1 KG', border: OutlineInputBorder(), isDense: true),
+                                    ),
+                                  )
+                                : null,
+                          );
+                        },
+                      ),
+                    ),
+                    SizedBox(
+                      width: double.infinity, height: 50,
+                      child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.teal), onPressed: _sendRationDemand, child: const Text('मांग मास्टर को भेजें', style: TextStyle(color: Colors.white, fontSize: 16))),
+                    )
+                  ],
+                ),
+              )
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
