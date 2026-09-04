@@ -7,17 +7,20 @@ class DailyExpenseScreen extends StatefulWidget {
   final String restaurantId;
   final double totalCashSalesToday;
   final List<dynamic> initialExpenses;
+  final Function(dynamic)? onAddExpense;
 
   const DailyExpenseScreen({
     super.key,
     required this.restaurantId,
     this.totalCashSalesToday = 0.0,
     this.initialExpenses = const [],
+    this.onAddExpense,
   });
 
   @override
   State<DailyExpenseScreen> createState() => _DailyExpenseScreenState();
 }
+
 
 
 class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
