@@ -1,1 +1,97 @@
-1
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      font-family: monospace, sans-serif;
+      width: 100%;
+      margin: 0;
+      padding: 10px;
+      color: #000;
+      font-size: 13px;
+    }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .bold { font-weight: bold; }
+    .title { font-size: 18px; margin-bottom: 4px; }
+    .divider { border-top: 1px dashed #000; margin: 8px 0; }
+    table { width: 100%; border-collapse: collapse; }
+    th { border-bottom: 1px dashed #000; padding: 4px 0; }
+    td { padding: 4px 0; vertical-align: top; }
+    .qr-container { margin-top: 10px; text-align: center; }
+    .qr-img { width: 120px; height: 120px; margin: 4px auto; display: block; }
+    .footer-note { font-size: 11px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+
+  <!-- हेडर: रेस्टोरेंट विवरण -->
+  <div class="text-center">
+    <div class="bold title">{{restaurant_name}}</div>
+    <div>{{address}}</div>
+    <div>फ़ोन: {{phone}}</div>
+    {{gstin_section}}
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- बिल व टेबल मेटाडेटा -->
+  <div>
+    <span>बिल नं: <b>{{bill_no}}</b></span> | 
+    <span>टेबल: <b>{{table_no}}</b></span><br>
+    <span>दिनांक: {{date_time}}</span>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- आइटम लिस्टिंग टेबल -->
+  <table>
+    <thead>
+      <tr>
+        <th align="left">आइटम</th>
+        <th align="center">मात्रा</th>
+        <th align="right">दर</th>
+        <th align="right">कुल</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{items_rows}}
+    </tbody>
+  </table>
+
+  <div class="divider"></div>
+
+  <!-- कुल रकम और भुगतान -->
+  <table>
+    <tr>
+      <td class="bold">सबटोटल:</td>
+      <td class="text-right bold">₹{{subtotal}}</td>
+    </tr>
+    {{discount_section}}
+    <tr>
+      <td class="bold" style="font-size: 15px;">कुल देय राशि:</td>
+      <td class="text-right bold" style="font-size: 15px;">₹{{grand_total}}</td>
+    </tr>
+    <tr>
+      <td>भुगतान मोड:</td>
+      <td class="text-right">{{payment_mode}}</td>
+    </tr>
+  </table>
+
+  <div class="divider"></div>
+
+  <!-- डायनामिक UPI QR (भुगतान के लिए) -->
+  {{upi_qr_section}}
+
+  <!-- Google Review QR सेक्शन -->
+  {{review_qr_section}}
+
+  <!-- फुटर संदेश -->
+  <div class="text-center footer-note">
+    <div class="bold">{{footer_message}}</div>
+    <div>Powered by AALA POS</div>
+  </div>
+
+</body>
+</html>
