@@ -419,32 +419,11 @@ class _FullCounterAppState extends State<FullCounterApp> {
     void _loadRestoProfile() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // 1. पहले Supabase सर्वर से ताज़ा डेटा लोड करें (डेटा क्लियर होने या नए फ़ोन पर भी सब दिखेगा)
-    try {
-      final res = await Supabase.instance.client
-          .from('restaurants')
-          .select()
-          .eq('store_code', widget.storeCode)
-          .maybeSingle();
-
-      if (res != null && mounted) {
-        final profile = RestaurantProfileModel.fromMap(res);
-        setState(() => _restoProfile = profile);
-
-        // सर्वर का डेटा फ़ोन मेमोरी में भी सुरक्षित करें
-        if (profile.name.isNotEmpty) await prefs.setString('saved_hotel_name', profile.name);
-        if (profile.address != null) await prefs.setString('saved_hotel_address_${widget.storeCode}', profile.address!);
-        if (profile.phone != null) await prefs.setString('saved_hotel_phone_${widget.storeCode}', profile.phone!);
-        if (profile.upiId != null) await prefs.setString('saved_hotel_upi_${widget.storeCode}', profile.upiId!);
-        return;
-      }
-    } catch (_) {}
-
-    // 2. अगर इंटरनेट न हो, तो फ़ोन मेमोरी से तुरंत लोड करें
+    // 1. फ़ोन मेमोरी से तुरंत लोड करें
     final savedName = prefs.getString('saved_hotel_name') ?? widget.hotelName;
-    final savedAddr = prefs.getString('saved_hotel_address_${widget.storeCode}') ?? '';
-    final savedPhone = prefs.getString('saved_hotel_phone_${widget.storeCode}') ?? '';
-    final savedUpi = prefs.getString('saved_hotel_upi_${widget.storeCode}') ?? '';
+    final savedAddr = prefs.getString('saved_hotel_address') ?? '';
+    final savedPhone = prefs.getString('saved_hotel_phone') ?? '';
+    final savedUpi = prefs.getString('saved_hotel_upi') ?? '';
 
     if (mounted) {
       setState(() {
@@ -456,6 +435,28 @@ class _FullCounterAppState extends State<FullCounterApp> {
           'upi_id': savedUpi,
         });
       });
+    }
+
+    // 2. Supabase सर्वर से पक्का सिंक करें
+    try {
+      final res = await Supabase.instance.client
+          .from('restaurants')
+          .select()
+          .eq('store_code', widget.storeCode)
+          .maybeSingle();
+
+      if (res != null && mounted) {
+        final profile = RestaurantProfileModel.fromMap(res);
+        setState(() => _restoProfile = profile);
+
+        // सर्वर का डेटा लोकल मेमोरी में भी बिना किसी झंझट के सेव करें
+        await prefs.setString('saved_hotel_name', profile.name);
+        if (profile.address != null) await prefs.setString('saved_hotel_address', profile.address!);
+        if (profile.phone != null) await prefs.setString('saved_hotel_phone', profile.phone!);
+        if (profile.upiId != null) await prefs.setString('saved_hotel_upi', profile.upiId!);
+      }
+    } catch (e) {
+      debugPrint("Supabase fetch error: $e");
     }
   }
 
