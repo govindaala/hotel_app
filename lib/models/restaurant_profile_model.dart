@@ -1,50 +1,51 @@
 class RestaurantProfileModel {
-  final String id;
+  final String storeCode;
   final String name;
-  final String phone;
-  final String address;
-  final String? gstin;
-  final String? fssai;
+  final String? phone;
+  final String? address;
   final String? upiId;
-  final String footerMessage;
-  final String? reviewUrl;
+  final String? gstNumber;
+  final String? fssaiNumber;
+  final String? googleReviewLink;
+  final String? footerMessage;
 
-  const RestaurantProfileModel({
-    required this.id,
+  RestaurantProfileModel({
+    required this.storeCode,
     required this.name,
-    required this.phone,
-    required this.address,
-    this.gstin,
-    this.fssai,
+    this.phone,
+    this.address,
     this.upiId,
-    this.footerMessage = 'Thank You! Visit Again! 🙏',
-    this.reviewUrl,
+    this.gstNumber,
+    this.fssaiNumber,
+    this.googleReviewLink,
+    this.footerMessage,
   });
 
   factory RestaurantProfileModel.fromMap(Map<String, dynamic> map) {
     return RestaurantProfileModel(
-      id: map['id']?.toString() ?? '',
-      name: map['name'] ?? '',
-      phone: map['phone'] ?? '',
-      address: map['address'] ?? '',
-      gstin: map['gstin'],
-      fssai: map['fssai'],
-      upiId: map['upi_id'],
-      footerMessage: map['footer_message'] ?? 'Thank You! Visit Again! 🙏',
-      reviewUrl: map['review_url'],
+      storeCode: (map['store_code'] ?? '').toString(),
+      name: (map['name'] ?? '').toString(),
+      phone: map['phone']?.toString(),
+      address: map['address']?.toString(),
+      upiId: map['upi_id']?.toString(),
+      gstNumber: map['gst_number']?.toString(),
+      fssaiNumber: map['fssai_number']?.toString(),
+      googleReviewLink: map['google_review_link']?.toString(),
+      footerMessage: map['footer_message']?.toString(),
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
+      'store_code': storeCode,
       'name': name,
       'phone': phone,
       'address': address,
-      'gstin': gstin,
-      'fssai': fssai,
       'upi_id': upiId,
+      'gst_number': gstNumber,
+      'fssai_number': fssaiNumber,
+      'google_review_link': googleReviewLink,
       'footer_message': footerMessage,
-      'review_url': reviewUrl,
     };
   }
 }
