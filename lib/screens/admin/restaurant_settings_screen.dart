@@ -20,34 +20,22 @@ class RestaurantSettingsScreen extends StatefulWidget {
 }
 
 class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
-  final TextEditingController _nameCtrl = TextEditingController();
-  final TextEditingController _phoneCtrl = TextEditingController();
-  final TextEditingController _addressCtrl = TextEditingController();
   final TextEditingController _upiCtrl = TextEditingController();
-  final TextEditingController _gstCtrl = TextEditingController();
   final TextEditingController _reviewCtrl = TextEditingController();
-  final TextEditingController _footerCtrl = TextEditingController();
-
-  bool _isEditing = false;
   bool _isLoading = true;
+  RestaurantProfileModel? _currentProfile;
 
   @override
   void initState() {
     super.initState();
-    _loadCurrentData();
+    _loadProfileData();
   }
 
-  // फ़ोन मेमोरी और Supabase से डेटा खींचना
-  Future<void> _loadCurrentData() async {
+  Future<void> _loadProfileData() async {
     final prefs = await SharedPreferences.getInstance();
-    
-    // 1. सबसे पहले फ़ोन मेमोरी से भरें
-    String name = prefs.getString('saved_hotel_name') ?? widget.initialProfile?.name ?? 'होटल';
-    String phone = prefs.getString('saved_hotel_phone') ?? widget.initialProfile?.phone ?? '';
-    String address = prefs.getString('saved_hotel_address') ?? widget.initialProfile?.address ?? '';
     String upi = prefs.getString('saved_hotel_upi') ?? widget.initialProfile?.upiId ?? '';
+    String review = prefs.getString('saved_hotel_review') ?? widget.initialProfile?.googleReviewLink ?? '';
 
-    // 2. Supabase सर्वर से क्रॉस चेक करें
     try {
       final res = await Supabase.instance.client
           .from('restaurants')
@@ -56,111 +44,84 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
           .maybeSingle();
 
       if (res != null) {
-        if ((res['name'] ?? '').toString().isNotEmpty) name = res['name'];
-        if ((res['phone'] ?? '').toString().isNotEmpty) phone = res['phone'];
-        if ((res['address'] ?? '').toString().isNotEmpty) address = res['address'];
-        if ((res['upi_id'] ?? '').toString().isNotEmpty) upi = res['upi_id'];
+        _currentProfile = RestaurantProfileModel.fromMap(res);
+        upi = res['upi_id']?.toString() ?? upi;
+        review = res['google_review_link']?.toString() ?? review;
+
+        if (upi.isNotEmpty) await prefs.setString('saved_hotel_upi', upi);
+        if (review.isNotEmpty) await prefs.setString('saved_hotel_review', review);
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint("Fetch profile error: $e");
+    }
+
+    _currentProfile ??= widget.initialProfile;
 
     if (mounted) {
       setState(() {
-        _nameCtrl.text = name;
-        _phoneCtrl.text = phone;
-        _addressCtrl.text = address;
         _upiCtrl.text = upi;
-        _footerCtrl.text = 'Thank You! Visit Again! 🙏';
+        _reviewCtrl.text = review;
         _isLoading = false;
-        // अगर फ़ोन और पता खाली है तो एडिट मोड खोलें, वर्ना लॉक रखें
-        _isEditing = (phone.isEmpty && address.isEmpty);
       });
+    }
+  }
+
+  Future<void> _saveSettings() async {
+    final upi = _upiCtrl.text.trim();
+    final review = _reviewCtrl.text.trim();
+
+    setState(() => _isLoading = true);
+
+    // 1. SharedPreferences में लोकल सेव
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('saved_hotel_upi', upi);
+    await prefs.setString('saved_hotel_review', review);
+
+    // 2. Supabase में अपडेट
+    try {
+      await Supabase.instance.client
+          .from('restaurants')
+          .update({
+            'upi_id': upi.isEmpty ? null : upi,
+            'google_review_link': review.isEmpty ? null : review,
+          })
+          .eq('store_code', widget.storeCode);
+    } catch (e) {
+      debugPrint("Supabase update error: $e");
+    }
+
+    final updatedMap = _currentProfile?.toMap() ?? {'store_code': widget.storeCode, 'name': ''};
+    updatedMap['upi_id'] = upi;
+    updatedMap['google_review_link'] = review;
+    final updated = RestaurantProfileModel.fromMap(updatedMap);
+
+    widget.onSave(updated);
+
+    setState(() => _isLoading = false);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ UPI ID और Review Link सुरक्षित हो गए!'),
+          backgroundColor: Colors.teal,
+        ),
+      );
     }
   }
 
   @override
   void dispose() {
-    _nameCtrl.dispose();
-    _phoneCtrl.dispose();
-    _addressCtrl.dispose();
     _upiCtrl.dispose();
-    _gstCtrl.dispose();
     _reviewCtrl.dispose();
-    _footerCtrl.dispose();
     super.dispose();
-  }
-
-  Future<void> _saveSettings() async {
-    final name = _nameCtrl.text.trim();
-    final phone = _phoneCtrl.text.trim();
-    final address = _addressCtrl.text.trim();
-    final upi = _upiCtrl.text.trim();
-
-    if (name.isEmpty || phone.isEmpty || address.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('कृपया नाम, मोबाइल नंबर और पता अवश्य भरें!')),
-      );
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    // 1. फ़ोन मेमोरी (SharedPreferences) में पक्का सेव
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('saved_hotel_name', name);
-    await prefs.setString('saved_hotel_phone', phone);
-    await prefs.setString('saved_hotel_address', address);
-    await prefs.setString('saved_hotel_upi', upi);
-
-    // 2. Supabase क्लाउड में पक्का सेव
-    try {
-      await Supabase.instance.client.from('restaurants').upsert({
-        'store_code': widget.storeCode,
-        'name': name,
-        'phone': phone,
-        'address': address,
-        'upi_id': upi,
-      }, onConflict: 'store_code');
-    } catch (e) {
-      debugPrint("Supabase save error: $e");
-    }
-
-    // 3. मॉडल बनाकर वापस भेजना
-    final updatedModel = RestaurantProfileModel.fromMap({
-      'store_code': widget.storeCode,
-      'name': name,
-      'phone': phone,
-      'address': address,
-      'upi_id': upi,
-    });
-
-    widget.onSave(updatedModel);
-
-    setState(() {
-      _isLoading = false;
-      _isEditing = false;
-    });
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ प्रोफ़ाइल सुरक्षित हो गई!'), backgroundColor: Colors.teal),
-      );
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('होटल प्रोफ़ाइल व सेटिंग्स', style: TextStyle(color: Colors.white)),
+        title: const Text('काउंटर सेटिंग्स (QR व पेमेंट)', style: TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFF0F172A),
-        actions: [
-          if (!_isEditing && !_isLoading)
-            TextButton.icon(
-              icon: const Icon(Icons.edit, color: Colors.orangeAccent, size: 18),
-              label: const Text('एडिट करें', style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold)),
-              onPressed: () => setState(() => _isEditing = true),
-            ),
-        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -169,72 +130,87 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: _isEditing ? Colors.orange.shade50 : Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: _isEditing ? Colors.orange : Colors.green),
+                  // होटल का मास्टर विवरण (केवल देखने के लिए)
+                  Card(
+                    color: Colors.grey.shade100,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      side: BorderSide(color: Colors.grey.shade300),
                     ),
-                    child: Row(
-                      children: [
-                        Icon(_isEditing ? Icons.edit_note : Icons.lock_outline, color: _isEditing ? Colors.orange : Colors.green),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _isEditing ? 'एडिट मोड चालू है: आप विवरण बदल सकते हैं।' : 'व्यू मोड: डेटा सुरक्षित (Locked) है। बदलाव के लिए ऊपर "एडिट करें" दबाएँ।',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _isEditing ? Colors.orange.shade900 : Colors.green.shade900),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: const [
+                              Icon(Icons.lock_outline, size: 18, color: Colors.grey),
+                              SizedBox(width: 6),
+                              Text(
+                                'मास्टर विवरण (एडमिन द्वारा नियंत्रित)',
+                                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  _buildField('होटल / रेस्टोरेंट का नाम *', _nameCtrl, Icons.store),
-                  _buildField('संपर्क नंबर (Mobile) *', _phoneCtrl, Icons.phone, keyboard: TextInputType.phone),
-                  _buildField('होटल का पता (Address) *', _addressCtrl, Icons.location_on, maxLines: 2),
-                  _buildField('UPI ID (जैसे: shop@upi) - QR बिल के लिए', _upiCtrl, Icons.qr_code),
-                  _buildField('बिल फुटर संदेश (Footer Message)', _footerCtrl, Icons.message),
-
-                  const SizedBox(height: 24),
-
-                  if (_isEditing)
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFEA580C),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        onPressed: _saveSettings,
-                        icon: const Icon(Icons.save, color: Colors.white),
-                        label: const Text('सेटिंग्स सुरक्षित (Save) करें', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                          const Divider(),
+                          Text('होटल: ${_currentProfile?.name.isNotEmpty == true ? _currentProfile!.name : "सेट नहीं"}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 4),
+                          Text('मोबाइल: ${_currentProfile?.phone ?? "सेट नहीं"}'),
+                          Text('पता: ${_currentProfile?.address ?? "सेट नहीं"}'),
+                          if (_currentProfile?.gstNumber != null && _currentProfile!.gstNumber!.isNotEmpty)
+                            Text('GSTIN: ${_currentProfile!.gstNumber}'),
+                          if (_currentProfile?.fssaiNumber != null && _currentProfile!.fssaiNumber!.isNotEmpty)
+                            Text('FSSAI: ${_currentProfile!.fssaiNumber}'),
+                        ],
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  const Text(
+                    'होटल काउंटर सेटिंग्स',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0F172A)),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // UPI ID इनपुट
+                  TextField(
+                    controller: _upiCtrl,
+                    decoration: InputDecoration(
+                      labelText: 'पेमेंट QR के लिए UPI ID',
+                      hintText: 'उदा. merchant@okaxis या 9876543210@paytm',
+                      prefixIcon: const Icon(Icons.qr_code_2, color: Colors.orange),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Google Review Link इनपुट
+                  TextField(
+                    controller: _reviewCtrl,
+                    decoration: InputDecoration(
+                      labelText: 'Google Review Link (रिव्यू QR कोड के लिए)',
+                      hintText: 'https://g.page/r/.../review',
+                      prefixIcon: const Icon(Icons.star, color: Colors.amber),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEA580C)),
+                      onPressed: _saveSettings,
+                      icon: const Icon(Icons.save, color: Colors.white),
+                      label: const Text('सेटिंग्स सुरक्षित (Save) करें', style: TextStyle(color: Colors.white, fontSize: 16)),
+                    ),
+                  ),
                 ],
               ),
             ),
-    );
-  }
-
-  Widget _buildField(String label, TextEditingController ctrl, IconData icon, {TextInputType keyboard = TextInputType.text, int maxLines = 1}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14.0),
-      child: TextField(
-        controller: ctrl,
-        enabled: _isEditing,
-        keyboardType: keyboard,
-        maxLines: maxLines,
-        decoration: InputDecoration(
-          labelText: label,
-          prefixIcon: Icon(icon, color: _isEditing ? Colors.orange : Colors.grey),
-          filled: !_isEditing,
-          fillColor: Colors.grey.shade100,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      ),
     );
   }
 }
