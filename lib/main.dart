@@ -416,10 +416,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
   // फ़ंक्शन 7: होटल प्रोफ़ाइल लोड करना (लोकल + सर्वर पक्का सिंक)
   // काम: फ़ोन मेमोरी और Supabase से नाम, पता, फ़ोन और UPI ID सुरक्षित लोड करना
   // =========================================================================
-    void _loadRestoProfile() async {
+      void _loadRestoProfile() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // 1. फ़ोन मेमोरी से तुरंत लोड करें
+    // 1. ऑफ़लाइन सुरक्षा: पहले फ़ोन मेमोरी से तुरंत लोड करें (ताकि बिना इंटरनेट भी नाम, पता, UPI तुरंत दिखे)
     final savedName = prefs.getString('saved_hotel_name') ?? widget.hotelName;
     final savedAddr = prefs.getString('saved_hotel_address') ?? '';
     final savedPhone = prefs.getString('saved_hotel_phone') ?? '';
@@ -437,7 +437,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
       });
     }
 
-    // 2. Supabase सर्वर से पक्का सिंक करें
+    // 2. ऑनलाइन सुरक्षा: इंटरनेट होने पर Supabase सर्वर से ताज़ा डेटा लेकर सिंक करें
     try {
       final res = await Supabase.instance.client
           .from('restaurants')
@@ -449,17 +449,22 @@ class _FullCounterAppState extends State<FullCounterApp> {
         final profile = RestaurantProfileModel.fromMap(res);
         setState(() => _restoProfile = profile);
 
-        // सर्वर का डेटा लोकल मेमोरी में भी बिना किसी झंझट के सेव करें
-        await prefs.setString('saved_hotel_name', profile.name);
-        if (profile.address != null) await prefs.setString('saved_hotel_address', profile.address!);
-        if (profile.phone != null) await prefs.setString('saved_hotel_phone', profile.phone!);
-        if (profile.upiId != null) await prefs.setString('saved_hotel_upi', profile.upiId!);
+        // सर्वर से मिला नया डेटा तुरंत फ़ोन मेमोरी में भी लिख लें
+        if (profile.name.isNotEmpty) await prefs.setString('saved_hotel_name', profile.name);
+        if (profile.address != null && profile.address!.isNotEmpty) {
+          await prefs.setString('saved_hotel_address', profile.address!);
+        }
+        if (profile.phone != null && profile.phone!.isNotEmpty) {
+          await prefs.setString('saved_hotel_phone', profile.phone!);
+        }
+        if (profile.upiId != null && profile.upiId!.isNotEmpty) {
+          await prefs.setString('saved_hotel_upi', profile.upiId!);
+        }
       }
     } catch (e) {
-      debugPrint("Supabase fetch error: $e");
+      debugPrint("Supabase profile load offline or error: $e");
     }
   }
-
   // =========================================================================
   // फ़ंक्शन 8: ब्लूटूथ प्रिंटर स्थिति जांच
   // काम: थर्मल प्रिंटर कनेक्टेड है या नहीं यह देखना
