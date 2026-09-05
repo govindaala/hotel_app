@@ -413,10 +413,31 @@ class _FullCounterAppState extends State<FullCounterApp> {
   }
 
   // =========================================================================
-  // फ़ंक्शन 7: होटल प्रोफ़ाइल लोड करना
-  // काम: Supabase से होटल का नाम, पता, फ़ोन और UPI ID प्राप्त करना
+  // फ़ंक्शन 7: होटल प्रोफ़ाइल लोड करना (लोकल + सर्वर पक्का सिंक)
+  // काम: फ़ोन मेमोरी और Supabase से नाम, पता, फ़ोन और UPI ID सुरक्षित लोड करना
   // =========================================================================
   void _loadRestoProfile() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final savedAddr = prefs.getString('saved_hotel_address_${widget.storeCode}') ?? '';
+    final savedPhone = prefs.getString('saved_hotel_phone_${widget.storeCode}') ?? '';
+    final savedUpi = prefs.getString('saved_hotel_upi_${widget.storeCode}') ?? '';
+
+    if (savedAddr.isNotEmpty || savedPhone.isNotEmpty || savedUpi.isNotEmpty) {
+      if (mounted) {
+        setState(() {
+          _restoProfile = RestaurantProfileModel(
+            id: widget.storeCode,
+            storeCode: widget.storeCode,
+            name: widget.hotelName,
+            phone: savedPhone,
+            address: savedAddr,
+            upiId: savedUpi,
+          );
+        });
+      }
+    }
+
     try {
       final res = await Supabase.instance.client
           .from('restaurants')
@@ -424,7 +445,11 @@ class _FullCounterAppState extends State<FullCounterApp> {
           .eq('store_code', widget.storeCode)
           .maybeSingle();
       if (res != null && mounted) {
-        setState(() => _restoProfile = RestaurantProfileModel.fromMap(res));
+        final profile = RestaurantProfileModel.fromMap(res);
+        setState(() => _restoProfile = profile);
+        await prefs.setString('saved_hotel_address_${widget.storeCode}', profile.address ?? '');
+        await prefs.setString('saved_hotel_phone_${widget.storeCode}', profile.phone ?? '');
+        await prefs.setString('saved_hotel_upi_${widget.storeCode}', profile.upiId ?? '');
       }
     } catch (_) {}
   }
@@ -1311,10 +1336,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
     }
   }
 
-
   // =========================================================================
-  // फ़ंक्शन 18: प्रोफ़ेशनल बिल रसीद (HD स्क्रीनशॉट तकनीक - 0% क्रॉस बॉक्स)
-  // काम: होटल नाम, पता, फ़ोन, हिंदी डिश नाम व साफ़ प्रिंट WhatsApp पर शेयर करना
+  // फ़ंक्शन 18: प्रोफ़ेशनल बिल रसीद (HD इमेज-टू-PDF + असली QR कोड)
+  // काम: शुद्ध हिंदी नाम, पूरा पता, फ़ोन व असली UPI QR कोड WhatsApp पर शेयर करना
   // =========================================================================
   Future<void> _shareReceiptPdf(int tbl, List<Map<String, dynamic>> items, double total) async {
     try {
@@ -1391,19 +1415,25 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 ],
               ),
               const SizedBox(height: 10),
+              // बिना किसी पैकेज के 100% काम करने वाला असली UPI QR कोड
               Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF1F5F9),
                   border: Border.all(color: Colors.black26),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Column(
                   children: [
-                    Text("UPI द्वारा भुगतान: $upiId", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black)),
-                    const SizedBox(height: 2),
-                    const Text("PhonePe / GooglePay / Paytm स्वीकार्य हैं", style: TextStyle(fontSize: 10, color: Colors.black54)),
+                    Image.network(
+                      'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${Uri.encodeComponent("upi://pay?pa=$upiId&pn=${widget.hotelName}&am=$total&cu=INR")}',
+                      width: 110,
+                      height: 110,
+                      fit: BoxFit.contain,
+                      errorBuilder: (ctx, err, stack) => Text("UPI: $upiId", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    ),
+                    const SizedBox(height: 4),
+                    Text("UPI: $upiId", style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black)),
+                    const Text("PhonePe / GooglePay / Paytm से स्कैन करें", style: TextStyle(fontSize: 9, color: Colors.black54)),
                   ],
                 ),
               ),
@@ -2057,7 +2087,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
               tooltip: 'वित्तीय लेज़र व POS ऑडिट PDF',
               onPressed: _openComprehensivePdfReportModal,
             ),
-            // होटल सेटिंग्स
+            // होटल सेटिंग्स (परमानेंट लोकल + क्लाउड सिंक सुरक्षित)
             IconButton(
               icon: const Icon(Icons.settings_outlined, color: Colors.white),
               tooltip: 'होटल सेटिंग्स',
@@ -2069,6 +2099,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
                       initialProfile: _restoProfile,
                       onSave: (updated) async {
                         setState(() => _restoProfile = updated);
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setString('saved_hotel_address_${widget.storeCode}', updated.address ?? '');
+                        await prefs.setString('saved_hotel_phone_${widget.storeCode}', updated.phone ?? '');
+                        await prefs.setString('saved_hotel_upi_${widget.storeCode}', updated.upiId ?? '');
                         try {
                           await Supabase.instance.client.from('restaurants').upsert(updated.toMap());
                         } catch (_) {}
