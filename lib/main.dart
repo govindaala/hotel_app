@@ -27,8 +27,8 @@ import 'Data/Menu_data_source.dart';
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
 
-// ऐप का वर्तमान वर्शन कोड
-const int currentAppVersionCode = 3;
+// ऐप का वर्तमान वर्शन कोड (सारे नए फ़ीचर्स के साथ v4)
+const int currentAppVersionCode = 4;
 
 // ==========================================
 // 1. हिंदी वॉयस इंजन (Text-to-Speech)
@@ -421,7 +421,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
-  // गल्ला और बैंक बैलेंस की रीयलटाइम गणना
   void _fetchDailyBalances() async {
     try {
       final todayStart = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day).toIso8601String();
@@ -622,7 +621,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
           return AlertDialog(
             title: const Row(
               children: [
-                Icon(Icons.picture_as_pdf, color: Colors.amber),
+                Icon(Icons.shopping_cart_checkout, color: Colors.amber),
                 SizedBox(width: 8),
                 Text('राशन PDF फ़िल्टर', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ],
@@ -872,6 +871,261 @@ class _FullCounterAppState extends State<FullCounterApp> {
     }
   }
 
+  // =========================================================================
+  // 5. नया बदलाव: संपूर्ण वित्तीय लेज़र व POS ऑडिट PDF जनरेटर
+  // =========================================================================
+  void _openComprehensivePdfReportModal() {
+    String selectedRange = 'today';
+    DateTimeRange? customRange;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (c, setDState) {
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.analytics_outlined, color: Colors.blueAccent),
+                SizedBox(width: 8),
+                Text('वित्तीय व POS ऑडिट PDF', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('रिपोर्ट की समय सीमा चुनें:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('आज (Daily)'),
+                        selected: selectedRange == 'today',
+                        onSelected: (v) => setDState(() => selectedRange = 'today'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('साप्ताहिक (7 दिन)'),
+                        selected: selectedRange == 'weekly',
+                        onSelected: (v) => setDState(() => selectedRange = 'weekly'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('मासिक (30 दिन)'),
+                        selected: selectedRange == 'monthly',
+                        onSelected: (v) => setDState(() => selectedRange = 'monthly'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('वार्षिक (Yearly)'),
+                        selected: selectedRange == 'yearly',
+                        onSelected: (v) => setDState(() => selectedRange = 'yearly'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('कस्टम तारीख़ें'),
+                        selected: selectedRange == 'custom',
+                        onSelected: (v) async {
+                          final picked = await showDateRangePicker(
+                            context: context,
+                            firstDate: DateTime(2025),
+                            lastDate: DateTime(2030),
+                          );
+                          if (picked != null) {
+                            setDState(() {
+                              selectedRange = 'custom';
+                              customRange = picked;
+                            });
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                  if (selectedRange == 'custom' && customRange != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      'चुनी गई अवधि: ${customRange!.start.toString().substring(0, 10)} से ${customRange!.end.toString().substring(0, 10)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+                icon: const Icon(Icons.picture_as_pdf, color: Colors.white, size: 18),
+                label: const Text('A4 PDF शेयर करें', style: TextStyle(color: Colors.white)),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _generateAndShareFinancialAuditPdf(selectedRange, customRange);
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _generateAndShareFinancialAuditPdf(String range, DateTimeRange? customRange) async {
+    DateTime startCutoff;
+    DateTime endCutoff = DateTime.now();
+    String rangeLabel = '';
+
+    final now = DateTime.now();
+    if (range == 'today') {
+      startCutoff = DateTime(now.year, now.month, now.day);
+      rangeLabel = 'दैनिक रिपोर्ट (${now.day}/${now.month}/${now.year})';
+    } else if (range == 'weekly') {
+      startCutoff = now.subtract(const Duration(days: 7));
+      rangeLabel = 'साप्ताहिक लेज़र रिपोर्ट (पिछले 7 दिन)';
+    } else if (range == 'monthly') {
+      startCutoff = now.subtract(const Duration(days: 30));
+      rangeLabel = 'मासिक लेज़र रिपोर्ट (पिछले 30 दिन)';
+    } else if (range == 'yearly') {
+      startCutoff = DateTime(now.year, 1, 1);
+      rangeLabel = 'वार्षिक वित्तीय ऑडिट (${now.year})';
+    } else if (range == 'custom' && customRange != null) {
+      startCutoff = customRange.start;
+      endCutoff = customRange.end.add(const Duration(days: 1));
+      rangeLabel = 'कस्टम ऑडिट (${startCutoff.toString().substring(0, 10)} से ${customRange.end.toString().substring(0, 10)})';
+    } else {
+      startCutoff = DateTime(now.year, now.month, now.day);
+      rangeLabel = 'दैनिक लेज़र रिपोर्ट';
+    }
+
+    try {
+      final res = await Supabase.instance.client
+          .from('daily_expenses')
+          .select()
+          .eq('restaurant_id', widget.storeCode)
+          .gte('created_at', startCutoff.toIso8601String())
+          .lte('created_at', endCutoff.toIso8601String())
+          .order('created_at', ascending: false);
+
+      if (res == null || (res as List).isEmpty) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('चुने गए समय में कोई हिसाब दर्ज नहीं है!')));
+        return;
+      }
+
+      final List rows = res;
+      double totalCashIn = 0.0;
+      double totalBankUpi = 0.0;
+      double totalExpenses = 0.0;
+
+      for (var r in rows) {
+        final amt = (r['amount'] as num?)?.toDouble() ?? 0.0;
+        final title = (r['title'] ?? '').toString();
+        final type = (r['type'] ?? '').toString();
+
+        if (type == 'CASH_IN') {
+          if (title.contains('(UPI)') || title.contains('बैंक')) {
+            totalBankUpi += amt;
+          } else {
+            totalCashIn += amt;
+          }
+        } else {
+          totalExpenses += amt;
+        }
+      }
+
+      final double grossSales = totalCashIn + totalBankUpi;
+      final double netCashInHand = totalCashIn - totalExpenses;
+
+      final pdf = pw.Document();
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(24),
+          build: (pw.Context context) => [
+            pw.Center(
+              child: pw.Text(widget.hotelName, style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
+            ),
+            pw.Center(
+              child: pw.Text('संपूर्ण वित्तीय लेज़र व POS ऑडिट रिपोर्ट', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700)),
+            ),
+            pw.Center(
+              child: pw.Text(rangeLabel, style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
+            ),
+            pw.Divider(thickness: 1.2),
+            pw.SizedBox(height: 8),
+
+            // समरी कार्ड्स
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColors.grey400),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                color: PdfColors.grey100,
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+                children: [
+                  pw.Column(children: [
+                    pw.Text('कुल बिक्री (Gross Sales)', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                    pw.Text('INR ${grossSales.toStringAsFixed(0)}', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: PdfColors.blue800)),
+                  ]),
+                  pw.Column(children: [
+                    pw.Text('नकद गल्ला जमा', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                    pw.Text('INR ${totalCashIn.toStringAsFixed(0)}', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
+                  ]),
+                  pw.Column(children: [
+                    pw.Text('बैंक / UPI कुल', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                    pw.Text('INR ${totalBankUpi.toStringAsFixed(0)}', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: PdfColors.purple800)),
+                  ]),
+                  pw.Column(children: [
+                    pw.Text('दैनिक कुल खर्च', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                    pw.Text('INR ${totalExpenses.toStringAsFixed(0)}', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: PdfColors.red800)),
+                  ]),
+                  pw.Column(children: [
+                    pw.Text('गल्ला शुद्ध रोकड़', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                    pw.Text('INR ${netCashInHand.toStringAsFixed(0)}', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+                  ]),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 16),
+
+            // विस्तृत लेज़र टेबल
+            pw.Text('विस्तृत लेन-देन ऑडिट सूची (All Transactions):', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+            pw.SizedBox(height: 6),
+            pw.TableHelper.fromTextArray(
+              headers: ['दिनांक व समय', 'विवरण / मद', 'प्रकार', 'राशि (INR)'],
+              data: rows.map((r) {
+                final isCashIn = (r['type'] ?? '') == 'CASH_IN';
+                final dateStr = (r['created_at'] ?? '').toString().replaceAll('T', ' ').substring(0, 16);
+                return [
+                  dateStr,
+                  r['title'] ?? '-',
+                  isCashIn ? 'जमा (आमद)' : 'खर्च (व्यय)',
+                  '${r['amount']}',
+                ];
+              }).toList(),
+              border: pw.TableBorder.all(color: PdfColors.grey300),
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
+              cellStyle: const pw.TextStyle(fontSize: 8),
+              cellAlignment: pw.Alignment.centerLeft,
+            ),
+          ],
+        ),
+      );
+
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/Ledger_Audit_${DateTime.now().millisecondsSinceEpoch}.pdf');
+      await file.writeAsBytes(await pdf.save());
+
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: '📊 ${widget.hotelName} वित्तीय लेज़र व POS ऑडिट रिपोर्ट ($rangeLabel)',
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('रिपोर्ट त्रुटि: $e')));
+    }
+  }
+
   void _showPrinterDialog() async {
     List<BluetoothInfo> availablePrinters = [];
     bool scanning = true;
@@ -1001,9 +1255,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     }
   }
 
-  // =========================================================================
-  // 3. नया बदलाव: 58mm PDF रसीद जनरेट करके WhatsApp पर शेयर करना
-  // =========================================================================
   Future<void> _shareReceiptPdf(int tbl, List<Map<String, dynamic>> items, double total) async {
     try {
       final pdf = pw.Document();
@@ -1278,9 +1529,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // =========================================================================
-  // बिल सेटलमेंट: Cash vs UPI चयन और WhatsApp/प्रिंट रसीद
-  // =========================================================================
   void _settleBill(int tbl) {
     bool isParcel = tbl >= 900;
     List<Map<String, dynamic>> items = isParcel ? (parcelOrders[tbl] ?? []) : (activeOrders[tbl] ?? []);
@@ -1290,12 +1538,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
     void completeSettlement(String mode) async {
       Navigator.pop(context);
 
-      // KOT स्टेटस क्लोज़ करना
       try {
         await Supabase.instance.client.from('hotel_kots').update({'status': 'settled'}).eq('store_code', widget.storeCode).eq('table_no', tbl);
       } catch (_) {}
 
-      // दैनिक गल्ले (daily_expenses) में जमा करना
       try {
         final source = isParcel ? 'पार्सल P-${tbl - 900}' : 'टेबल T-$tbl';
         await Supabase.instance.client.from('daily_expenses').insert({
@@ -1611,7 +1857,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
   @override
   Widget build(BuildContext context) {
-    // गल्ले में शुद्ध नकद = कुल कैश - खर्चे
     final double netCashInRegister = todayCashTotal - todayExpensesTotal;
 
     return PopScope(
@@ -1621,6 +1866,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
           title: Text('${widget.hotelName} (मास्टर)', style: const TextStyle(color: Colors.white)),
           backgroundColor: const Color(0xFF0F172A),
           actions: [
+            // 1. दैनिक खर्च व गल्ला
             IconButton(
               icon: const Icon(Icons.account_balance_wallet_outlined, color: Colors.white),
               tooltip: 'दैनिक खर्च व गल्ला',
@@ -1643,6 +1889,13 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 );
               },
             ),
+            // 2. नया: संपूर्ण वित्तीय लेज़र व POS ऑडिट PDF रिपोर्ट बटन
+            IconButton(
+              icon: const Icon(Icons.analytics_outlined, color: Colors.cyanAccent),
+              tooltip: 'वित्तीय लेज़र व POS ऑडिट PDF',
+              onPressed: _openComprehensivePdfReportModal,
+            ),
+            // 3. होटल सेटिंग्स
             IconButton(
               icon: const Icon(Icons.settings_outlined, color: Colors.white),
               tooltip: 'होटल सेटिंग्स',
@@ -1663,17 +1916,21 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 );
               },
             ),
+            // 4. ब्लूटूथ प्रिंटर
             IconButton(
               icon: Icon(Icons.print, color: _isPrinterConnected ? Colors.greenAccent : Colors.white),
               tooltip: 'ब्लूटूथ प्रिंटर कनेक्ट करें',
               onPressed: _showPrinterDialog,
             ),
+            // 5. स्टाफ़ प्रबंधन
             IconButton(
               icon: const Icon(Icons.group, color: Colors.orangeAccent),
               tooltip: 'स्टाफ़ प्रबंधन (कुक/वेटर)',
               onPressed: _showStaffManagementDialog,
             ),
-            IconButton(icon: const Icon(Icons.picture_as_pdf, color: Colors.amber), tooltip: 'राशन PDF डाउनलोड', onPressed: _openRationExportFilterModal),
+            // 6. राशन पर्ची
+            IconButton(icon: const Icon(Icons.shopping_cart_checkout, color: Colors.amber), tooltip: 'राशन मांग पर्ची', onPressed: _openRationExportFilterModal),
+            // 7. लॉगआउट
             IconButton(icon: const Icon(Icons.logout, color: Colors.redAccent), tooltip: 'लॉगआउट', onPressed: _logout),
           ],
           bottom: PreferredSize(
@@ -1685,14 +1942,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
           ),
         ),
         body: [
-          // =========================================================================
           // टैब 1: गल्ला/बैंक डैशबोर्ड, पार्सल, काउंटर सेल और टेबल्स ग्रिड
-          // =========================================================================
           Column(
             children: [
-              // -------------------------------------------------------------
-              // 4. नया बदलाव: गल्ला (Cash) बनाम बैंक (UPI) समरी हेडर
-              // -------------------------------------------------------------
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 color: const Color(0xFF0F172A),
@@ -1738,8 +1990,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   ],
                 ),
               ),
-
-              // पार्सल और काउंटर क्विक सेल बटन्स (Side-by-Side)
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
                 child: Row(
@@ -1772,8 +2022,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   ],
                 ),
               ),
-
-              // अगर कोई चालू पार्सल है, तो उसका क्षैतिज कार्ड (Horizontal List)
               if (parcelOrders.isNotEmpty)
                 Container(
                   height: 52,
@@ -1793,8 +2041,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     }).toList(),
                   ),
                 ),
-
-              // मुख्य डाइन-इन टेबल ग्रिड (DINE-IN TABLES GRID)
               Expanded(
                 child: GridView.builder(
                   padding: const EdgeInsets.all(12),
@@ -1888,7 +2134,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 }
 
 // ==========================================
-// 5. वेटर ऐप (14 कैटेगरी मेन्यू फ़िल्टर के साथ)
+// 5. वेटर ऐप
 // ==========================================
 class FullWaiterApp extends StatefulWidget {
   final String storeCode, staffId;
