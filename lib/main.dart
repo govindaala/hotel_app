@@ -28,7 +28,7 @@ const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
 
 // ऐप का वर्तमान वर्शन कोड
-const int currentAppVersionCode = 2;
+const int currentAppVersionCode = 3;
 
 // ==========================================
 // 1. हिंदी वॉयस इंजन (Text-to-Speech)
@@ -61,7 +61,8 @@ class VoiceService {
 // ==========================================
 Future<void> checkForAppUpdates(BuildContext context) async {
   try {
-    final response = await http.get(Uri.parse('https://govindaala.github.io/hotel_app/app_config.json'));
+    final response = await http.get(Uri.parse('https://govindaala.github.io/hotel_app/app_config.json?t=${DateTime.now().millisecondsSinceEpoch}'));
+
     if (response.statusCode != 200) return;
 
     final config = jsonDecode(response.body);
