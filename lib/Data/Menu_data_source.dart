@@ -3,13 +3,51 @@ class MenuItemModel {
   final String category;
   final String name;
   final double price;
+  final bool isAvailable; // पॉज़ और एक्टिव (In Stock / Out of Stock) के लिए
 
   const MenuItemModel({
     required this.id,
     required this.category,
     required this.name,
     required this.price,
+    this.isAvailable = true, // डिफ़ॉल्ट रूप से चालू रहेगा
   });
+
+  MenuItemModel copyWith({
+    String? id,
+    String? category,
+    String? name,
+    double? price,
+    bool? isAvailable,
+  }) {
+    return MenuItemModel(
+      id: id ?? this.id,
+      category: category ?? this.category,
+      name: name ?? this.name,
+      price: price ?? this.price,
+      isAvailable: isAvailable ?? this.isAvailable,
+    );
+  }
+
+  factory MenuItemModel.fromMap(Map<String, dynamic> map) {
+    return MenuItemModel(
+      id: (map['id'] ?? '').toString(),
+      category: (map['category'] ?? 'अन्य').toString(),
+      name: (map['name'] ?? '').toString(),
+      price: ((map['price'] ?? 0.0) as num).toDouble(),
+      isAvailable: map['is_available'] ?? true,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'category': category,
+      'name': name,
+      'price': price,
+      'is_available': isAvailable,
+    };
+  }
 }
 
 const List<String> kMenuCategories = [
