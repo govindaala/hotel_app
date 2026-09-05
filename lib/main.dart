@@ -425,15 +425,14 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
     if (savedAddr.isNotEmpty || savedPhone.isNotEmpty || savedUpi.isNotEmpty) {
       if (mounted) {
-        setState(() {
-          _restoProfile = RestaurantProfileModel(
-            id: widget.storeCode,
-            storeCode: widget.storeCode,
-            name: widget.hotelName,
-            phone: savedPhone,
-            address: savedAddr,
-            upiId: savedUpi,
-          );
+                setState(() {
+          _restoProfile = RestaurantProfileModel.fromMap({
+            'store_code': widget.storeCode,
+            'name': widget.hotelName,
+            'phone': savedPhone,
+            'address': savedAddr,
+            'upi_id': savedUpi,
+          });
         });
       }
     }
