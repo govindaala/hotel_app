@@ -38,9 +38,9 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
     _phoneCtrl = TextEditingController(text: widget.initialProfile?.phone ?? '');
     _addressCtrl = TextEditingController(text: widget.initialProfile?.address ?? '');
     _upiCtrl = TextEditingController(text: widget.initialProfile?.upiId ?? '');
-    _gstCtrl = TextEditingController(text: widget.initialProfile?.gstNumber ?? '');
-    _reviewCtrl = TextEditingController(text: widget.initialProfile?.googleReviewLink ?? '');
-    _footerCtrl = TextEditingController(text: widget.initialProfile?.footerMessage ?? 'Thank You! Visit Again! 🙏');
+    _gstCtrl = TextEditingController(text: '');
+    _reviewCtrl = TextEditingController(text: '');
+    _footerCtrl = TextEditingController(text: 'Thank You! Visit Again! 🙏');
 
     // अगर पहले से डेटा खाली है तो एडिट मोड खुला रहेगा
     if (widget.initialProfile == null || (widget.initialProfile!.phone?.isEmpty ?? true)) {
