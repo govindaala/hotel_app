@@ -977,23 +977,23 @@ class _FullCounterAppState extends State<FullCounterApp> {
     final now = DateTime.now();
     if (range == 'today') {
       startCutoff = DateTime(now.year, now.month, now.day);
-      rangeLabel = 'दैनिक रिपोर्ट (${now.day}/${now.month}/${now.year})';
+      rangeLabel = 'Daily Report (${now.day}/${now.month}/${now.year})';
     } else if (range == 'weekly') {
       startCutoff = now.subtract(const Duration(days: 7));
-      rangeLabel = 'साप्ताहिक लेज़र रिपोर्ट (पिछले 7 दिन)';
+      rangeLabel = 'Weekly Ledger (Last 7 Days)';
     } else if (range == 'monthly') {
       startCutoff = now.subtract(const Duration(days: 30));
-      rangeLabel = 'मासिक लेज़र रिपोर्ट (पिछले 30 दिन)';
+      rangeLabel = 'Monthly Ledger (Last 30 Days)';
     } else if (range == 'yearly') {
       startCutoff = DateTime(now.year, 1, 1);
-      rangeLabel = 'वार्षिक वित्तीय ऑडिट (${now.year})';
+      rangeLabel = 'Annual Financial Audit (${now.year})';
     } else if (range == 'custom' && customRange != null) {
       startCutoff = customRange.start;
       endCutoff = customRange.end.add(const Duration(days: 1));
-      rangeLabel = 'कस्टम ऑडिट (${startCutoff.toString().substring(0, 10)} से ${customRange.end.toString().substring(0, 10)})';
+      rangeLabel = 'Custom Range (${startCutoff.toString().substring(0, 10)} to ${customRange.end.toString().substring(0, 10)})';
     } else {
       startCutoff = DateTime(now.year, now.month, now.day);
-      rangeLabel = 'दैनिक लेज़र रिपोर्ट';
+      rangeLabel = 'Daily Ledger Report';
     }
 
     try {
@@ -1044,7 +1044,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
               child: pw.Text(widget.hotelName, style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
             ),
             pw.Center(
-              child: pw.Text('संपूर्ण वित्तीय लेज़र व POS ऑडिट रिपोर्ट', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700)),
+              child: pw.Text('FINANCIAL LEDGER & SALES AUDIT REPORT', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700)),
             ),
             pw.Center(
               child: pw.Text(rangeLabel, style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
@@ -1052,7 +1052,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
             pw.Divider(thickness: 1.2),
             pw.SizedBox(height: 8),
 
-            // समरी कार्ड्स
+            // समरी कार्ड्स (अंग्रेज़ी लेबल्स ताकि क्रॉस न बनें)
             pw.Container(
               padding: const pw.EdgeInsets.all(12),
               decoration: pw.BoxDecoration(
@@ -1064,23 +1064,23 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
                 children: [
                   pw.Column(children: [
-                    pw.Text('कुल बिक्री (Gross Sales)', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                    pw.Text('Gross Sales', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
                     pw.Text('INR ${grossSales.toStringAsFixed(0)}', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: PdfColors.blue800)),
                   ]),
                   pw.Column(children: [
-                    pw.Text('नकद गल्ला जमा', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                    pw.Text('Cash Sales', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
                     pw.Text('INR ${totalCashIn.toStringAsFixed(0)}', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
                   ]),
                   pw.Column(children: [
-                    pw.Text('बैंक / UPI कुल', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                    pw.Text('UPI / Bank', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
                     pw.Text('INR ${totalBankUpi.toStringAsFixed(0)}', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: PdfColors.purple800)),
                   ]),
                   pw.Column(children: [
-                    pw.Text('दैनिक कुल खर्च', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                    pw.Text('Total Expenses', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
                     pw.Text('INR ${totalExpenses.toStringAsFixed(0)}', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: PdfColors.red800)),
                   ]),
                   pw.Column(children: [
-                    pw.Text('गल्ला शुद्ध रोकड़', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                    pw.Text('Net Cash in Hand', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
                     pw.Text('INR ${netCashInHand.toStringAsFixed(0)}', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
                   ]),
                 ],
@@ -1089,17 +1089,17 @@ class _FullCounterAppState extends State<FullCounterApp> {
             pw.SizedBox(height: 16),
 
             // विस्तृत लेज़र टेबल
-            pw.Text('विस्तृत लेन-देन ऑडिट सूची (All Transactions):', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+            pw.Text('All Transactions Audit List:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
             pw.SizedBox(height: 6),
             pw.TableHelper.fromTextArray(
-              headers: ['दिनांक व समय', 'विवरण / मद', 'प्रकार', 'राशि (INR)'],
+              headers: ['Date & Time', 'Particulars / Description', 'Type', 'Amount (INR)'],
               data: rows.map((r) {
                 final isCashIn = (r['type'] ?? '') == 'CASH_IN';
                 final dateStr = (r['created_at'] ?? '').toString().replaceAll('T', ' ').substring(0, 16);
                 return [
                   dateStr,
                   r['title'] ?? '-',
-                  isCashIn ? 'जमा (आमद)' : 'खर्च (व्यय)',
+                  isCashIn ? 'CASH IN' : 'EXPENSE',
                   '${r['amount']}',
                 ];
               }).toList(),
@@ -1119,7 +1119,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
       await Share.shareXFiles(
         [XFile(file.path)],
-        text: '📊 ${widget.hotelName} वित्तीय लेज़र व POS ऑडिट रिपोर्ट ($rangeLabel)',
+        text: '📊 ${widget.hotelName} Financial Ledger & Sales Audit Report ($rangeLabel)',
       );
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('रिपोर्ट त्रुटि: $e')));
@@ -1258,13 +1258,12 @@ class _FullCounterAppState extends State<FullCounterApp> {
   Future<void> _shareReceiptPdf(int tbl, List<Map<String, dynamic>> items, double total) async {
     try {
       final pdf = pw.Document();
-      // नलेबिलिटी सुरक्षित हैंडलिंग
       final String rawUpi = _restoProfile?.upiId ?? '';
       final String upiId = rawUpi.isNotEmpty ? rawUpi : "aala@upi";
       final String restoAddr = _restoProfile?.address ?? '';
 
       final bool isParcel = tbl >= 900;
-      final String receiptTitle = isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल T-$tbl";
+      final String receiptTitle = isParcel ? "PARCEL (P-${tbl - 900})" : "TABLE T-$tbl";
 
       pdf.addPage(
         pw.Page(
@@ -1281,7 +1280,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text(receiptTitle, style: const pw.TextStyle(fontSize: 9)),
+                    pw.Text(receiptTitle, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
                     pw.Text("${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}", style: const pw.TextStyle(fontSize: 9)),
                   ],
                 ),
@@ -1289,9 +1288,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text("आइटम", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8)),
-                    pw.Text("मात्रा", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8)),
-                    pw.Text("रकम", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8)),
+                    pw.Text("Item", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8)),
+                    pw.Text("Qty", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8)),
+                    pw.Text("Amount", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8)),
                   ],
                 ),
                 pw.Divider(thickness: 0.2),
@@ -1307,7 +1306,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text("कुल योग (Total):", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                    pw.Text("Total Amount:", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
                     pw.Text("INR ${total.toStringAsFixed(2)}", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
                   ],
                 ),
@@ -1319,9 +1318,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   height: 65,
                 ),
                 pw.SizedBox(height: 4),
-                pw.Text("UPI से भुगतान करें", style: const pw.TextStyle(fontSize: 7)),
+                pw.Text("Scan QR to Pay via UPI", style: const pw.TextStyle(fontSize: 7)),
                 pw.Divider(thickness: 0.5),
-                pw.Text("धन्यवाद! फिर पधारें।", style: const pw.TextStyle(fontSize: 8)),
+                pw.Text("Thank You! Visit Again", style: const pw.TextStyle(fontSize: 8)),
               ],
             );
           },
@@ -1334,7 +1333,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
       await Share.shareXFiles(
         [XFile(file.path)],
-        text: "नमस्ते! ${widget.hotelName} से आपका बिल ($receiptTitle)। कुल राशि: ₹$total",
+        text: "Namaste! ${widget.hotelName} Bill ($receiptTitle). Total: INR $total",
       );
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('शेयर एरर: $e')));
@@ -1490,7 +1489,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
         builder: (c, setDState) => AlertDialog(
           title: Text(itemToEdit == null ? 'नया व्यंजन जोड़ें' : 'व्यंजन एडिट करें'),
           content: Column(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: minAxisSize,
             children: [
               TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'व्यंजन का नाम')),
               TextField(controller: priceCtrl, decoration: const InputDecoration(labelText: 'कीमत ₹'), keyboardType: TextInputType.number),
@@ -1547,10 +1546,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
       } catch (_) {}
 
       try {
-        final source = isParcel ? 'पार्सल P-${tbl - 900}' : 'टेबल T-$tbl';
+        final source = isParcel ? 'PARCEL P-${tbl - 900}' : 'Table T-$tbl';
         await Supabase.instance.client.from('daily_expenses').insert({
           'restaurant_id': widget.storeCode,
-          'title': '$source बिल बिक्री ($mode)',
+          'title': '$source Sale ($mode)',
           'amount': total,
           'type': 'CASH_IN',
           'created_at': DateTime.now().toIso8601String(),
@@ -1714,12 +1713,12 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
   void _openQuickCounterSaleDialog() {
     final List<Map<String, dynamic>> quickItems = [
-      {'name': 'पानी बोतल', 'price': 20.0},
-      {'name': 'सिगरेट (नग)', 'price': 18.0},
-      {'name': 'चिप्स पैकेट', 'price': 10.0},
-      {'name': 'बिस्किट', 'price': 10.0},
-      {'name': 'कोल्ड ड्रिंक', 'price': 40.0},
-      {'name': 'गुटखा / पाउच', 'price': 10.0},
+      {'name': 'Water Bottle', 'price': 20.0},
+      {'name': 'Cigarette', 'price': 18.0},
+      {'name': 'Chips', 'price': 10.0},
+      {'name': 'Biscuit', 'price': 10.0},
+      {'name': 'Cold Drink', 'price': 40.0},
+      {'name': 'Gutkha / Pouch', 'price': 10.0},
     ];
 
     Map<String, int> selectedCounts = {};
@@ -1740,7 +1739,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
             try {
               await Supabase.instance.client.from('daily_expenses').insert({
                 'restaurant_id': widget.storeCode,
-                'title': 'काउंटर सेल: ${selectedCounts.entries.map((e) => "${e.key}x${e.value}").join(", ")} ($mode)',
+                'title': 'Counter Sale: ${selectedCounts.entries.map((e) => "${e.key}x${e.value}").join(", ")} ($mode)',
                 'amount': totalAmount,
                 'type': 'CASH_IN',
                 'created_at': DateTime.now().toIso8601String(),
