@@ -419,22 +419,21 @@ class _FullCounterAppState extends State<FullCounterApp> {
   void _loadRestoProfile() async {
     final prefs = await SharedPreferences.getInstance();
 
+    final savedName = prefs.getString('saved_hotel_name') ?? widget.hotelName;
     final savedAddr = prefs.getString('saved_hotel_address_${widget.storeCode}') ?? '';
     final savedPhone = prefs.getString('saved_hotel_phone_${widget.storeCode}') ?? '';
     final savedUpi = prefs.getString('saved_hotel_upi_${widget.storeCode}') ?? '';
 
-    if (savedAddr.isNotEmpty || savedPhone.isNotEmpty || savedUpi.isNotEmpty) {
-      if (mounted) {
-                setState(() {
-          _restoProfile = RestaurantProfileModel.fromMap({
-            'store_code': widget.storeCode,
-            'name': widget.hotelName,
-            'phone': savedPhone,
-            'address': savedAddr,
-            'upi_id': savedUpi,
-          });
+    if (mounted) {
+      setState(() {
+        _restoProfile = RestaurantProfileModel.fromMap({
+          'store_code': widget.storeCode,
+          'name': savedName,
+          'phone': savedPhone,
+          'address': savedAddr,
+          'upi_id': savedUpi,
         });
-      }
+      });
     }
 
     try {
@@ -446,9 +445,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
       if (res != null && mounted) {
         final profile = RestaurantProfileModel.fromMap(res);
         setState(() => _restoProfile = profile);
-        await prefs.setString('saved_hotel_address_${widget.storeCode}', profile.address ?? '');
-        await prefs.setString('saved_hotel_phone_${widget.storeCode}', profile.phone ?? '');
-        await prefs.setString('saved_hotel_upi_${widget.storeCode}', profile.upiId ?? '');
+        if (profile.address != null) await prefs.setString('saved_hotel_address_${widget.storeCode}', profile.address!);
+        if (profile.phone != null) await prefs.setString('saved_hotel_phone_${widget.storeCode}', profile.phone!);
+        if (profile.upiId != null) await prefs.setString('saved_hotel_upi_${widget.storeCode}', profile.upiId!);
       }
     } catch (_) {}
   }
@@ -1038,100 +1037,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
   }
 
   // =========================================================================
-  // फ़ंक्शन 15: संपूर्ण वित्तीय ऑडिट A4 PDF जनरेटर
-  // काम: सीए/ऑडिट के लिए कुल बिक्री, नकद, बैंक व सभी खर्चों की A4 शीट तैयार करना
-  // =========================================================================
-  void _generateAndShareFinancialAuditPdf(String range, DateTimeRange? customRange) async {
-    DateTime startCutoff;
-    DateTime endCutoff = DateTime.now();
-    String rangeLabel = '';
-
-    final now = DateTime.now();
-    if (range == 'today') {
-      startCutoff = DateTime(now.year, now.month, now.day);
-      rangeLabel = 'Daily Report (${now.day}/${now.month}/${now.year})';
-    } else if (range == 'weekly') {
-      startCutoff = now.subtract(const Duration(days: 7));
-      rangeLabel = 'Weekly Ledger (Last 7 Days)';
-    } else if (range == 'monthly') {
-      startCutoff = now.subtract(const Duration(days: 30));
-      rangeLabel = 'Monthly Ledger (Last 30 Days)';
-    } else if (range == 'yearly') {
-      startCutoff = DateTime(now.year, 1, 1);
-      rangeLabel = 'Annual Financial Audit (${now.year})';
-    } else if (range == 'custom' && customRange != null) {
-      startCutoff = customRange.start;
-      endCutoff = customRange.end.add(const Duration(days: 1));
-      rangeLabel = 'Custom Range (${startCutoff.toString().substring(0, 10)} to ${customRange.end.toString().substring(0, 10)})';
-    } else {
-      startCutoff = DateTime(now.year, now.month, now.day);
-      rangeLabel = 'Daily Ledger Report';
-    }
-
-    try {
-      final res = await Supabase.instance.client
-          .from('daily_expenses')
-          .select()
-          .eq('restaurant_id', widget.storeCode)
-          .gte('created_at', startCutoff.toIso8601String())
-          .lte('created_at', endCutoff.toIso8601String())
-          .order('created_at', ascending: false);
-
-      if (res == null || (res as List).isEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('चुने गए समय में कोई हिसाब दर्ज नहीं है!')));
-        return;
-      }
-
-      final List rows = res;
-      double totalCashIn = 0.0;
-      double totalBankUpi = 0.0;
-      double totalExpenses = 0.0;
-
-      for (var r in rows) {
-        final amt = (r['amount'] as num?)?.toDouble() ?? 0.0;
-        final title = (r['title'] ?? '').toString();
-        final type = (r['type'] ?? '').toString();
-
-        if (type == 'CASH_IN') {
-          if (title.contains('(UPI)') || title.contains('बैंक')) {
-            totalBankUpi += amt;
-          } else {
-            totalCashIn += amt;
-          }
-        } else {
-          totalExpenses += amt;
-        }
-      }
-
-      final double grossSales = totalCashIn + totalBankUpi;
-      final double netCashInHand = totalCashIn - totalExpenses;
-
-      final pdf = pw.Document();
-      pdf.addPage(
-        pw.MultiPage(
-          pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(24),
-          build: (pw.Context context) => [
-            pw.Center(
-              child: pw.Text(widget.hotelName, style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
-            ),
-            pw.Center(
-              child: pw.Text('FINANCIAL LEDGER & SALES AUDIT REPORT', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700)),
-            ),
-            pw.Center(
-              child: pw.Text(rangeLabel, style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
-            ),
-            pw.Divider(thickness: 1.2),
-            pw.SizedBox(height: 8),
-
-            // समरी कार्ड्स
-            pw.Container(
-              padding: const pw.EdgeInsets.all(12),
-              decoration: pw.BoxDecoration(
-                border: pw.Border.all(color: PdfColors.grey400),
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-                color: PdfColors.grey100,
-  // =========================================================================
   // फ़ंक्शन 15: संपूर्ण वित्तीय ऑडिट A4 PDF जनरेटर (HD इमेज तकनीक - 0% क्रॉस बॉक्स)
   // काम: सीए/ऑडिट के लिए कुल बिक्री, नकद, बैंक, खर्च व शुद्ध हिंदी विवरण रेंडर करना
   // =========================================================================
@@ -1200,7 +1105,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
       final double grossSales = totalCashIn + totalBankUpi;
       final double netCashInHand = totalCashIn - totalExpenses;
 
-      // हिंदी अक्षरों को साफ़ दिखाने के लिए Flutter विजेट से HD कैप्चर
       final Uint8List reportImage = await ScreenshotController().captureFromWidget(
         Container(
           width: 780,
@@ -1337,7 +1241,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
       ],
     );
   }
-
 
   // =========================================================================
   // फ़ंक्शन 16: ब्लूटूथ प्रिंटर डायलॉग
@@ -1490,7 +1393,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
       final bool isParcel = tbl >= 900;
       final String receiptTitle = isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl";
 
-      // Flutter विजेट से HD इमेज बनाना (ताकि हिंदी अक्षर कभी क्रॉस न बनें)
       final Uint8List receiptImage = await ScreenshotController().captureFromWidget(
         Container(
           width: 360,
@@ -1555,7 +1457,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 ],
               ),
               const SizedBox(height: 10),
-              // बिना किसी पैकेज के 100% काम करने वाला असली UPI QR कोड
               Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
@@ -2063,7 +1964,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // त्वरित चिप्स
                     Wrap(
                       spacing: 6,
                       runSpacing: 6,
@@ -2084,7 +1984,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
                       }).toList(),
                     ),
                     const SizedBox(height: 10),
-                    // कस्टम सामान व मनचाहा रेट दर्ज करने का फॉर्म
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(color: Colors.blueGrey.shade50, borderRadius: BorderRadius.circular(8)),
@@ -2227,7 +2126,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
               tooltip: 'वित्तीय लेज़र व POS ऑडिट PDF',
               onPressed: _openComprehensivePdfReportModal,
             ),
-            // होटल सेटिंग्स (परमानेंट लोकल + क्लाउड सिंक सुरक्षित)
+            // होटल सेटिंग्स (लोकल + सर्वर परमानेंट राइट)
             IconButton(
               icon: const Icon(Icons.settings_outlined, color: Colors.white),
               tooltip: 'होटल सेटिंग्स',
@@ -2240,12 +2139,28 @@ class _FullCounterAppState extends State<FullCounterApp> {
                       onSave: (updated) async {
                         setState(() => _restoProfile = updated);
                         final prefs = await SharedPreferences.getInstance();
+                        await prefs.setString('saved_hotel_name', updated.name);
                         await prefs.setString('saved_hotel_address_${widget.storeCode}', updated.address ?? '');
                         await prefs.setString('saved_hotel_phone_${widget.storeCode}', updated.phone ?? '');
                         await prefs.setString('saved_hotel_upi_${widget.storeCode}', updated.upiId ?? '');
+
                         try {
-                          await Supabase.instance.client.from('restaurants').upsert(updated.toMap());
-                        } catch (_) {}
+                          await Supabase.instance.client.from('restaurants').upsert({
+                            'store_code': widget.storeCode,
+                            'name': updated.name,
+                            'phone': updated.phone,
+                            'address': updated.address,
+                            'upi_id': updated.upiId,
+                          }, onConflict: 'store_code');
+                        } catch (e) {
+                          debugPrint("Supabase save error: $e");
+                        }
+
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('✅ सेटिंग्स सफलतापूर्वक सुरक्षित कर ली गई!'), backgroundColor: Colors.teal),
+                          );
+                        }
                       },
                     ),
                   ),
@@ -2278,7 +2193,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
           ),
         ),
         body: [
-          // टैब 1: गल्ला/बैंक डैशबोर्ड, पार्सल, काउंटर सेल और टेबल्स ग्रिड
           Column(
             children: [
               Container(
