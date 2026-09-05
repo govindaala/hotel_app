@@ -2135,6 +2135,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
               onPressed: _openComprehensivePdfReportModal,
             ),
                         // होटल सेटिंग्स (स्टोर कोड के साथ)
+                        // होटल सेटिंग्स
             IconButton(
               icon: const Icon(Icons.settings_outlined, color: Colors.white),
               tooltip: 'होटल सेटिंग्स',
@@ -2145,14 +2146,35 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     builder: (_) => RestaurantSettingsScreen(
                       initialProfile: _restoProfile,
                       storeCode: widget.storeCode,
-                      onSave: (updated) {
+                      onSave: (updated) async {
                         setState(() => _restoProfile = updated);
+
+                        // लोकल मेमोरी में पक्का लिखें
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setString('saved_hotel_name', updated.name);
+                        await prefs.setString('saved_hotel_address', updated.address ?? '');
+                        await prefs.setString('saved_hotel_phone', updated.phone ?? '');
+                        await prefs.setString('saved_hotel_upi', updated.upiId ?? '');
+
+                        // Supabase पर बिना किसी एरर के सीधा अपडेट/इन्सर्ट
+                        try {
+                          await Supabase.instance.client.from('restaurants').upsert({
+                            'store_code': widget.storeCode,
+                            'name': updated.name,
+                            'phone': updated.phone,
+                            'address': updated.address,
+                            'upi_id': updated.upiId,
+                          }, onConflict: 'store_code');
+                        } catch (e) {
+                          debugPrint("Supabase save error: $e");
+                        }
                       },
                     ),
                   ),
                 );
               },
             ),
+
 
             // ब्लूटूथ प्रिंटर
             IconButton(
