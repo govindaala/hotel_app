@@ -1311,9 +1311,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
     }
   }
 
+
   // =========================================================================
-  // फ़ंक्शन 18: प्रोफ़ेशनल बिल रसीद PDF (बिना किसी क्रैश/क्रॉस बॉक्स के)
-  // काम: शुद्ध हिंदी नाम, पूरा पता, फ़ोन व इन-बिल्ट pw.BarcodeWidget से QR कोड शेयर करना
+  // फ़ंक्शन 18: प्रोफ़ेशनल बिल रसीद (HD स्क्रीनशॉट तकनीक - 0% क्रॉस बॉक्स)
+  // काम: होटल नाम, पता, फ़ोन, हिंदी डिश नाम व साफ़ प्रिंट WhatsApp पर शेयर करना
   // =========================================================================
   Future<void> _shareReceiptPdf(int tbl, List<Map<String, dynamic>> items, double total) async {
     try {
@@ -1323,79 +1324,107 @@ class _FullCounterAppState extends State<FullCounterApp> {
       final String restoPhone = _restoProfile?.phone ?? '';
 
       final bool isParcel = tbl >= 900;
-      final String receiptTitle = isParcel ? "PARCEL (P-${tbl - 900})" : "TABLE: T-$tbl";
+      final String receiptTitle = isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl";
+
+      // Flutter विजेट से HD इमेज बनाना (ताकि हिंदी अक्षर कभी क्रॉस न बनें)
+      final Uint8List receiptImage = await ScreenshotController().captureFromWidget(
+        Container(
+          width: 360,
+          color: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                widget.hotelName,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black),
+              ),
+              if (restoAddr.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(restoAddr, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                ),
+              if (restoPhone.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text("मोबाइल: $restoPhone", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)),
+                ),
+              const SizedBox(height: 6),
+              const Divider(color: Colors.black, thickness: 1.2),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(receiptTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black)),
+                  Text(
+                    "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}  ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}",
+                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+                  ),
+                ],
+              ),
+              const Divider(color: Colors.black54, thickness: 0.8),
+              const Row(
+                children: [
+                  Expanded(flex: 5, child: Text("सामग्री (Item)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black))),
+                  Expanded(flex: 2, child: Text("मात्रा", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black))),
+                  Expanded(flex: 3, child: Text("रकम (₹)", textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black))),
+                ],
+              ),
+              const Divider(color: Colors.black26),
+              ...items.map((it) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3.0),
+                child: Row(
+                  children: [
+                    Expanded(flex: 5, child: Text("${it['name']}", style: const TextStyle(fontSize: 13, color: Colors.black, fontWeight: FontWeight.w500))),
+                    Expanded(flex: 2, child: Text("x${it['qty']}", textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, color: Colors.black))),
+                    Expanded(flex: 3, child: Text("₹${(it['price'] * it['qty']).toInt()}", textAlign: TextAlign.right, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black))),
+                  ],
+                ),
+              )),
+              const Divider(color: Colors.black, thickness: 1.2),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("कुल योग (TOTAL):", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black)),
+                  Text("₹${total.toStringAsFixed(2)}", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  border: Border.all(color: Colors.black26),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  children: [
+                    Text("UPI द्वारा भुगतान: $upiId", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black)),
+                    const SizedBox(height: 2),
+                    const Text("PhonePe / GooglePay / Paytm स्वीकार्य हैं", style: TextStyle(fontSize: 10, color: Colors.black54)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Divider(color: Colors.black26),
+              const Text("धन्यवाद! फिर पधारें 🙏", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)),
+            ],
+          ),
+        ),
+        pixelRatio: 2.5,
+        delay: const Duration(milliseconds: 60),
+      );
 
       final pdf = pw.Document();
+      final pdfImg = pw.MemoryImage(receiptImage);
 
       pdf.addPage(
         pw.Page(
           pageFormat: PdfPageFormat.roll80,
-          margin: const pw.EdgeInsets.all(10),
-          build: (pw.Context context) {
-            return pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.center,
-              children: [
-                pw.Text(widget.hotelName, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 16)),
-                if (restoAddr.isNotEmpty)
-                  pw.Padding(
-                    padding: const pw.EdgeInsets.only(top: 2),
-                    child: pw.Text(restoAddr, style: const pw.TextStyle(fontSize: 9), textAlign: pw.TextAlign.center),
-                  ),
-                if (restoPhone.isNotEmpty)
-                  pw.Padding(
-                    padding: const pw.EdgeInsets.only(top: 2),
-                    child: pw.Text("Mo: $restoPhone", style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
-                  ),
-                pw.Divider(thickness: 1),
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text(receiptTitle, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-                    pw.Text("${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}", style: const pw.TextStyle(fontSize: 10)),
-                  ],
-                ),
-                pw.Divider(thickness: 0.5),
-                pw.Row(
-                  children: [
-                    pw.Expanded(flex: 5, child: pw.Text("Item", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9))),
-                    pw.Expanded(flex: 2, child: pw.Text("Qty", textAlign: pw.TextAlign.center, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9))),
-                    pw.Expanded(flex: 3, child: pw.Text("Amount (INR)", textAlign: pw.TextAlign.right, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9))),
-                  ],
-                ),
-                pw.Divider(thickness: 0.3),
-                ...items.map((it) => pw.Padding(
-                  padding: const pw.EdgeInsets.symmetric(vertical: 2),
-                  child: pw.Row(
-                    children: [
-                      pw.Expanded(flex: 5, child: pw.Text("${it['name']}", style: const pw.TextStyle(fontSize: 9))),
-                      pw.Expanded(flex: 2, child: pw.Text("x${it['qty']}", textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 9))),
-                      pw.Expanded(flex: 3, child: pw.Text("INR ${(it['price'] * it['qty']).toInt()}", textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
-                    ],
-                  ),
-                )),
-                pw.Divider(thickness: 1),
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text("Total Amount:", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
-                    pw.Text("INR ${total.toStringAsFixed(2)}", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
-                  ],
-                ),
-                pw.SizedBox(height: 10),
-                // PDF का इन-बिल्ट BarcodeWidget (बिना किसी बाहरी पैकेज के)
-                pw.BarcodeWidget(
-                  barcode: pw.Barcode.qrCode(),
-                  data: "upi://pay?pa=$upiId&pn=${widget.hotelName}&am=$total&cu=INR",
-                  width: 75,
-                  height: 75,
-                ),
-                pw.SizedBox(height: 4),
-                pw.Text("Scan QR to Pay via UPI", style: const pw.TextStyle(fontSize: 8)),
-                pw.Divider(thickness: 0.5),
-                pw.Text("Thank You! Visit Again", style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
-              ],
-            );
-          },
+          margin: const pw.EdgeInsets.all(6),
+          build: (pw.Context context) => pw.Center(child: pw.Image(pdfImg)),
         ),
       );
 
@@ -1405,7 +1434,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
       await Share.shareXFiles(
         [XFile(file.path)],
-        text: "Namaste! ${widget.hotelName} Bill ($receiptTitle). Total: INR $total",
+        text: "नमस्ते! ${widget.hotelName} से आपका बिल ($receiptTitle)। कुल राशि: ₹$total",
       );
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('शेयर एरर: $e')));
