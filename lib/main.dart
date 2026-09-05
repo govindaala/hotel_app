@@ -370,7 +370,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
   String _connectedPrinterMac = '';
   RestaurantProfileModel? _restoProfile;
 
-  // पार्सल ऑर्डर्स के लिए विशेष ट्रैकर (पॉजिटिव इंटीजर T-1 आदि से अलग 900+ कोड)
+  // पार्सल ऑर्डर्स के लिए विशेष ट्रैकर (900+ कोड)
   Map<int, List<Map<String, dynamic>>> parcelOrders = {};
 
   @override
@@ -1207,7 +1207,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
   // 1. नया बदलाव: पार्सल / टेकअवे ऑर्डर शीट खोलने का फ़ंक्शन
   // =========================================================================
   void _openParcelOrderSheet() {
-    // 901, 902 आदि पार्सल के लिए अलग ID
     final int parcelId = 900 + (parcelOrders.length + 1);
     final Map<dynamic, int> cart = {};
 
@@ -1298,6 +1297,149 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
+  // =========================================================================
+  // 2. नया बदलाव: काउंटर क्विक सेल (सिगरेट / पानी / चिप्स)
+  // =========================================================================
+  void _openQuickCounterSaleDialog() {
+    final List<Map<String, dynamic>> quickItems = [
+      {'name': 'पानी बोतल', 'price': 20.0},
+      {'name': 'सिगरेट (नग)', 'price': 18.0},
+      {'name': 'चिप्स पैकेट', 'price': 10.0},
+      {'name': 'बिस्किट', 'price': 10.0},
+      {'name': 'कोल्ड ड्रिंक', 'price': 40.0},
+      {'name': 'गुटखा / पाउच', 'price': 10.0},
+    ];
+
+    Map<String, int> selectedCounts = {};
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (c, setDState) {
+          double totalAmount = 0;
+          selectedCounts.forEach((name, qty) {
+            final item = quickItems.firstWhere((it) => it['name'] == name, orElse: () => {'price': 0.0});
+            totalAmount += (item['price'] as double) * qty;
+          });
+
+          void completeSale(String mode) async {
+            if (totalAmount <= 0) return;
+
+            // गल्ले (daily_expenses) में जमा एंट्री जोड़ना
+            try {
+              await Supabase.instance.client.from('daily_expenses').insert({
+                'restaurant_id': widget.storeCode,
+                'title': 'काउंटर सेल: ${selectedCounts.entries.map((e) => "${e.key}x${e.value}").join(", ")} ($mode)',
+                'amount': totalAmount,
+                'type': 'CASH_IN', // गल्ले में आमद
+                'created_at': DateTime.now().toIso8601String(),
+              });
+            } catch (_) {}
+
+            if (mounted) {
+              Navigator.pop(ctx);
+              VoiceService.speak("काउंटर सेल ₹${totalAmount.toInt()} प्राप्त हुए");
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('⚡ काउंटर बिक्री सफल: ₹$totalAmount ($mode) दर्ज हुआ!'),
+                  backgroundColor: Colors.teal,
+                ),
+              );
+            }
+          }
+
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.flash_on, color: Colors.amber),
+                SizedBox(width: 8),
+                Text('त्वरित काउंटर बिक्री', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: quickItems.map((it) {
+                        int count = selectedCounts[it['name']] ?? 0;
+                        return FilterChip(
+                          label: Text('${it['name']} ₹${it['price'].toInt()} ${count > 0 ? "($count)" : ""}'),
+                          selected: count > 0,
+                          selectedColor: Colors.teal.shade100,
+                          onSelected: (val) {
+                            setDState(() {
+                              selectedCounts[it['name']] = count + 1;
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const Divider(height: 24),
+                    if (selectedCounts.isNotEmpty) ...[
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () => setDState(() => selectedCounts.clear()),
+                          child: const Text('सब हटाएं', style: TextStyle(color: Colors.red)),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                        child: Column(
+                          children: selectedCounts.entries.map((e) {
+                            final item = quickItems.firstWhere((it) => it['name'] == e.key);
+                            return Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('${e.key} x ${e.value}'),
+                                Text('₹${(item['price'] as double) * e.value}'),
+                              ],
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text('कुल राशि: ₹$totalAmount', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
+                      const SizedBox(height: 12),
+                    ],
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                            onPressed: totalAmount > 0 ? () => completeSale('CASH') : null,
+                            child: const Text('💵 कैश मिला', style: TextStyle(color: Colors.white)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                            onPressed: totalAmount > 0 ? () => completeSale('UPI') : null,
+                            child: const Text('📱 UPI मिला', style: TextStyle(color: Colors.white)),
+                          ),
+                        ),
+                      ],
+                    )
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द करें')),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   void _logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
@@ -1377,29 +1519,51 @@ class _FullCounterAppState extends State<FullCounterApp> {
         ),
         body: [
           // =========================================================================
-          // टैब 1: टेबल्स व पार्सल ग्रिड (TABLES & PARCELS GRID)
+          // टैब 1: पार्सल, काउंटर क्विक सेल व मुख्य टेबल ग्रिड
           // =========================================================================
           Column(
             children: [
               // -------------------------------------------------------------
-              // 1. नया बदलाव: पार्सल / टेकअवे बटन (टेबल्स के ठीक ऊपर)
+              // पार्सल और काउंटर क्विक सेल बटन्स (Side-by-Side)
               // -------------------------------------------------------------
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.fromLTRB(12, 10, 12, 4),
-                child: ElevatedButton.icon(
-                  onPressed: _openParcelOrderSheet,
-                  icon: const Icon(Icons.takeout_dining, color: Colors.white, size: 22),
-                  label: const Text(
-                    "📦 नया पार्सल / टेकअवे ऑर्डर लें",
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.deepOrangeAccent,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    elevation: 3,
-                  ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+                child: Row(
+                  children: [
+                    // 1. पार्सल बटन
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _openParcelOrderSheet,
+                        icon: const Icon(Icons.takeout_dining, color: Colors.white, size: 20),
+                        label: const Text(
+                          "📦 पार्सल ऑर्डर",
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepOrangeAccent,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // 2. क्विक काउंटर सेल बटन
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _openQuickCounterSaleDialog,
+                        icon: const Icon(Icons.flash_on, color: Colors.amberAccent, size: 20),
+                        label: const Text(
+                          "⚡ काउंटर सेल",
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal.shade800,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
 
