@@ -370,6 +370,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
   String _connectedPrinterMac = '';
   RestaurantProfileModel? _restoProfile;
 
+  // पार्सल ऑर्डर्स के लिए विशेष ट्रैकर (पॉजिटिव इंटीजर T-1 आदि से अलग 900+ कोड)
+  Map<int, List<Map<String, dynamic>>> parcelOrders = {};
+
   @override
   void initState() {
     super.initState();
@@ -434,9 +437,16 @@ class _FullCounterAppState extends State<FullCounterApp> {
               } else if (msg['type'] == 'NEW_KOT') {
                 int tbl = msg['table'];
                 setState(() {
-                  if (!activeOrders.containsKey(tbl)) activeOrders[tbl] = [];
-                  activeOrders[tbl]!.addAll(List<Map<String, dynamic>>.from(msg['items']));
-                  tableStateMap[tbl] = 'running';
+                  if (tbl >= 900) {
+                    // पार्सल ऑर्डर
+                    if (!parcelOrders.containsKey(tbl)) parcelOrders[tbl] = [];
+                    parcelOrders[tbl]!.addAll(List<Map<String, dynamic>>.from(msg['items']));
+                  } else {
+                    // सामान्य टेबल
+                    if (!activeOrders.containsKey(tbl)) activeOrders[tbl] = [];
+                    activeOrders[tbl]!.addAll(List<Map<String, dynamic>>.from(msg['items']));
+                    tableStateMap[tbl] = 'running';
+                  }
                 });
                 _broadcastLocal(msg);
               } else if (msg['type'] == 'BILL_READY') {
@@ -507,24 +517,34 @@ class _FullCounterAppState extends State<FullCounterApp> {
       if (kots != null && mounted) {
         Map<int, List<Map<String, dynamic>>> tempOrders = {};
         Map<int, String> tempStates = {};
+        Map<int, List<Map<String, dynamic>>> tempParcels = {};
 
         for (var k in kots) {
           int tbl = k['table_no'];
           String st = k['status'];
           List items = jsonDecode(k['items'].toString());
-          if (!tempOrders.containsKey(tbl)) tempOrders[tbl] = [];
-          tempOrders[tbl]!.addAll(List<Map<String, dynamic>>.from(items));
-          if (st == 'bill_ready') tempStates[tbl] = 'bill_ready';
-          else if (!tempStates.containsKey(tbl)) tempStates[tbl] = 'running';
 
-          if (st == 'bill_ready' && !_spokenBillTables.contains(tbl)) {
-            _spokenBillTables.add(tbl);
-            VoiceService.speak("टेबल $tbl का बिल तैयार है");
+          if (tbl >= 900) {
+            // पार्सल KOT सिंक
+            if (!tempParcels.containsKey(tbl)) tempParcels[tbl] = [];
+            tempParcels[tbl]!.addAll(List<Map<String, dynamic>>.from(items));
+          } else {
+            // टेबल KOT सिंक
+            if (!tempOrders.containsKey(tbl)) tempOrders[tbl] = [];
+            tempOrders[tbl]!.addAll(List<Map<String, dynamic>>.from(items));
+            if (st == 'bill_ready') tempStates[tbl] = 'bill_ready';
+            else if (!tempStates.containsKey(tbl)) tempStates[tbl] = 'running';
+
+            if (st == 'bill_ready' && !_spokenBillTables.contains(tbl)) {
+              _spokenBillTables.add(tbl);
+              VoiceService.speak("टेबल $tbl का बिल तैयार है");
+            }
           }
         }
         setState(() {
           activeOrders = tempOrders;
           tableStateMap = tempStates;
+          parcelOrders = tempParcels;
         });
       }
     } catch (_) {}
@@ -903,8 +923,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
       final generator = Generator(PaperSize.mm58, profile);
       List<int> bytes = [];
 
+      final String headerTitle = tbl >= 900 ? '📦 पार्सल पर्ची (Takeaway)' : 'टेबल: T-$tbl';
+
       bytes += generator.text(widget.hotelName, styles: const PosStyles(align: PosAlign.center, bold: true, height: PosTextSize.size2, width: PosTextSize.size2));
-      bytes += generator.text('टेबल: T-$tbl', styles: const PosStyles(align: PosAlign.center, bold: true));
+      bytes += generator.text(headerTitle, styles: const PosStyles(align: PosAlign.center, bold: true));
       bytes += generator.text('दिनांक: ${DateTime.now().toString().substring(0, 16)}', styles: const PosStyles(align: PosAlign.center));
       bytes += generator.hr();
 
@@ -1127,13 +1149,16 @@ class _FullCounterAppState extends State<FullCounterApp> {
   }
 
   void _settleBill(int tbl) {
-    List<Map<String, dynamic>> items = activeOrders[tbl] ?? [];
+    bool isParcel = tbl >= 900;
+    List<Map<String, dynamic>> items = isParcel ? (parcelOrders[tbl] ?? []) : (activeOrders[tbl] ?? []);
     double total = items.fold(0, (sum, it) => sum + (it['price'] * it['qty']));
+
+    String titleText = isParcel ? '📦 पार्सल बिल (P-${tbl - 900}): ₹$total' : 'टेबल T-$tbl का बिल: ₹$total';
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('टेबल T-$tbl का बिल: ₹$total'),
+        title: Text(titleText),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1160,15 +1185,115 @@ class _FullCounterAppState extends State<FullCounterApp> {
               try {
                 await Supabase.instance.client.from('hotel_kots').update({'status': 'settled'}).eq('store_code', widget.storeCode).eq('table_no', tbl);
               } catch (_) {}
-              _spokenBillTables.remove(tbl);
-              setState(() {
-                activeOrders.remove(tbl);
-                tableStateMap.remove(tbl);
-              });
+              
+              if (isParcel) {
+                setState(() => parcelOrders.remove(tbl));
+              } else {
+                _spokenBillTables.remove(tbl);
+                setState(() {
+                  activeOrders.remove(tbl);
+                  tableStateMap.remove(tbl);
+                });
+              }
             },
             child: const Text('बिल सेटल करें', style: TextStyle(color: Colors.white)),
           )
         ],
+      ),
+    );
+  }
+
+  // =========================================================================
+  // 1. नया बदलाव: पार्सल / टेकअवे ऑर्डर शीट खोलने का फ़ंक्शन
+  // =========================================================================
+  void _openParcelOrderSheet() {
+    // 901, 902 आदि पार्सल के लिए अलग ID
+    final int parcelId = 900 + (parcelOrders.length + 1);
+    final Map<dynamic, int> cart = {};
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setBState) {
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.90,
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('📦 नया पार्सल ऑर्डर (P-${parcelId - 900})', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                  ],
+                ),
+                const Divider(),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('पार्सल पैक करने हेतु व्यंजन चुनें:', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+                Expanded(
+                  child: WaiterMenuOrderView(
+                    onAddItem: (item) {
+                      setBState(() {
+                        cart[item.id] = (cart[item.id] ?? 0) + 1;
+                      });
+                    },
+                  ),
+                ),
+                if (cart.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6.0),
+                    child: Text('चुने गए आइटम: ${cart.values.fold(0, (s, q) => s + q)} नग', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+                  ),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
+                    onPressed: cart.isEmpty ? null : () async {
+                      List<Map<String, dynamic>> newOrderItems = [];
+                      cart.forEach((id, qty) {
+                        if (qty > 0) {
+                          final it = kRestaurantMenu.firstWhere((e) => e.id == id);
+                          newOrderItems.add({'name': it.name, 'price': it.price, 'qty': qty});
+                        }
+                      });
+
+                      // लोकल नेटवर्क पर कुक को KOT ब्रॉडकास्ट
+                      final kotMsg = {'type': 'NEW_KOT', 'table': parcelId, 'items': newOrderItems};
+                      _broadcastLocal(kotMsg);
+
+                      // Supabase क्लाउड में सुरक्षित करना
+                      try {
+                        await Supabase.instance.client.from('hotel_kots').insert({
+                          'store_code': widget.storeCode,
+                          'table_no': parcelId,
+                          'items': jsonEncode(newOrderItems),
+                          'status': 'pending'
+                        });
+                      } catch (_) {}
+
+                      setState(() {
+                        parcelOrders[parcelId] = newOrderItems;
+                      });
+
+                      if (mounted) {
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text('पार्सल P-${parcelId - 900} का KOT कुक को भेजा गया!'),
+                          backgroundColor: Colors.green,
+                        ));
+                      }
+                    },
+                    child: const Text('पार्सल KOT कुक को भेजें ➔', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  ),
+                )
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -1188,7 +1313,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
           title: Text('${widget.hotelName} (मास्टर)', style: const TextStyle(color: Colors.white)),
           backgroundColor: const Color(0xFF0F172A),
           actions: [
-            // 1. दैनिक खर्च बटन
             IconButton(
               icon: const Icon(Icons.account_balance_wallet_outlined, color: Colors.white),
               tooltip: 'दैनिक खर्च',
@@ -1210,7 +1334,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 );
               },
             ),
-            // 2. रेस्टोरेंट प्रोफ़ाइल सेटिंग्स (⚙️) बटन
             IconButton(
               icon: const Icon(Icons.settings_outlined, color: Colors.white),
               tooltip: 'होटल सेटिंग्स',
@@ -1253,24 +1376,79 @@ class _FullCounterAppState extends State<FullCounterApp> {
           ),
         ),
         body: [
-          GridView.builder(
-            padding: const EdgeInsets.all(12),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10),
-            itemCount: widget.tables,
-            itemBuilder: (ctx, i) {
-              int tbl = i + 1;
-              String st = tableStateMap[tbl] ?? 'empty';
-              Color c = st == 'bill_ready' ? Colors.purple : (st == 'running' ? Colors.red : Colors.green);
-              String label = st == 'bill_ready' ? 'बिल तैयार 🔔' : (st == 'running' ? 'ऑर्डर चालू' : 'खाली');
-
-              return InkWell(
-                onTap: st != 'empty' ? () => _settleBill(tbl) : null,
-                child: Container(
-                  decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(10)),
-                  child: Center(child: Text('T-$tbl\n$label', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
+          // =========================================================================
+          // टैब 1: टेबल्स व पार्सल ग्रिड (TABLES & PARCELS GRID)
+          // =========================================================================
+          Column(
+            children: [
+              // -------------------------------------------------------------
+              // 1. नया बदलाव: पार्सल / टेकअवे बटन (टेबल्स के ठीक ऊपर)
+              // -------------------------------------------------------------
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+                child: ElevatedButton.icon(
+                  onPressed: _openParcelOrderSheet,
+                  icon: const Icon(Icons.takeout_dining, color: Colors.white, size: 22),
+                  label: const Text(
+                    "📦 नया पार्सल / टेकअवे ऑर्डर लें",
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.deepOrangeAccent,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    elevation: 3,
+                  ),
                 ),
-              );
-            },
+              ),
+
+              // अगर कोई चालू पार्सल है, तो उसका क्षैतिज कार्ड (Horizontal List)
+              if (parcelOrders.isNotEmpty)
+                Container(
+                  height: 60,
+                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: parcelOrders.entries.map((e) {
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8.0),
+                        child: ActionChip(
+                          backgroundColor: Colors.deepOrange.shade100,
+                          avatar: const Icon(Icons.shopping_bag, color: Colors.deepOrange, size: 18),
+                          label: Text('P-${e.key - 900} (बिल करें)', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+                          onPressed: () => _settleBill(e.key),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+
+              // -------------------------------------------------------------
+              // मुख्य डाइन-इन टेबल ग्रिड (DINE-IN TABLES GRID)
+              // -------------------------------------------------------------
+              Expanded(
+                child: GridView.builder(
+                  padding: const EdgeInsets.all(12),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10),
+                  itemCount: widget.tables,
+                  itemBuilder: (ctx, i) {
+                    int tbl = i + 1;
+                    String st = tableStateMap[tbl] ?? 'empty';
+                    Color c = st == 'bill_ready' ? Colors.purple : (st == 'running' ? Colors.red : Colors.green);
+                    String label = st == 'bill_ready' ? 'बिल तैयार 🔔' : (st == 'running' ? 'ऑर्डर चालू' : 'खाली');
+
+                    return InkWell(
+                      onTap: st != 'empty' ? () => _settleBill(tbl) : null,
+                      child: Container(
+                        decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(10)),
+                        child: Center(child: Text('T-$tbl\n$label', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
           Scaffold(
             floatingActionButton: FloatingActionButton(
@@ -1722,7 +1900,11 @@ class _FullCookAppState extends State<FullCookApp> {
             if (msg['type'] == 'NEW_KOT' && mounted) {
               int tbl = msg['table'];
               setState(() => kitchenOrders.insert(0, Map<String, dynamic>.from(msg)));
-              VoiceService.speak("टेबल $tbl पर नया ऑर्डर आया है");
+              if (tbl >= 900) {
+                VoiceService.speak("नया पार्सल ऑर्डर आया है");
+              } else {
+                VoiceService.speak("टेबल $tbl पर नया ऑर्डर आया है");
+              }
             }
           } catch (_) {}
         }
@@ -1769,7 +1951,11 @@ class _FullCookAppState extends State<FullCookApp> {
 
           if (!_spokenOrderKots.contains(id)) {
             _spokenOrderKots.add(id);
-            VoiceService.speak("टेबल $tbl पर नया ऑर्डर आया है");
+            if (tbl >= 900) {
+              VoiceService.speak("नया पार्सल ऑर्डर आया है");
+            } else {
+              VoiceService.speak("टेबल $tbl पर नया ऑर्डर आया है");
+            }
           }
         }
         setState(() => kitchenOrders = loaded);
@@ -1875,6 +2061,8 @@ class _FullCookAppState extends State<FullCookApp> {
                             itemBuilder: (ctx, i) {
                               final ord = kitchenOrders[i];
                               final items = ord['items'] as List;
+                              final bool isParcel = ord['table'] >= 900;
+
                               return Card(
                                 child: Padding(
                                   padding: const EdgeInsets.all(12),
@@ -1884,8 +2072,19 @@ class _FullCookAppState extends State<FullCookApp> {
                                       Row(
                                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                         children: [
-                                          Text('टेबल: T-${ord['table']}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
-                                          ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.teal), onPressed: () => _markOrderReady(i), child: const Text('तैयार ✓', style: TextStyle(color: Colors.white))),
+                                          Text(
+                                            isParcel ? '📦 पार्सल: P-${ord['table'] - 900}' : 'टेबल: T-${ord['table']}',
+                                            style: TextStyle(
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.bold,
+                                              color: isParcel ? Colors.deepOrange : Colors.teal,
+                                            ),
+                                          ),
+                                          ElevatedButton(
+                                            style: ElevatedButton.styleFrom(backgroundColor: isParcel ? Colors.deepOrange : Colors.teal),
+                                            onPressed: () => _markOrderReady(i),
+                                            child: const Text('तैयार ✓', style: TextStyle(color: Colors.white)),
+                                          ),
                                         ],
                                       ),
                                       const Divider(),
