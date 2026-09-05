@@ -15,8 +15,9 @@ import 'package:share_plus/share_plus.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:ota_update/ota_update.dart';
+import 'package:barcode_widget/barcode_widget.dart';
 
-// नए मॉड्यूल्स
+// नए मॉड्यूल्स व स्क्रीन फ़ाइलें
 import 'models/restaurant_profile_model.dart';
 import 'models/expense_model.dart';
 import 'screens/admin/restaurant_settings_screen.dart';
@@ -24,15 +25,17 @@ import 'screens/admin/daily_expense_screen.dart';
 import 'screens/waiter/waiter_menu_order_view.dart';
 import 'Data/Menu_data_source.dart';
 
+// Supabase डेटाबेस कॉन्फ़िगरेशन
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
 
 // ऐप का वर्तमान वर्शन कोड (v4)
 const int currentAppVersionCode = 4;
 
-// ==========================================
-// 1. हिंदी वॉयस इंजन (Text-to-Speech)
-// ==========================================
+// =========================================================================
+// फ़ंक्शन 1: हिंदी वॉयस इंजन (Text-to-Speech)
+// काम: नया ऑर्डर आने, बिल तैयार होने या पेमेंट मिलने पर हिंदी में बोलकर सूचना देना
+// =========================================================================
 class VoiceService {
   static final FlutterTts _tts = FlutterTts();
   static bool _isInit = false;
@@ -56,9 +59,10 @@ class VoiceService {
   }
 }
 
-// ==========================================
-// बैकग्राउंड ऑटो-अपडेट चेकर व डाउनलोडर
-// ==========================================
+// =========================================================================
+// फ़ंक्शन 2: बैकग्राउंड ऑटो-अपडेट चेकर व डाउनलोडर
+// काम: GitHub पर नया APK आने पर इन-ऐप पॉपअप दिखाना और डाउनलोड करना
+// =========================================================================
 Future<void> checkForAppUpdates(BuildContext context) async {
   try {
     final response = await http.get(Uri.parse('https://govindaala.github.io/hotel_app/app_config.json?t=${DateTime.now().millisecondsSinceEpoch}'));
@@ -138,6 +142,7 @@ Future<void> checkForAppUpdates(BuildContext context) async {
   } catch (_) {}
 }
 
+// डिफ़ॉल्ट होटल मेन्यू लोड करना
 final List<Map<String, dynamic>> defaultHotelMenu = kRestaurantMenu.map((m) => {
   'id': m.id,
   'name': m.name,
@@ -146,6 +151,10 @@ final List<Map<String, dynamic>> defaultHotelMenu = kRestaurantMenu.map((m) => {
   'available': true,
 }).toList();
 
+// =========================================================================
+// फ़ंक्शन 3: मुख्य मेन (main) फ़ंक्शन
+// काम: ऐप स्टार्टअप, Supabase व वॉयस इनिशियलाइज़ेशन और ऑटो-लॉगिन चेक
+// =========================================================================
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
@@ -178,9 +187,10 @@ void main() async {
   ));
 }
 
-// ==========================================
-// 2. ऐप गेटवे (रोल चयन)
-// ==========================================
+// =========================================================================
+// फ़ंक्शन 4: ऐप गेटवे (रोल चयन स्क्रीन)
+// काम: काउंटर, वेटर और कुक में से किसी एक मोड को चुनना
+// =========================================================================
 class AppGateway extends StatefulWidget {
   const AppGateway({super.key});
   @override
@@ -237,9 +247,10 @@ class _AppGatewayState extends State<AppGateway> {
   }
 }
 
-// ==========================================
-// 3. लॉगिन स्क्रीन
-// ==========================================
+// =========================================================================
+// फ़ंक्शन 5: स्टाफ़ ऑथेंटिकेशन / लॉगिन स्क्रीन
+// काम: स्टोर कोड और 4-अंक पिन से मास्टर, वेटर व कुक का सुरक्षित लॉगिन
+// =========================================================================
 class StaffAuthScreen extends StatefulWidget {
   final String role;
   const StaffAuthScreen({super.key, required this.role});
@@ -342,9 +353,10 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
   }
 }
 
-// ==========================================
-// 4. काउंटर मास्टर ऐप
-// ==========================================
+// =========================================================================
+// फ़ंक्शन 6: काउंटर मास्टर ऐप (मुख्य स्क्रीन)
+// काम: बिलिंग, लोकल सॉकेट सर्वर, टेबल्स व पार्सल मैनेजमेंट
+// =========================================================================
 class FullCounterApp extends StatefulWidget {
   final String storeCode, hotelName;
   final int tables;
@@ -401,6 +413,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
     super.dispose();
   }
 
+  // =========================================================================
+  // फ़ंक्शन 7: होटल प्रोफ़ाइल लोड करना
+  // काम: Supabase से होटल का नाम, पता, फ़ोन और UPI ID प्राप्त करना
+  // =========================================================================
   void _loadRestoProfile() async {
     try {
       final res = await Supabase.instance.client
@@ -414,6 +430,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
+  // =========================================================================
+  // फ़ंक्शन 8: ब्लूटूथ प्रिंटर स्थिति जांच
+  // काम: थर्मल प्रिंटर कनेक्टेड है या नहीं यह स्टेटस बार में दिखाना
+  // =========================================================================
   void _checkPrinterStatus() async {
     try {
       final bool status = await PrintBluetoothThermal.connectionStatus;
@@ -421,6 +441,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
+  // =========================================================================
+  // फ़ंक्शन 9: दैनिक बैलेंस व रोकड़ फेच करना
+  // काम: दिन भर का नकद गल्ला, UPI बैंक बिक्री और कुल खर्च का हिसाब निकालना
+  // =========================================================================
   void _fetchDailyBalances() async {
     try {
       final todayStart = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day).toIso8601String();
@@ -460,6 +484,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
+  // =========================================================================
+  // फ़ंक्शन 10: ऑफ़लाइन लोकल वाई-फ़ाई सॉकेट सर्वर
+  // काम: बिना इंटरनेट के वेटर, कुक और काउंटर के बीच KOT और मेन्यू तुरंत शेयर करना
+  // =========================================================================
   void _startLocalSocketServer() async {
     try {
       for (var interface in await NetworkInterface.list()) {
@@ -514,6 +542,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
+  // लोकल नेटवर्क पर सभी डिवाइस को डेटा भेजना
   void _broadcastLocal(dynamic data) {
     for (var c in List<Socket>.from(connectedClients)) {
       try {
@@ -524,6 +553,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     }
   }
 
+  // लोकल स्टोरेज से मेन्यू लोड करना
   void _loadMenu() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('saved_menu_${widget.storeCode}');
@@ -535,12 +565,17 @@ class _FullCounterAppState extends State<FullCounterApp> {
     }
   }
 
+  // मेन्यू को सेव व ब्रॉडकास्ट करना
   void _saveMenu() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
     _broadcastLocal({'type': 'MENU_DATA', 'menu': hotelMenu});
   }
 
+  // =========================================================================
+  // फ़ंक्शन 11: क्लाउड सिंक
+  // काम: Supabase से KOT, राशन मांग और टेबल स्थिति को सिंक में रखना
+  // =========================================================================
   void _syncMasterData() async {
     try {
       final tenDaysAgo = DateTime.now().subtract(const Duration(days: 10)).toIso8601String();
@@ -594,6 +629,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
+  // राशन सामान 'आ गया' मार्क करना
   void _toggleRationReceived(String id, bool currentStatus) async {
     try {
       await Supabase.instance.client.from('ration_demands').update({'is_received': !currentStatus}).eq('id', id);
@@ -601,6 +637,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
+  // =========================================================================
+  // फ़ंक्शन 12: राशन PDF फ़िल्टर मॉडल
+  // काम: बाज़ार जाने से पहले सामान, दिन और पेंडिंग आधार पर फ़िल्टर चुनना
+  // =========================================================================
   void _openRationExportFilterModal() {
     if (rationDemands.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('निर्यात के लिए कोई राशन डेटा उपलब्ध नहीं है')));
@@ -729,6 +769,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
+  // =========================================================================
+  // फ़ंक्शन 13: राशन मांग पर्ची PDF तैयार करना
+  // काम: स्क्रीनशॉट तकनीक से शुद्ध हिंदी में पर्ची बनाकर WhatsApp पर शेयर करना
+  // =========================================================================
   void _processAndExportRationPdf(String period, bool onlyPending, bool autoMergeQty, Set<String> selectedItems) async {
     DateTime cutoff = DateTime.now().subtract(const Duration(days: 10));
     if (period == 'today') {
@@ -817,7 +861,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 },
                 children: [
                   const TableRow(
-                    decoration: const BoxDecoration(color: Color(0xFFF1F5F9)),
+                    decoration: BoxDecoration(color: Color(0xFFF1F5F9)),
                     children: [
                       Padding(padding: EdgeInsets.all(8), child: Text('सामग्री व मात्रा', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black))),
                       Padding(padding: EdgeInsets.all(8), child: Text('स्थिति', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black))),
@@ -872,7 +916,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
   }
 
   // =========================================================================
-  // 5. संपूर्ण वित्तीय लेज़र व POS ऑडिट PDF जनरेटर
+  // फ़ंक्शन 14: वित्तीय लेज़र व POS ऑडिट PDF मोडल
+  // काम: दैनिक, साप्ताहिक, मासिक या कस्टम तिथियों की वित्तीय ऑडिट चुनना
   // =========================================================================
   void _openComprehensivePdfReportModal() {
     String selectedRange = 'today';
@@ -969,6 +1014,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
+  // =========================================================================
+  // फ़ंक्शन 15: संपूर्ण वित्तीय ऑडिट A4 PDF जनरेटर
+  // काम: सीए/ऑडिट के लिए कुल बिक्री, नकद, बैंक व सभी खर्चों की A4 शीट तैयार करना
+  // =========================================================================
   void _generateAndShareFinancialAuditPdf(String range, DateTimeRange? customRange) async {
     DateTime startCutoff;
     DateTime endCutoff = DateTime.now();
@@ -1052,7 +1101,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
             pw.Divider(thickness: 1.2),
             pw.SizedBox(height: 8),
 
-            // समरी कार्ड्स (अंग्रेज़ी लेबल्स ताकि क्रॉस न बनें)
+            // समरी कार्ड्स
             pw.Container(
               padding: const pw.EdgeInsets.all(12),
               decoration: pw.BoxDecoration(
@@ -1126,6 +1175,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
     }
   }
 
+  // =========================================================================
+  // फ़ंक्शन 16: ब्लूटूथ प्रिंटर चयन व कनेक्शन डायलॉग
+  // काम: 58mm थर्मल प्रिंटर खोजना, पेयर करना और कनेक्ट करना
+  // =========================================================================
   void _showPrinterDialog() async {
     List<BluetoothInfo> availablePrinters = [];
     bool scanning = true;
@@ -1206,6 +1259,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
+  // =========================================================================
+  // फ़ंक्शन 17: ब्लूटूथ थर्मल रसीद प्रिंटिंग (58mm)
+  // काम: टेबल या पार्सल का हार्डवेयर प्रिंटर से पर्ची प्रिंट निकालना
+  // =========================================================================
   Future<void> _printBillReceipt(int tbl, List<Map<String, dynamic>> items, double total) async {
     final bool isConn = await PrintBluetoothThermal.connectionStatus;
     if (!isConn) {
@@ -1255,75 +1312,116 @@ class _FullCounterAppState extends State<FullCounterApp> {
     }
   }
 
+  // =========================================================================
+  // फ़ंक्शन 18: प्रोफ़ेशनल WhatsApp बिल रसीद PDF (HD इमेज-टू-PDF)
+  // काम: होटल का नाम, पूरा पता, फ़ोन, हिंदी डिश नाम व UPI QR कोड साफ़ शेयर करना
+  // =========================================================================
   Future<void> _shareReceiptPdf(int tbl, List<Map<String, dynamic>> items, double total) async {
     try {
-      final pdf = pw.Document();
       final String rawUpi = _restoProfile?.upiId ?? '';
       final String upiId = rawUpi.isNotEmpty ? rawUpi : "aala@upi";
       final String restoAddr = _restoProfile?.address ?? '';
+      final String restoPhone = _restoProfile?.phone ?? '';
 
       final bool isParcel = tbl >= 900;
-      final String receiptTitle = isParcel ? "PARCEL (P-${tbl - 900})" : "TABLE T-$tbl";
+      final String receiptTitle = isParcel ? "PARCEL (P-${tbl - 900})" : "TABLE: T-$tbl";
+
+      // HD इमेज कैप्चरिंग - ताकि हिंदी अक्षर क्रॉस/बॉक्स न बनें
+      final Uint8List receiptImage = await ScreenshotController().captureFromWidget(
+        Container(
+          width: 380,
+          color: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                widget.hotelName,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black),
+              ),
+              if (restoAddr.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(restoAddr, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                ),
+              if (restoPhone.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text("मो: $restoPhone", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87)),
+                ),
+              const SizedBox(height: 6),
+              const Divider(color: Colors.black, thickness: 1.2),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(receiptTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black)),
+                  Text(
+                    "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}  ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}",
+                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+                  ),
+                ],
+              ),
+              const Divider(color: Colors.black54, thickness: 0.8),
+              const Row(
+                children: [
+                  Expanded(flex: 5, child: Text("सामग्री (Item)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                  Expanded(flex: 2, child: Text("मात्रा", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                  Expanded(flex: 3, child: Text("रकम (₹)", textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                ],
+              ),
+              const Divider(color: Colors.black26),
+              ...items.map((it) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3.0),
+                child: Row(
+                  children: [
+                    Expanded(flex: 5, child: Text("${it['name']}", style: const TextStyle(fontSize: 13, color: Colors.black, fontWeight: FontWeight.w500))),
+                    Expanded(flex: 2, child: Text("x${it['qty']}", textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, color: Colors.black))),
+                    Expanded(flex: 3, child: Text("₹${(it['price'] * it['qty']).toInt()}", textAlign: TextAlign.right, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black))),
+                  ],
+                ),
+              )),
+              const Divider(color: Colors.black, thickness: 1.2),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("कुल योग (TOTAL):", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black)),
+                  Text("₹${total.toStringAsFixed(2)}", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // UPI QR Code
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(border: Border.all(color: Colors.black26), borderRadius: BorderRadius.circular(6)),
+                child: BarcodeWidget(
+                  barcode: Barcode.qrCode(),
+                  data: "upi://pay?pa=$upiId&pn=${Uri.encodeComponent(widget.hotelName)}&am=$total&cu=INR",
+                  width: 110,
+                  height: 110,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text("UPI द्वारा भुगतान हेतु QR स्कैन करें", style: TextStyle(fontSize: 10, color: Colors.black87)),
+              const SizedBox(height: 8),
+              const Divider(color: Colors.black26),
+              const Text("धन्यवाद! आपका दिन शुभ हो 🙏", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)),
+            ],
+          ),
+        ),
+        pixelRatio: 2.5,
+        delay: const Duration(milliseconds: 60),
+      );
+
+      final pdf = pw.Document();
+      final pdfImg = pw.MemoryImage(receiptImage);
 
       pdf.addPage(
         pw.Page(
-          pageFormat: PdfPageFormat.roll57,
-          margin: const pw.EdgeInsets.all(10),
-          build: (pw.Context context) {
-            return pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.center,
-              children: [
-                pw.Text(widget.hotelName, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 13)),
-                if (restoAddr.isNotEmpty)
-                  pw.Text(restoAddr, style: const pw.TextStyle(fontSize: 8)),
-                pw.Divider(thickness: 0.5),
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text(receiptTitle, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
-                    pw.Text("${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}", style: const pw.TextStyle(fontSize: 9)),
-                  ],
-                ),
-                pw.Divider(thickness: 0.5),
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text("Item", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8)),
-                    pw.Text("Qty", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8)),
-                    pw.Text("Amount", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8)),
-                  ],
-                ),
-                pw.Divider(thickness: 0.2),
-                ...items.map((it) => pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text("${it['name']}", style: const pw.TextStyle(fontSize: 8)),
-                    pw.Text("x${it['qty']}", style: const pw.TextStyle(fontSize: 8)),
-                    pw.Text("INR ${(it['price'] * it['qty']).toInt()}", style: const pw.TextStyle(fontSize: 8)),
-                  ],
-                )),
-                pw.Divider(thickness: 0.5),
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text("Total Amount:", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-                    pw.Text("INR ${total.toStringAsFixed(2)}", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-                  ],
-                ),
-                pw.SizedBox(height: 6),
-                pw.BarcodeWidget(
-                  barcode: pw.Barcode.qrCode(),
-                  data: "upi://pay?pa=$upiId&pn=${widget.hotelName}&am=$total&cu=INR",
-                  width: 65,
-                  height: 65,
-                ),
-                pw.SizedBox(height: 4),
-                pw.Text("Scan QR to Pay via UPI", style: const pw.TextStyle(fontSize: 7)),
-                pw.Divider(thickness: 0.5),
-                pw.Text("Thank You! Visit Again", style: const pw.TextStyle(fontSize: 8)),
-              ],
-            );
-          },
+          pageFormat: PdfPageFormat.roll80,
+          margin: const pw.EdgeInsets.all(5),
+          build: (pw.Context context) => pw.Center(child: pw.Image(pdfImg)),
         ),
       );
 
@@ -1333,13 +1431,17 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
       await Share.shareXFiles(
         [XFile(file.path)],
-        text: "Namaste! ${widget.hotelName} Bill ($receiptTitle). Total: INR $total",
+        text: "नमस्ते! ${widget.hotelName} से आपका बिल ($receiptTitle)। कुल राशि: ₹$total",
       );
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('शेयर एरर: $e')));
     }
   }
 
+  // =========================================================================
+  // फ़ंक्शन 19: स्टाफ़ प्रबंधन डायलॉग
+  // काम: कुक व वेटर की ID जोड़ना, पिन सेट करना और हटाना
+  // =========================================================================
   void _showStaffManagementDialog() {
     final staffIdCtrl = TextEditingController();
     final pinCtrl = TextEditingController();
@@ -1478,6 +1580,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
+  // =========================================================================
+  // फ़ंक्शन 20: मेन्यू जोड़ना व एडिट करना
+  // काम: नया व्यंजन जोड़ना, उसकी दर बदलना या श्रेणी तय करना
+  // =========================================================================
   void _openAddEditMenuModal([Map<String, dynamic>? itemToEdit, int? editIndex]) {
     final nameCtrl = TextEditingController(text: itemToEdit?['name'] ?? '');
     final priceCtrl = TextEditingController(text: itemToEdit != null ? itemToEdit['price'].toString() : '');
@@ -1532,6 +1638,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
+  // =========================================================================
+  // फ़ंक्शन 21: टेबल व पार्सल बिल सेटलमेंट
+  // काम: नकद या UPI पेमेंट लेकर टेबल खाली करना और लेज़र में एंट्री करना
+  // =========================================================================
   void _settleBill(int tbl) {
     bool isParcel = tbl >= 900;
     List<Map<String, dynamic>> items = isParcel ? (parcelOrders[tbl] ?? []) : (activeOrders[tbl] ?? []);
@@ -1546,10 +1656,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
       } catch (_) {}
 
       try {
-        final source = isParcel ? 'PARCEL P-${tbl - 900}' : 'Table T-$tbl';
+        final source = isParcel ? 'पार्सल P-${tbl - 900}' : 'टेबल T-$tbl';
         await Supabase.instance.client.from('daily_expenses').insert({
           'restaurant_id': widget.storeCode,
-          'title': '$source Sale ($mode)',
+          'title': '$source बिल बिक्री ($mode)',
           'amount': total,
           'type': 'CASH_IN',
           'created_at': DateTime.now().toIso8601String(),
@@ -1622,6 +1732,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
+  // =========================================================================
+  // फ़ंक्शन 22: टेकअवे / पार्सल ऑर्डर शीट
+  // काम: पार्सल (P-1, P-2...) KOT तैयार करके सीधा किचन को भेजना
+  // =========================================================================
   void _openParcelOrderSheet() {
     final int parcelId = 900 + (parcelOrders.length + 1);
     final Map<dynamic, int> cart = {};
@@ -1711,35 +1825,37 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
+  // =========================================================================
+  // फ़ंक्शन 23: त्वरित काउंटर बिक्री (डायनामिक 50+ वैरायटी व कस्टम रेट)
+  // काम: सिगरेट, पानी या अन्य किसी भी सामान का नाम व कीमत तुरंत डालकर बिक्री दर्ज करना
+  // =========================================================================
   void _openQuickCounterSaleDialog() {
     final List<Map<String, dynamic>> quickItems = [
-      {'name': 'Water Bottle', 'price': 20.0},
-      {'name': 'Cigarette', 'price': 18.0},
-      {'name': 'Chips', 'price': 10.0},
-      {'name': 'Biscuit', 'price': 10.0},
-      {'name': 'Cold Drink', 'price': 40.0},
-      {'name': 'Gutkha / Pouch', 'price': 10.0},
+      {'name': 'पानी बोतल', 'price': 20.0},
+      {'name': 'सिगरेट', 'price': 18.0},
+      {'name': 'चिप्स', 'price': 10.0},
+      {'name': 'बिस्किट', 'price': 10.0},
+      {'name': 'कोल्ड ड्रिंक', 'price': 40.0},
     ];
 
-    Map<String, int> selectedCounts = {};
+    List<Map<String, dynamic>> saleCart = [];
+    final customNameCtrl = TextEditingController();
+    final customPriceCtrl = TextEditingController();
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (c, setDState) {
-          double totalAmount = 0;
-          selectedCounts.forEach((name, qty) {
-            final item = quickItems.firstWhere((it) => it['name'] == name, orElse: () => {'price': 0.0});
-            totalAmount += (item['price'] as double) * qty;
-          });
+          double totalAmount = saleCart.fold(0.0, (sum, it) => sum + (it['price'] * it['qty']));
 
           void completeSale(String mode) async {
             if (totalAmount <= 0) return;
 
+            final String desc = saleCart.map((e) => "${e['name']}x${e['qty']}").join(", ");
             try {
               await Supabase.instance.client.from('daily_expenses').insert({
                 'restaurant_id': widget.storeCode,
-                'title': 'Counter Sale: ${selectedCounts.entries.map((e) => "${e.key}x${e.value}").join(", ")} ($mode)',
+                'title': 'काउंटर सेल: $desc ($mode)',
                 'amount': totalAmount,
                 'type': 'CASH_IN',
                 'created_at': DateTime.now().toIso8601String(),
@@ -1774,48 +1890,87 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // त्वरित चिप्स
                     Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                      spacing: 6,
+                      runSpacing: 6,
                       children: quickItems.map((it) {
-                        int count = selectedCounts[it['name']] ?? 0;
-                        return FilterChip(
-                          label: Text('${it['name']} ₹${it['price'].toInt()} ${count > 0 ? "($count)" : ""}'),
-                          selected: count > 0,
-                          selectedColor: Colors.teal.shade100,
-                          onSelected: (val) {
+                        return ActionChip(
+                          label: Text('${it['name']} ₹${it['price'].toInt()}'),
+                          onPressed: () {
                             setDState(() {
-                              selectedCounts[it['name']] = count + 1;
+                              final idx = saleCart.indexWhere((e) => e['name'] == it['name']);
+                              if (idx != -1) {
+                                saleCart[idx]['qty'] += 1;
+                              } else {
+                                saleCart.add({'name': it['name'], 'price': it['price'], 'qty': 1});
+                              }
                             });
                           },
                         );
                       }).toList(),
                     ),
-                    const Divider(height: 24),
-                    if (selectedCounts.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    // कस्टम सामान व मनचाहा रेट दर्ज करने का फॉर्म
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: Colors.blueGrey.shade50, borderRadius: BorderRadius.circular(8)),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(child: TextField(controller: customNameCtrl, decoration: const InputDecoration(labelText: 'सामान का नाम (कस्टम)', isDense: true))),
+                              const SizedBox(width: 8),
+                              Expanded(child: TextField(controller: customPriceCtrl, decoration: const InputDecoration(labelText: 'कीमत ₹', isDense: true), keyboardType: TextInputType.number)),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.add, size: 16),
+                              label: const Text('जोड़ें'),
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A), foregroundColor: Colors.white),
+                              onPressed: () {
+                                final n = customNameCtrl.text.trim();
+                                final p = double.tryParse(customPriceCtrl.text.trim()) ?? 0.0;
+                                if (n.isNotEmpty && p > 0) {
+                                  setDState(() {
+                                    final idx = saleCart.indexWhere((e) => e['name'] == n);
+                                    if (idx != -1) {
+                                      saleCart[idx]['qty'] += 1;
+                                    } else {
+                                      saleCart.add({'name': n, 'price': p, 'qty': 1});
+                                    }
+                                    customNameCtrl.clear();
+                                    customPriceCtrl.clear();
+                                  });
+                                }
+                              },
+                            ),
+                          )
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 20),
+                    if (saleCart.isNotEmpty) ...[
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
-                          onPressed: () => setDState(() => selectedCounts.clear()),
+                          onPressed: () => setDState(() => saleCart.clear()),
                           child: const Text('सब हटाएं', style: TextStyle(color: Colors.red)),
                         ),
                       ),
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
-                        child: Column(
-                          children: selectedCounts.entries.map((e) {
-                            final item = quickItems.firstWhere((it) => it['name'] == e.key);
-                            return Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('${e.key} x ${e.value}'),
-                                Text('₹${(item['price'] as double) * e.value}'),
-                              ],
-                            );
-                          }).toList(),
+                      ...saleCart.map((it) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('${it['name']} x ${it['qty']}'),
+                            Text('₹${(it['price'] * it['qty']).toInt()}'),
+                          ],
                         ),
-                      ),
+                      )),
                       const SizedBox(height: 8),
                       Text('कुल राशि: ₹$totalAmount', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
                       const SizedBox(height: 12),
@@ -1826,7 +1981,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                           child: ElevatedButton(
                             style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                             onPressed: totalAmount > 0 ? () => completeSale('CASH') : null,
-                            child: const Text('💵 कैश मिला', style: TextStyle(color: Colors.white)),
+                            child: const Text('💵 नकद मिला', style: TextStyle(color: Colors.white)),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -1852,6 +2007,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
+  // लॉगआउट फ़ंक्शन
   void _logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
@@ -1869,7 +2025,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
           title: Text('${widget.hotelName} (मास्टर)', style: const TextStyle(color: Colors.white)),
           backgroundColor: const Color(0xFF0F172A),
           actions: [
-            // 1. दैनिक खर्च व गल्ला
+            // दैनिक खर्च व गल्ला
             IconButton(
               icon: const Icon(Icons.account_balance_wallet_outlined, color: Colors.white),
               tooltip: 'दैनिक खर्च व गल्ला',
@@ -1892,13 +2048,13 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 );
               },
             ),
-            // 2. वित्तीय लेज़र व POS ऑडिट PDF रिपोर्ट बटन
+            // वित्तीय लेज़र व POS ऑडिट PDF रिपोर्ट बटन
             IconButton(
               icon: const Icon(Icons.analytics_outlined, color: Colors.cyanAccent),
               tooltip: 'वित्तीय लेज़र व POS ऑडिट PDF',
               onPressed: _openComprehensivePdfReportModal,
             ),
-            // 3. होटल सेटिंग्स
+            // होटल सेटिंग्स
             IconButton(
               icon: const Icon(Icons.settings_outlined, color: Colors.white),
               tooltip: 'होटल सेटिंग्स',
@@ -1919,21 +2075,21 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 );
               },
             ),
-            // 4. ब्लूटूथ प्रिंटर
+            // ब्लूटूथ प्रिंटर
             IconButton(
               icon: Icon(Icons.print, color: _isPrinterConnected ? Colors.greenAccent : Colors.white),
               tooltip: 'ब्लूटूथ प्रिंटर कनेक्ट करें',
               onPressed: _showPrinterDialog,
             ),
-            // 5. स्टाफ़ प्रबंधन
+            // स्टाफ़ प्रबंधन
             IconButton(
               icon: const Icon(Icons.group, color: Colors.orangeAccent),
               tooltip: 'स्टाफ़ प्रबंधन (कुक/वेटर)',
               onPressed: _showStaffManagementDialog,
             ),
-            // 6. राशन पर्ची
+            // राशन पर्ची
             IconButton(icon: const Icon(Icons.shopping_cart_checkout, color: Colors.amber), tooltip: 'राशन मांग पर्ची', onPressed: _openRationExportFilterModal),
-            // 7. लॉगआउट
+            // लॉगआउट
             IconButton(icon: const Icon(Icons.logout, color: Colors.redAccent), tooltip: 'लॉगआउट', onPressed: _logout),
           ],
           bottom: PreferredSize(
@@ -2136,9 +2292,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
   }
 }
 
-// ==========================================
-// 5. वेटर ऐप
-// ==========================================
+// =========================================================================
+// फ़ंक्शन 24: वेटर ऐप (टेबल ऑर्डर व KOT प्रेषण)
+// काम: वेटर द्वारा टेबल पर खाना बुक करना, री-ऑर्डर व किचन KOT भेजना
+// =========================================================================
 class FullWaiterApp extends StatefulWidget {
   final String storeCode, staffId;
   final int tables;
@@ -2455,9 +2612,10 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
   }
 }
 
-// ==========================================
-// 6. कुक ऐप
-// ==========================================
+// =========================================================================
+// फ़ंक्शन 25: कुक किचन डिस्प्ले सिस्टम (KDS)
+// काम: बावर्ची को लाइव ऑर्डर्स दिखाना, 'तैयार' मार्क करना व राशन मांग भेजना
+// =========================================================================
 class FullCookApp extends StatefulWidget {
   final String storeCode;
   const FullCookApp({super.key, required this.storeCode});
