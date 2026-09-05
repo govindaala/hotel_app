@@ -1,7 +1,7 @@
 import '../models/restaurant_profile_model.dart';
 
 class DynamicReceiptService {
-  // ================= 1. A4 वित्तीय रिपोर्ट HTML (कटेगा नहीं, पूर्ण A4 साइज़) =================
+  // ================= 1. A4 वित्तीय रिपोर्ट HTML =================
   static String generateFinancialReportHtml({
     required RestaurantProfileModel restaurant,
     required String startDate,
@@ -70,14 +70,7 @@ class DynamicReceiptService {
           text-align: right;
           color: #ea580c;
         }
-        .summary-container {
-          display: flex;
-          justify-content: space-between;
-          margin-bottom: 20px;
-          gap: 10px;
-        }
         .summary-box {
-          flex: 1;
           border: 1px solid #cbd5e1;
           background-color: #f8fafc;
           border-radius: 6px;
@@ -141,7 +134,6 @@ class DynamicReceiptService {
         </tr>
       </table>
 
-      <!-- 3 समरी कार्ड्स -->
       <table style="width: 100%; margin-bottom: 15px;">
         <tr>
           <td style="width: 33%; padding: 4px;">
@@ -165,7 +157,6 @@ class DynamicReceiptService {
         </tr>
       </table>
 
-      <!-- विस्तृत डेटा टेबल -->
       <table class="data-table">
         <thead>
           <tr>
@@ -191,7 +182,7 @@ class DynamicReceiptService {
     ''';
   }
 
-  // ================= 2. थर्मल रसीद HTML (QR कोड + GST + FSSAI के साथ) =================
+  // ================= 2. थर्मल रसीद HTML (Auto-Injected GST, FSSAI, UPI QR, Review QR) =================
   static String generateBillHtml({
     required String baseHtmlTemplate,
     required RestaurantProfileModel restaurant,
@@ -223,16 +214,16 @@ class DynamicReceiptService {
       ''');
     }
 
-    // GSTIN और FSSAI अलग-अलग लाइन
+    // 1. GSTIN और FSSAI सेक्शन (Auto-formatted)
     String complianceSection = '';
-    if (restaurant.gstNumber != null && restaurant.gstNumber!.isNotEmpty) {
-      complianceSection += '<div>GSTIN: ${restaurant.gstNumber}</div>';
+    if (restaurant.gstNumber != null && restaurant.gstNumber!.trim().isNotEmpty) {
+      complianceSection += '<div style="font-size: 11px; font-weight: bold; margin-top: 2px;">GSTIN: ${restaurant.gstNumber!.trim()}</div>';
     }
-    if (restaurant.fssaiNumber != null && restaurant.fssaiNumber!.isNotEmpty) {
-      complianceSection += '<div>FSSAI: ${restaurant.fssaiNumber}</div>';
+    if (restaurant.fssaiNumber != null && restaurant.fssaiNumber!.trim().isNotEmpty) {
+      complianceSection += '<div style="font-size: 11px; margin-top: 2px;">FSSAI: ${restaurant.fssaiNumber!.trim()}</div>';
     }
 
-    // डिस्काउंट रो
+    // 2. डिस्काउंट सेक्शन
     final discountSection = discount > 0
         ? '''
           <tr>
@@ -242,44 +233,82 @@ class DynamicReceiptService {
         '''
         : '';
 
-    // UPI QR कोड
+    // 3. UPI ID (यदि खाली हो तो फ़ोन नंबर @ybl फ़ॉलबैक)
+    final effectiveUpiId = (restaurant.upiId != null && restaurant.upiId!.trim().isNotEmpty)
+        ? restaurant.upiId!.trim()
+        : (restaurant.phone != null && restaurant.phone!.trim().isNotEmpty
+            ? '${restaurant.phone!.trim()}@ybl'
+            : '');
+
     String upiQrSection = '';
-    if (restaurant.upiId != null && restaurant.upiId!.isNotEmpty) {
+    String qrApiUrl = '';
+
+    if (effectiveUpiId.isNotEmpty) {
       final upiString =
-          'upi://pay?pa=${restaurant.upiId}&pn=${Uri.encodeComponent(restaurant.name)}&am=${grandTotal.toStringAsFixed(2)}&cu=INR';
-      final qrApiUrl =
-          'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${Uri.encodeComponent(upiString)}';
+          'upi://pay?pa=$effectiveUpiId&pn=${Uri.encodeComponent(restaurant.name)}&am=${grandTotal.toStringAsFixed(2)}&cu=INR';
+      qrApiUrl =
+          'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${Uri.encodeComponent(upiString)}';
 
       upiQrSection = '''
-        <div class="qr-container" style="text-align: center; margin-top: 10px;">
-          <div><b>स्कैन करके ₹${grandTotal.toStringAsFixed(2)} पे करें</b></div>
-          <img src="$qrApiUrl" style="width: 130px; height: 130px; margin: 5px auto;" alt="UPI QR" />
-          <div style="font-size: 10px;">UPI ID: ${restaurant.upiId}</div>
+        <div class="qr-container" style="text-align: center; margin: 10px auto; padding: 6px; border: 1px dashed #94a3b8; border-radius: 8px; max-width: 190px;">
+          <div style="font-size: 11px; font-weight: bold; margin-bottom: 4px;">स्कैन करके ₹${grandTotal.toStringAsFixed(2)} पे करें</div>
+          <img src="$qrApiUrl" style="width: 125px; height: 125px; display: block; margin: 0 auto;" alt="UPI QR" />
+          <div style="font-size: 10px; font-weight: bold; margin-top: 4px;">UPI: $effectiveUpiId</div>
+          <div style="font-size: 8px; color: #64748b;">PhonePe / GooglePay / Paytm से स्कैन करें</div>
         </div>
       ''';
     }
 
-    // Google Review QR कोड
+    // 4. Google Review QR कोड
     String reviewQrSection = '';
-    if (restaurant.googleReviewLink != null && restaurant.googleReviewLink!.isNotEmpty) {
-      final reviewQrApi =
-          'https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${Uri.encodeComponent(restaurant.googleReviewLink!)}';
+    String reviewQrApi = '';
+    if (restaurant.googleReviewLink != null && restaurant.googleReviewLink!.trim().isNotEmpty) {
+      final reviewLink = restaurant.googleReviewLink!.trim();
+      reviewQrApi =
+          'https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${Uri.encodeComponent(reviewLink)}';
+
       reviewQrSection = '''
-        <div class="qr-container" style="text-align: center; margin-top: 10px;">
-          <div>⭐ <b>हमें Google पर रेट करें</b> ⭐</div>
-          <img src="$reviewQrApi" style="width: 110px; height: 110px; margin: 5px auto;" alt="Review QR" />
+        <div class="review-qr-container" style="text-align: center; margin: 10px auto; padding: 6px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #fafafa; max-width: 190px;">
+          <div style="font-size: 11px; font-weight: bold; color: #0f172a; margin-bottom: 3px;">⭐ हमें Google पर रिव्यू दें ⭐</div>
+          <img src="$reviewQrApi" style="width: 105px; height: 105px; display: block; margin: 0 auto;" alt="Review QR" />
+          <div style="font-size: 8px; color: #64748b; margin-top: 3px;">कैमरे से QR कोड स्कैन करें</div>
         </div>
       ''';
     }
 
     final dateStr =
-        '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
+        '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
 
-    return baseHtmlTemplate
+    // टेम्पलेट में सुरक्षित रिप्लेसमेंट्स
+    String html = baseHtmlTemplate;
+
+    // अगर टेम्पलेट में <img src="{{upi_qr_section}}"> जैसी गलती हो, तो उसे केवल QR URL दें
+    html = html.replaceAll('src="{{upi_qr_section}}"', 'src="$qrApiUrl"');
+    html = html.replaceAll("src='{{upi_qr_section}}'", "src='$qrApiUrl'");
+
+    // अगर टेम्पलेट में पहले से कोई टूटी हुई qrserver लिंक हो तो उसे शुद्ध एन्कोडेड URL से बदलें
+    if (qrApiUrl.isNotEmpty) {
+      html = html.replaceAll(RegExp(r'https:\/\/api\.qrserver\.com\/[^\s"\'<>]+'), qrApiUrl);
+    }
+
+    // अगर टेम्पलेट में {{gstin_section}} नहीं है, तो उसे फ़ोन नंबर के ठीक नीचे इंजेक्ट करें
+    if (!html.contains('{{gstin_section}}') && complianceSection.isNotEmpty) {
+      html = html.replaceAll('{{phone}}', '{{phone}}$complianceSection');
+    }
+
+    // अगर टेम्पलेट में {{review_qr_section}} नहीं है, तो उसे फुटर से पहले इंजेक्ट करें
+    if (!html.contains('{{review_qr_section}}') && reviewQrSection.isNotEmpty) {
+      html = html.replaceAll('{{footer_message}}', '$reviewQrSection<br/>{{footer_message}}');
+    }
+
+    // सभी वेरिएबल्स को रिप्लेस करें
+    return html
         .replaceAll('{{restaurant_name}}', restaurant.name)
         .replaceAll('{{address}}', restaurant.address ?? '')
         .replaceAll('{{phone}}', restaurant.phone ?? '')
         .replaceAll('{{gstin_section}}', complianceSection)
+        .replaceAll('{{gst_number}}', restaurant.gstNumber ?? '')
+        .replaceAll('{{fssai_number}}', restaurant.fssaiNumber ?? '')
         .replaceAll('{{bill_no}}', billNo)
         .replaceAll('{{table_no}}', tableNo)
         .replaceAll('{{date_time}}', dateStr)
@@ -289,7 +318,11 @@ class DynamicReceiptService {
         .replaceAll('{{grand_total}}', grandTotal.toStringAsFixed(2))
         .replaceAll('{{payment_mode}}', paymentMode)
         .replaceAll('{{upi_qr_section}}', upiQrSection)
+        .replaceAll('{{upi_qr}}', qrApiUrl)
+        .replaceAll('{{upi_qr_url}}', qrApiUrl)
         .replaceAll('{{review_qr_section}}', reviewQrSection)
-        .replaceAll('{{footer_message}}', restaurant.footerMessage ?? 'धन्यवाद! फिर पधारें।');
+        .replaceAll('{{review_qr_url}}', reviewQrApi)
+        .replaceAll('{{google_review_url}}', restaurant.googleReviewLink ?? '')
+        .replaceAll('{{footer_message}}', restaurant.footerMessage ?? 'धन्यवाद! फिर पधारें 🙏');
   }
 }
