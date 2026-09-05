@@ -1489,7 +1489,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
         builder: (c, setDState) => AlertDialog(
           title: Text(itemToEdit == null ? 'नया व्यंजन जोड़ें' : 'व्यंजन एडिट करें'),
           content: Column(
-            mainAxisSize: minAxisSize,
+            mainAxisSize: MainAxisSize.min,
             children: [
               TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'व्यंजन का नाम')),
               TextField(controller: priceCtrl, decoration: const InputDecoration(labelText: 'कीमत ₹'), keyboardType: TextInputType.number),
