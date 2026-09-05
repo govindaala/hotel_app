@@ -28,7 +28,7 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
   late TextEditingController _reviewCtrl;
   late TextEditingController _footerCtrl;
 
-  bool _isEditing = false; // लॉक/एडिट मोड
+  bool _isEditing = false;
   bool _isLoading = false;
 
   @override
@@ -42,9 +42,62 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
     _reviewCtrl = TextEditingController(text: '');
     _footerCtrl = TextEditingController(text: 'Thank You! Visit Again! 🙏');
 
-    // अगर पहले से डेटा खाली है तो एडिट मोड खुला रहेगा
-    if (widget.initialProfile == null || (widget.initialProfile!.phone?.isEmpty ?? true)) {
-      _isEditing = true;
+    _fetchFreshProfile();
+  }
+
+  // स्क्रीन खुलते ही डेटाबेस और फ़ोन मेमोरी से ताज़ा रिकॉर्ड लोड करना
+  void _fetchFreshProfile() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // 1. फ़ोन मेमोरी से तुरंत भरें
+    final lName = prefs.getString('saved_hotel_name') ?? '';
+    final lPhone = prefs.getString('saved_hotel_phone_${widget.storeCode}') ?? '';
+    final lAddr = prefs.getString('saved_hotel_address_${widget.storeCode}') ?? '';
+    final lUpi = prefs.getString('saved_hotel_upi_${widget.storeCode}') ?? '';
+
+    if (lPhone.isNotEmpty || lAddr.isNotEmpty || lUpi.isNotEmpty) {
+      if (mounted) {
+        setState(() {
+          if (lName.isNotEmpty) _nameCtrl.text = lName;
+          _phoneCtrl.text = lPhone;
+          _addressCtrl.text = lAddr;
+          _upiCtrl.text = lUpi;
+          _isEditing = false;
+        });
+      }
+    }
+
+    // 2. Supabase क्लाउड सर्वर से पक्का सिंक करें
+    try {
+      final res = await Supabase.instance.client
+          .from('restaurants')
+          .select()
+          .eq('store_code', widget.storeCode)
+          .maybeSingle();
+
+      if (res != null && mounted) {
+        setState(() {
+          _nameCtrl.text = (res['name'] ?? _nameCtrl.text).toString();
+          _phoneCtrl.text = (res['phone'] ?? _phoneCtrl.text).toString();
+          _addressCtrl.text = (res['address'] ?? _addressCtrl.text).toString();
+          _upiCtrl.text = (res['upi_id'] ?? _upiCtrl.text).toString();
+          _gstCtrl.text = (res['gst_number'] ?? '').toString();
+          _reviewCtrl.text = (res['google_review_link'] ?? '').toString();
+          _footerCtrl.text = (res['footer_message'] ?? 'Thank You! Visit Again! 🙏').toString();
+          _isEditing = false;
+        });
+
+        // फ़ोन मेमोरी में भी पक्का सेव कर लें
+        await prefs.setString('saved_hotel_name', _nameCtrl.text);
+        await prefs.setString('saved_hotel_phone_${widget.storeCode}', _phoneCtrl.text);
+        await prefs.setString('saved_hotel_address_${widget.storeCode}', _addressCtrl.text);
+        await prefs.setString('saved_hotel_upi_${widget.storeCode}', _upiCtrl.text);
+      }
+    } catch (_) {}
+
+    // अगर डेटा बिल्कुल खाली हो तो ही एडिट मोड खुलेगा
+    if (_phoneCtrl.text.isEmpty && _addressCtrl.text.isEmpty) {
+      if (mounted) setState(() => _isEditing = true);
     }
   }
 
@@ -75,25 +128,14 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
 
     setState(() => _isLoading = true);
 
-    final updatedModel = RestaurantProfileModel.fromMap({
-      'store_code': widget.storeCode,
-      'name': name,
-      'phone': phone,
-      'address': address,
-      'upi_id': upi,
-      'gst_number': _gstCtrl.text.trim(),
-      'google_review_link': _reviewCtrl.text.trim(),
-      'footer_message': _footerCtrl.text.trim(),
-    });
-
-    // 1. फ़ोन मेमोरी में सेव
+    // 1. फ़ोन मेमोरी में हमेशा के लिए पक्का सुरक्षित करें
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('saved_hotel_name', name);
     await prefs.setString('saved_hotel_address_${widget.storeCode}', address);
     await prefs.setString('saved_hotel_phone_${widget.storeCode}', phone);
     await prefs.setString('saved_hotel_upi_${widget.storeCode}', upi);
 
-    // 2. Supabase सर्वर पर सेव
+    // 2. Supabase क्लाउड सर्वर पर सुरक्षित करें
     try {
       await Supabase.instance.client.from('restaurants').upsert({
         'store_code': widget.storeCode,
@@ -106,14 +148,22 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
         'footer_message': _footerCtrl.text.trim(),
       }, onConflict: 'store_code');
     } catch (e) {
-      debugPrint("Supabase profile upsert error: $e");
+      debugPrint("Supabase error: $e");
     }
 
+    // मुख्य ऐप स्टेट को अपडेट करना
+    final updatedModel = RestaurantProfileModel.fromMap({
+      'store_code': widget.storeCode,
+      'name': name,
+      'phone': phone,
+      'address': address,
+      'upi_id': upi,
+    });
     widget.onSave(updatedModel);
 
     setState(() {
       _isLoading = false;
-      _isEditing = false;
+      _isEditing = false; // सेव होने के बाद सुरक्षित (Locked) कर दें
     });
 
     if (mounted) {
