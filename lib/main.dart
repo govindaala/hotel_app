@@ -817,7 +817,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 },
                 children: [
                   const TableRow(
-                    decoration: BoxDecoration(Color(0xFFF1F5F9)),
+                    decoration: const BoxDecoration(color: Color(0xFFF1F5F9)),
                     children: [
                       Padding(padding: EdgeInsets.all(8), child: Text('सामग्री व मात्रा', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black))),
                       Padding(padding: EdgeInsets.all(8), child: Text('स्थिति', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black))),
