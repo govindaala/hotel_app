@@ -27,7 +27,7 @@ import 'Data/Menu_data_source.dart';
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
 
-// ऐप का वर्तमान वर्शन कोड (सारे नए फ़ीचर्स के साथ v4)
+// ऐप का वर्तमान वर्शन कोड (v4)
 const int currentAppVersionCode = 4;
 
 // ==========================================
@@ -370,7 +370,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
   String _connectedPrinterMac = '';
   RestaurantProfileModel? _restoProfile;
 
-  // पार्सल ऑर्डर्स के लिए विशेष ट्रैकर
+  // पार्सल ऑर्डर्स के लिए विशेष ट्रैकर (900+ कोड)
   Map<int, List<Map<String, dynamic>>> parcelOrders = {};
 
   // दैनिक गल्ला (Cash) बनाम बैंक (UPI) बैलेंस
@@ -817,7 +817,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 },
                 children: [
                   const TableRow(
-                    decoration: BoxDecoration(color: Color(0xFFF1F5F9)),
+                    decoration: BoxDecoration(Color(0xFFF1F5F9)),
                     children: [
                       Padding(padding: EdgeInsets.all(8), child: Text('सामग्री व मात्रा', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black))),
                       Padding(padding: EdgeInsets.all(8), child: Text('स्थिति', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black))),
@@ -872,7 +872,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
   }
 
   // =========================================================================
-  // 5. नया बदलाव: संपूर्ण वित्तीय लेज़र व POS ऑडिट PDF जनरेटर
+  // 5. संपूर्ण वित्तीय लेज़र व POS ऑडिट PDF जनरेटर
   // =========================================================================
   void _openComprehensivePdfReportModal() {
     String selectedRange = 'today';
@@ -1258,7 +1258,11 @@ class _FullCounterAppState extends State<FullCounterApp> {
   Future<void> _shareReceiptPdf(int tbl, List<Map<String, dynamic>> items, double total) async {
     try {
       final pdf = pw.Document();
-      final upiId = _restoProfile?.upiId.isNotEmpty == true ? _restoProfile!.upiId : "aala@upi";
+      // नलेबिलिटी सुरक्षित हैंडलिंग
+      final String rawUpi = _restoProfile?.upiId ?? '';
+      final String upiId = rawUpi.isNotEmpty ? rawUpi : "aala@upi";
+      final String restoAddr = _restoProfile?.address ?? '';
+
       final bool isParcel = tbl >= 900;
       final String receiptTitle = isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल T-$tbl";
 
@@ -1271,8 +1275,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
               crossAxisAlignment: pw.CrossAxisAlignment.center,
               children: [
                 pw.Text(widget.hotelName, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 13)),
-                if (_restoProfile?.address.isNotEmpty == true)
-                  pw.Text(_restoProfile!.address, style: const pw.TextStyle(fontSize: 8)),
+                if (restoAddr.isNotEmpty)
+                  pw.Text(restoAddr, style: const pw.TextStyle(fontSize: 8)),
                 pw.Divider(thickness: 0.5),
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -1889,7 +1893,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 );
               },
             ),
-            // 2. नया: संपूर्ण वित्तीय लेज़र व POS ऑडिट PDF रिपोर्ट बटन
+            // 2. वित्तीय लेज़र व POS ऑडिट PDF रिपोर्ट बटन
             IconButton(
               icon: const Icon(Icons.analytics_outlined, color: Colors.cyanAccent),
               tooltip: 'वित्तीय लेज़र व POS ऑडिट PDF',
