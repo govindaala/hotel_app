@@ -1,8 +1,6 @@
 {
-  "version_code": 3,
-  "version_name": "1.0.2",
+  "version_code": 4,
+  "version_name": "1.0.4",
   "apk_url": "https://github.com/govindaala/hotel_app/releases/download/latest/app-release.apk",
-  "supabase_url": "https://hbewnquphiwvxaxittrl.supabase.co",
-  "supabase_key": "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf",
-  "update_message": "होटल POS v3: गल्ले का संपूर्ण हिसाब (कस्टम डेट रेंज) और USB/Type-C OTG प्रिंटर सपोर्ट उपलब्ध है!"
+  "update_message": "होटल POS v4: पार्सल टेकअवे, काउंटर सेल, WhatsApp बिल और संपूर्ण वित्तीय ऑडिट PDF उपलब्ध है!"
 }
