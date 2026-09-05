@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/restaurant_profile_model.dart';
 
 class RestaurantSettingsScreen extends StatefulWidget {
@@ -20,54 +20,34 @@ class RestaurantSettingsScreen extends StatefulWidget {
 }
 
 class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
-  late TextEditingController _nameCtrl;
-  late TextEditingController _phoneCtrl;
-  late TextEditingController _addressCtrl;
-  late TextEditingController _upiCtrl;
-  late TextEditingController _gstCtrl;
-  late TextEditingController _reviewCtrl;
-  late TextEditingController _footerCtrl;
+  final TextEditingController _nameCtrl = TextEditingController();
+  final TextEditingController _phoneCtrl = TextEditingController();
+  final TextEditingController _addressCtrl = TextEditingController();
+  final TextEditingController _upiCtrl = TextEditingController();
+  final TextEditingController _gstCtrl = TextEditingController();
+  final TextEditingController _reviewCtrl = TextEditingController();
+  final TextEditingController _footerCtrl = TextEditingController();
 
   bool _isEditing = false;
-  bool _isLoading = false;
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _nameCtrl = TextEditingController(text: widget.initialProfile?.name ?? '');
-    _phoneCtrl = TextEditingController(text: widget.initialProfile?.phone ?? '');
-    _addressCtrl = TextEditingController(text: widget.initialProfile?.address ?? '');
-    _upiCtrl = TextEditingController(text: widget.initialProfile?.upiId ?? '');
-    _gstCtrl = TextEditingController(text: '');
-    _reviewCtrl = TextEditingController(text: '');
-    _footerCtrl = TextEditingController(text: 'Thank You! Visit Again! 🙏');
-
-    _fetchFreshProfile();
+    _loadCurrentData();
   }
 
-  // स्क्रीन खुलते ही डेटाबेस और फ़ोन मेमोरी से ताज़ा रिकॉर्ड लोड करना
-  void _fetchFreshProfile() async {
+  // फ़ोन मेमोरी और Supabase से डेटा खींचना
+  Future<void> _loadCurrentData() async {
     final prefs = await SharedPreferences.getInstance();
+    
+    // 1. सबसे पहले फ़ोन मेमोरी से भरें
+    String name = prefs.getString('saved_hotel_name') ?? widget.initialProfile?.name ?? 'होटल';
+    String phone = prefs.getString('saved_hotel_phone') ?? widget.initialProfile?.phone ?? '';
+    String address = prefs.getString('saved_hotel_address') ?? widget.initialProfile?.address ?? '';
+    String upi = prefs.getString('saved_hotel_upi') ?? widget.initialProfile?.upiId ?? '';
 
-    // 1. फ़ोन मेमोरी से तुरंत भरें
-    final lName = prefs.getString('saved_hotel_name') ?? '';
-    final lPhone = prefs.getString('saved_hotel_phone_${widget.storeCode}') ?? '';
-    final lAddr = prefs.getString('saved_hotel_address_${widget.storeCode}') ?? '';
-    final lUpi = prefs.getString('saved_hotel_upi_${widget.storeCode}') ?? '';
-
-    if (lPhone.isNotEmpty || lAddr.isNotEmpty || lUpi.isNotEmpty) {
-      if (mounted) {
-        setState(() {
-          if (lName.isNotEmpty) _nameCtrl.text = lName;
-          _phoneCtrl.text = lPhone;
-          _addressCtrl.text = lAddr;
-          _upiCtrl.text = lUpi;
-          _isEditing = false;
-        });
-      }
-    }
-
-    // 2. Supabase क्लाउड सर्वर से पक्का सिंक करें
+    // 2. Supabase सर्वर से क्रॉस चेक करें
     try {
       final res = await Supabase.instance.client
           .from('restaurants')
@@ -75,29 +55,25 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
           .eq('store_code', widget.storeCode)
           .maybeSingle();
 
-      if (res != null && mounted) {
-        setState(() {
-          _nameCtrl.text = (res['name'] ?? _nameCtrl.text).toString();
-          _phoneCtrl.text = (res['phone'] ?? _phoneCtrl.text).toString();
-          _addressCtrl.text = (res['address'] ?? _addressCtrl.text).toString();
-          _upiCtrl.text = (res['upi_id'] ?? _upiCtrl.text).toString();
-          _gstCtrl.text = (res['gst_number'] ?? '').toString();
-          _reviewCtrl.text = (res['google_review_link'] ?? '').toString();
-          _footerCtrl.text = (res['footer_message'] ?? 'Thank You! Visit Again! 🙏').toString();
-          _isEditing = false;
-        });
-
-        // फ़ोन मेमोरी में भी पक्का सेव कर लें
-        await prefs.setString('saved_hotel_name', _nameCtrl.text);
-        await prefs.setString('saved_hotel_phone_${widget.storeCode}', _phoneCtrl.text);
-        await prefs.setString('saved_hotel_address_${widget.storeCode}', _addressCtrl.text);
-        await prefs.setString('saved_hotel_upi_${widget.storeCode}', _upiCtrl.text);
+      if (res != null) {
+        if ((res['name'] ?? '').toString().isNotEmpty) name = res['name'];
+        if ((res['phone'] ?? '').toString().isNotEmpty) phone = res['phone'];
+        if ((res['address'] ?? '').toString().isNotEmpty) address = res['address'];
+        if ((res['upi_id'] ?? '').toString().isNotEmpty) upi = res['upi_id'];
       }
     } catch (_) {}
 
-    // अगर डेटा बिल्कुल खाली हो तो ही एडिट मोड खुलेगा
-    if (_phoneCtrl.text.isEmpty && _addressCtrl.text.isEmpty) {
-      if (mounted) setState(() => _isEditing = true);
+    if (mounted) {
+      setState(() {
+        _nameCtrl.text = name;
+        _phoneCtrl.text = phone;
+        _addressCtrl.text = address;
+        _upiCtrl.text = upi;
+        _footerCtrl.text = 'Thank You! Visit Again! 🙏';
+        _isLoading = false;
+        // अगर फ़ोन और पता खाली है तो एडिट मोड खोलें, वर्ना लॉक रखें
+        _isEditing = (phone.isEmpty && address.isEmpty);
+      });
     }
   }
 
@@ -128,14 +104,14 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
 
     setState(() => _isLoading = true);
 
-    // 1. फ़ोन मेमोरी में हमेशा के लिए पक्का सुरक्षित करें
+    // 1. फ़ोन मेमोरी (SharedPreferences) में पक्का सेव
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('saved_hotel_name', name);
-    await prefs.setString('saved_hotel_address_${widget.storeCode}', address);
-    await prefs.setString('saved_hotel_phone_${widget.storeCode}', phone);
-    await prefs.setString('saved_hotel_upi_${widget.storeCode}', upi);
+    await prefs.setString('saved_hotel_phone', phone);
+    await prefs.setString('saved_hotel_address', address);
+    await prefs.setString('saved_hotel_upi', upi);
 
-    // 2. Supabase क्लाउड सर्वर पर सुरक्षित करें
+    // 2. Supabase क्लाउड में पक्का सेव
     try {
       await Supabase.instance.client.from('restaurants').upsert({
         'store_code': widget.storeCode,
@@ -143,15 +119,12 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
         'phone': phone,
         'address': address,
         'upi_id': upi,
-        'gst_number': _gstCtrl.text.trim(),
-        'google_review_link': _reviewCtrl.text.trim(),
-        'footer_message': _footerCtrl.text.trim(),
       }, onConflict: 'store_code');
     } catch (e) {
-      debugPrint("Supabase error: $e");
+      debugPrint("Supabase save error: $e");
     }
 
-    // मुख्य ऐप स्टेट को अपडेट करना
+    // 3. मॉडल बनाकर वापस भेजना
     final updatedModel = RestaurantProfileModel.fromMap({
       'store_code': widget.storeCode,
       'name': name,
@@ -159,16 +132,17 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
       'address': address,
       'upi_id': upi,
     });
+
     widget.onSave(updatedModel);
 
     setState(() {
       _isLoading = false;
-      _isEditing = false; // सेव होने के बाद सुरक्षित (Locked) कर दें
+      _isEditing = false;
     });
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ प्रोफ़ाइल सर्वर और फ़ोन पर सुरक्षित हो गई!'), backgroundColor: Colors.teal),
+        const SnackBar(content: Text('✅ प्रोफ़ाइल सुरक्षित हो गई!'), backgroundColor: Colors.teal),
       );
     }
   }
@@ -180,7 +154,7 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
         title: const Text('होटल प्रोफ़ाइल व सेटिंग्स', style: TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFF0F172A),
         actions: [
-          if (!_isEditing)
+          if (!_isEditing && !_isLoading)
             TextButton.icon(
               icon: const Icon(Icons.edit, color: Colors.orangeAccent, size: 18),
               label: const Text('एडिट करें', style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold)),
@@ -188,62 +162,60 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
             ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: _isEditing ? Colors.orange.shade50 : Colors.green.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: _isEditing ? Colors.orange : Colors.green),
-              ),
-              child: Row(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(_isEditing ? Icons.edit_note : Icons.lock_outline, color: _isEditing ? Colors.orange : Colors.green),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _isEditing ? 'एडिट मोड चालू है: आप विवरण बदल सकते हैं।' : 'व्यू मोड: डेटा सुरक्षित (Locked) है। बदलाव के लिए ऊपर "एडिट करें" दबाएँ।',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _isEditing ? Colors.orange.shade900 : Colors.green.shade900),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _isEditing ? Colors.orange.shade50 : Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: _isEditing ? Colors.orange : Colors.green),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(_isEditing ? Icons.edit_note : Icons.lock_outline, color: _isEditing ? Colors.orange : Colors.green),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _isEditing ? 'एडिट मोड चालू है: आप विवरण बदल सकते हैं।' : 'व्यू मोड: डेटा सुरक्षित (Locked) है। बदलाव के लिए ऊपर "एडिट करें" दबाएँ।',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _isEditing ? Colors.orange.shade900 : Colors.green.shade900),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                  const SizedBox(height: 16),
+
+                  _buildField('होटल / रेस्टोरेंट का नाम *', _nameCtrl, Icons.store),
+                  _buildField('संपर्क नंबर (Mobile) *', _phoneCtrl, Icons.phone, keyboard: TextInputType.phone),
+                  _buildField('होटल का पता (Address) *', _addressCtrl, Icons.location_on, maxLines: 2),
+                  _buildField('UPI ID (जैसे: shop@upi) - QR बिल के लिए', _upiCtrl, Icons.qr_code),
+                  _buildField('बिल फुटर संदेश (Footer Message)', _footerCtrl, Icons.message),
+
+                  const SizedBox(height: 24),
+
+                  if (_isEditing)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFEA580C),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: _saveSettings,
+                        icon: const Icon(Icons.save, color: Colors.white),
+                        label: const Text('सेटिंग्स सुरक्षित (Save) करें', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
                 ],
               ),
             ),
-            const SizedBox(height: 16),
-
-            _buildField('होटल / रेस्टोरेंट का नाम *', _nameCtrl, Icons.store),
-            _buildField('संपर्क नंबर (Mobile) *', _phoneCtrl, Icons.phone, keyboard: TextInputType.phone),
-            _buildField('होटल का पता (Address) *', _addressCtrl, Icons.location_on, maxLines: 2),
-            _buildField('UPI ID (जैसे: shop@upi) - QR बिल के लिए', _upiCtrl, Icons.qr_code),
-            _buildField('GSTIN / FSSAI नंबर (वैकल्पिक)', _gstCtrl, Icons.receipt_long),
-            _buildField('Google Review Link (रिव्यू QR के लिए)', _reviewCtrl, Icons.star_border),
-            _buildField('बिल फुटर संदेश (Footer Message)', _footerCtrl, Icons.message),
-
-            const SizedBox(height: 24),
-
-            if (_isEditing)
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFEA580C),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  onPressed: _isLoading ? null : _saveSettings,
-                  icon: _isLoading ? const SizedBox.shrink() : const Icon(Icons.save, color: Colors.white),
-                  label: _isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text('सेटिंग्स सुरक्षित (Save) करें', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                ),
-              ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -261,14 +233,6 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen> {
           filled: !_isEditing,
           fillColor: Colors.grey.shade100,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: BorderSide(color: Colors.grey.shade400),
-          ),
-          disabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: BorderSide(color: Colors.grey.shade300),
-          ),
         ),
       ),
     );
