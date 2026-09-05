@@ -2126,7 +2126,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
               tooltip: 'वित्तीय लेज़र व POS ऑडिट PDF',
               onPressed: _openComprehensivePdfReportModal,
             ),
-            // होटल सेटिंग्स (लोकल + सर्वर परमानेंट राइट)
+                        // होटल सेटिंग्स (स्टोर कोड के साथ)
             IconButton(
               icon: const Icon(Icons.settings_outlined, color: Colors.white),
               tooltip: 'होटल सेटिंग्स',
@@ -2136,37 +2136,16 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   MaterialPageRoute(
                     builder: (_) => RestaurantSettingsScreen(
                       initialProfile: _restoProfile,
-                      onSave: (updated) async {
+                      storeCode: widget.storeCode,
+                      onSave: (updated) {
                         setState(() => _restoProfile = updated);
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.setString('saved_hotel_name', updated.name);
-                        await prefs.setString('saved_hotel_address_${widget.storeCode}', updated.address ?? '');
-                        await prefs.setString('saved_hotel_phone_${widget.storeCode}', updated.phone ?? '');
-                        await prefs.setString('saved_hotel_upi_${widget.storeCode}', updated.upiId ?? '');
-
-                        try {
-                          await Supabase.instance.client.from('restaurants').upsert({
-                            'store_code': widget.storeCode,
-                            'name': updated.name,
-                            'phone': updated.phone,
-                            'address': updated.address,
-                            'upi_id': updated.upiId,
-                          }, onConflict: 'store_code');
-                        } catch (e) {
-                          debugPrint("Supabase save error: $e");
-                        }
-
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('✅ सेटिंग्स सफलतापूर्वक सुरक्षित कर ली गई!'), backgroundColor: Colors.teal),
-                          );
-                        }
                       },
                     ),
                   ),
                 );
               },
             ),
+
             // ब्लूटूथ प्रिंटर
             IconButton(
               icon: Icon(Icons.print, color: _isPrinterConnected ? Colors.greenAccent : Colors.white),
