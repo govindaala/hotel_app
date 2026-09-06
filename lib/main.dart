@@ -19,7 +19,7 @@ import 'package:ota_update/ota_update.dart';
 // नए मॉड्यूल्स व स्क्रीन फ़ाइलें
 import 'models/restaurant_profile_model.dart';
 import 'models/expense_model.dart';
-import 'screens/admin/counter_sale_screen';
+import 'screens/admin/counter_sale_screen.dart';
 import 'screens/admin/restaurant_settings_screen.dart';
 import 'screens/admin/daily_expense_screen.dart';
 import 'screens/waiter/waiter_menu_order_view.dart';
