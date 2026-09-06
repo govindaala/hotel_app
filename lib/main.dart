@@ -2140,6 +2140,22 @@ class _FullCounterAppState extends State<FullCounterApp> {
               tooltip: 'वित्तीय लेज़र व POS ऑडिट PDF',
               onPressed: _openComprehensivePdfReportModal,
             ),
+                        // 📊 माय रिपोर्ट्स (My Reports - चार्ट व पेमेंट ब्रेकडाउन)
+            IconButton(
+              icon: const Icon(Icons.bar_chart_rounded, color: Colors.amber),
+              tooltip: 'माय रिपोर्ट्स',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => CounterReportsScreen(
+                      storeCode: widget.storeCode,
+                    ),
+                  ),
+                );
+              },
+            ),
+            
                         // होटल सेटिंग्स (स्टोर कोड के साथ)
                         // होटल सेटिंग्स
             IconButton(
