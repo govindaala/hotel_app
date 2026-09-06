@@ -34,29 +34,40 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       fetchErrorMessage = null;
     });
 
+    // 1. होटल की टेबल संख्या निकालना (पूरी तरह सुरक्षित)
+    int count = 10;
     try {
-      // 1. टेबल संख्या निकालना
       final hotelRes = await supabase
           .from('restaurant_profiles')
           .select('*')
           .eq('restaurant_id', widget.storeCode)
           .maybeSingle();
 
-      int count = 10;
       if (hotelRes != null) {
         final val = hotelRes['total_tables'] ?? hotelRes['tables_count'] ?? hotelRes['table_count'];
         if (val != null) count = int.tryParse(val.toString()) ?? 10;
       }
+    } catch (_) {
+      count = 10;
+    }
 
+    setState(() {
       availableTables = [
         'काउंटर सेल (डायरेक्ट)',
         ...List.generate(count, (i) => 'T-${i + 1}'),
       ];
+    });
 
-      // 2. इन्वेंटरी व स्टॉक लोड करना
-      final List<dynamic> allRows = await supabase.from('counter_inventory').select('*');
+    // 2. डिफ़ॉल्ट व होटल इन्वेंटरी लोड करना
+    try {
+      final List<dynamic> allRows = await supabase
+          .from('counter_inventory')
+          .select('*')
+          .order('id', ascending: true);
+
       final Map<String, Map<String, dynamic>> mergedMap = {};
 
+      // ग्लोबल डिफ़ॉल्ट सामान (NULL restaurant_id)
       for (var row in allRows) {
         if (row['restaurant_id'] == null) {
           final key = '${row['item_name']}_${row['variant_label']}';
@@ -64,6 +75,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         }
       }
 
+      // इस होटल के अपने सामान / बदले हुए रेट
       for (var row in allRows) {
         if (row['restaurant_id']?.toString() == widget.storeCode) {
           final key = '${row['item_name']}_${row['variant_label']}';
@@ -79,8 +91,12 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
 
       setState(() {
         inventoryGroups = grouped;
-        if (grouped.isNotEmpty && (selectedCategory == null || !grouped.containsKey(selectedCategory))) {
-          selectedCategory = grouped.keys.first;
+        if (grouped.isNotEmpty) {
+          if (selectedCategory == null || !grouped.containsKey(selectedCategory)) {
+            selectedCategory = grouped.keys.first;
+          }
+        } else {
+          selectedCategory = null;
         }
       });
     } catch (e) {
@@ -128,18 +144,17 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     return sum;
   }
 
-  // थर्मल प्रिंटर से बिल प्रिंट करना
+  // थर्मल प्रिंटर से बिल प्रिंट
   Future<void> _printReceipt(String mode, double total, List<String> itemsDetails) async {
     try {
       bool isConnected = await PrintBluetoothThermal.connectionStatus;
       if (!isConnected) return;
 
-      List<int> bytes = [];
       String billText = """
        काउंटर बिक्री पर्ची       
 ================================
 तारीख: ${DateTime.now().toString().substring(0, 16)}
-प्रकार: $mode  | टेबल: $selectedTable
+मोड: $mode  | टेबल: $selectedTable
 --------------------------------
 सामान              मात्रा   रकम
 --------------------------------
@@ -157,12 +172,11 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         धन्यवाद! फिर पधारें        
 \n\n\n
 """;
-      bytes = billText.codeUnits;
-      await PrintBluetoothThermal.writeBytes(bytes);
+      await PrintBluetoothThermal.writeBytes(billText.codeUnits);
     } catch (_) {}
   }
 
-  // बिक्री पूरी करना व स्टॉक कम करना
+  // पेमेंट व चेकआउट
   Future<void> _processCheckout(String mode, {bool shouldPrint = false}) async {
     if (cart.isEmpty) return;
 
@@ -195,7 +209,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         });
       }
 
-      // डेटाबेस में स्टॉक घटाना (Stock Decrement)
+      // स्टॉक घटाना
       for (var item in cart.values) {
         if (item['id'] != null) {
           final int remaining = ((item['stock'] ?? 0) as int) - (item['qty'] as int);
@@ -216,7 +230,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       }
 
       setState(() => cart.clear());
-      _initScreenData(); // नया स्टॉक रिफ़्रेश
+      _initScreenData();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -226,16 +240,71 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     }
   }
 
-  // नया स्टॉक जोड़ना (जैसे 100 बोतल पानी आया)
-  void _openAddStockDialog() {
-    Map<String, dynamic>? selectedItem;
-    final qtyCtrl = TextEditingController();
+  // 1. नया सामान / नया रेट जोड़ने का डायलॉग (+)
+  void _openAddCustomVariantDialog() {
+    final nameCtrl = TextEditingController(text: selectedCategory ?? '');
+    final varCtrl = TextEditingController();
+    final priceCtrl = TextEditingController();
+    final stockCtrl = TextEditingController(text: '50');
 
-    // सभी आइटम्स की फ्लैट लिस्ट
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('➕ नया सामान / रेट जोड़ें', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'सामान (उदा. चिप्स, पानी)')),
+              TextField(controller: varCtrl, decoration: const InputDecoration(labelText: 'रेंज / पैक (उदा. ₹15 वाला)')),
+              TextField(controller: priceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'कीमत (₹)')),
+              TextField(controller: stockCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'शुरुआती स्टॉक मात्रा')),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+            onPressed: () async {
+              final n = nameCtrl.text.trim();
+              final v = varCtrl.text.trim();
+              final p = double.tryParse(priceCtrl.text.trim()) ?? 0.0;
+              final s = int.tryParse(stockCtrl.text.trim()) ?? 0;
+
+              if (n.isNotEmpty && v.isNotEmpty && p > 0) {
+                await supabase.from('counter_inventory').insert({
+                  'restaurant_id': widget.storeCode,
+                  'item_name': n,
+                  'variant_label': v,
+                  'price': p,
+                  'stock_qty': s,
+                });
+                Navigator.pop(ctx);
+                _initScreenData();
+              }
+            },
+            child: const Text('सुरक्षित करें', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 2. स्टॉक बढ़ाने का डायलॉग (📦)
+  void _openAddStockDialog() {
     final List<Map<String, dynamic>> allItemsList = [];
     inventoryGroups.forEach((_, list) => allItemsList.addAll(list));
 
-    if (allItemsList.isNotEmpty) selectedItem = allItemsList.first;
+    if (allItemsList.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('पहले कोई सामान जोड़ें, तभी स्टॉक बढ़ाया जा सकता है।')),
+      );
+      return;
+    }
+
+    Map<String, dynamic>? selectedItem = allItemsList.first;
+    final qtyCtrl = TextEditingController();
 
     showDialog(
       context: context,
@@ -252,9 +321,9 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                 items: allItemsList.map((item) {
                   return DropdownMenuItem(
                     value: item,
-                    child: Text('${item['item_name']} - ${item['variant_label']} (मौजूदा: ${item['stock_qty'] ?? 0})', style: const TextStyle(fontSize: 13)),
+                    child: Text('${item['item_name']} - ${item['variant_label']} (स्टॉक: ${item['stock_qty'] ?? 0})', style: const TextStyle(fontSize: 13)),
                   );
-                }).toList(),
+                }).toList>,
                 onChanged: (val) => setDState(() => selectedItem = val),
               ),
               const SizedBox(height: 12),
@@ -299,7 +368,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text('⚡ काउंटर सेल व इन्वेंटरी', style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 18)),
+        title: const Text('⚡ काउंटर सेल व इन्वेंटरी', style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 17)),
         backgroundColor: Colors.white,
         elevation: 0.5,
         leading: IconButton(
@@ -307,233 +376,264 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
+          // बटन 1: नया सामान / रेट जोड़ना (+)
+          IconButton(
+            icon: const Icon(Icons.add_circle_outline, color: Color(0xFF0284C7)),
+            tooltip: 'नया सामान / रेट जोड़ें',
+            onPressed: _openAddCustomVariantDialog,
+          ),
+          // बटन 2: स्टॉक बढ़ाना (📦)
           IconButton(
             icon: const Icon(Icons.inventory_2_outlined, color: Color(0xFF059669)),
             tooltip: 'स्टॉक जोड़ें',
             onPressed: _openAddStockDialog,
           ),
+          // बटन 3: रिफ़्रेश (🔄)
           IconButton(
             icon: const Icon(Icons.refresh, color: Color(0xFF64748B)),
+            tooltip: 'रीफ़्रेश',
             onPressed: _initScreenData,
           ),
         ],
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                // टेबल सेलेक्टर
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  color: isTable ? const Color(0xFFEFF6FF) : const Color(0xFFF1F5F9),
-                  child: Row(
-                    children: [
-                      Icon(Icons.table_restaurant, color: isTable ? const Color(0xFF2563EB) : const Color(0xFF64748B), size: 20),
-                      const SizedBox(width: 8),
-                      const Text('बिल किसमें जोड़ना है?:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                      const Spacer(),
-                      DropdownButton<String>(
-                        value: selectedTable,
-                        underline: const SizedBox(),
-                        style: TextStyle(fontWeight: FontWeight.bold, color: isTable ? const Color(0xFF2563EB) : const Color(0xFF0F172A), fontSize: 13),
-                        items: availableTables.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-                        onChanged: (val) {
-                          if (val != null) setState(() => selectedTable = val);
-                        },
-                      ),
-                    ],
+          : fetchErrorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.error_outline, color: Colors.red, size: 40),
+                        const SizedBox(height: 10),
+                        Text(fetchErrorMessage!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
+                        const SizedBox(height: 12),
+                        ElevatedButton(onPressed: _initScreenData, child: const Text('पुनः प्रयास करें')),
+                      ],
+                    ),
                   ),
-                ),
-
-                // कैटेगरी टैब्स
-                Container(
-                  height: 50,
-                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                  color: Colors.white,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: inventoryGroups.keys.map((name) {
-                      final isSel = selectedCategory == name;
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: ChoiceChip(
-                          label: Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: isSel ? Colors.white : Colors.black87, fontSize: 12)),
-                          selected: isSel,
-                          selectedColor: const Color(0xFF0F172A),
-                          backgroundColor: const Color(0xFFF1F5F9),
-                          onSelected: (_) => setState(() => selectedCategory = name),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-                const Divider(height: 1),
-
-                // आइटम्स व स्टॉक कार्ड
-                Expanded(
-                  child: selectedCategory == null || !inventoryGroups.containsKey(selectedCategory)
-                      ? const Center(child: Text('कोई आइटम उपलब्ध नहीं'))
-                      : GridView.builder(
-                          padding: const EdgeInsets.all(12),
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            childAspectRatio: 1.8,
-                            crossAxisSpacing: 10,
-                            mainAxisSpacing: 10,
-                          ),
-                          itemCount: inventoryGroups[selectedCategory]!.length,
-                          itemBuilder: (ctx, i) {
-                            final v = inventoryGroups[selectedCategory]![i];
-                            final double price = ((v['price'] ?? 0) as num).toDouble();
-                            final String label = v['variant_label'] ?? '';
-                            final int stock = (v['stock_qty'] ?? 0) as int;
-
-                            return InkWell(
-                              onTap: () => _addToCart(v['id'], selectedCategory!, label, price, stock),
-                              borderRadius: BorderRadius.circular(10),
-                              child: Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: stock <= 5 ? Colors.red.shade200 : const Color(0xFFE2E8F0)),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), maxLines: 1)),
-                                        Text('₹$price', style: const TextStyle(color: Color(0xFF059669), fontWeight: FontWeight.bold, fontSize: 14)),
-                                      ],
-                                    ),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: stock <= 5 ? Colors.red.shade50 : Colors.blueGrey.shade50,
-                                            borderRadius: BorderRadius.circular(4),
-                                          ),
-                                          child: Text(
-                                            'स्टॉक: $stock',
-                                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: stock <= 5 ? Colors.red : Colors.blueGrey),
-                                          ),
-                                        ),
-                                        const CircleAvatar(
-                                          radius: 11,
-                                          backgroundColor: Color(0xFFECFDF5),
-                                          child: Icon(Icons.add, size: 15, color: Color(0xFF059669)),
-                                        ),
-                                      ],
-                                    )
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                ),
-
-                // बॉटम कार्ट व बिल प्रिंट बटन्स
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-                    boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -3))],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (cart.isNotEmpty)
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxHeight: 90),
-                          child: ListView(
-                            shrinkWrap: true,
-                            children: cart.entries.map((e) {
-                              final item = e.value;
-                              return Row(
-                                children: [
-                                  Expanded(child: Text('${item['name']} (${item['variant']})', style: const TextStyle(fontSize: 12))),
-                                  IconButton(
-                                    icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent, size: 17),
-                                    onPressed: () => _removeFromCart(e.key),
-                                  ),
-                                  Text('${item['qty']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                                  IconButton(
-                                    icon: const Icon(Icons.add_circle_outline, color: Colors.green, size: 17),
-                                    onPressed: () => _addToCart(item['id'], item['name'], item['variant'], item['price'], item['stock']),
-                                  ),
-                                  SizedBox(
-                                    width: 50,
-                                    child: Text('₹${(item['price'] * item['qty']).toInt()}', textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                  ),
-                                ],
-                              );
-                            }).toList(),
-                          ),
-                        ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                )
+              : Column(
+                  children: [
+                    // टेबल सेलेक्टर
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      color: isTable ? const Color(0xFFEFF6FF) : const Color(0xFFF1F5F9),
+                      child: Row(
                         children: [
-                          Text(isTable ? '$selectedTable कुल:' : 'कुल देय:', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                          Text('₹${grandTotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                          Icon(Icons.table_restaurant, color: isTable ? const Color(0xFF2563EB) : const Color(0xFF64748B), size: 20),
+                          const SizedBox(width: 8),
+                          const Text('बिल किसमें जोड़ना है?:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                          const Spacer(),
+                          DropdownButton<String>(
+                            value: selectedTable,
+                            underline: const SizedBox(),
+                            style: TextStyle(fontWeight: FontWeight.bold, color: isTable ? const Color(0xFF2563EB) : const Color(0xFF0F172A), fontSize: 13),
+                            items: availableTables.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+                            onChanged: (val) {
+                              if (val != null) setState(() => selectedTable = val);
+                            },
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 10),
+                    ),
 
-                      // ऐक्शन बटन्स
-                      if (isTable)
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563EB), padding: const EdgeInsets.symmetric(vertical: 12)),
-                            icon: const Icon(Icons.add_task, color: Colors.white),
-                            label: Text('$selectedTable में जोड़ें', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                            onPressed: cart.isEmpty ? null : () => _processCheckout('TABLE'),
-                          ),
-                        )
-                      else
-                        Row(
-                          children: [
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF059669), padding: const EdgeInsets.symmetric(vertical: 12)),
-                                icon: const Icon(Icons.money, color: Colors.white, size: 18),
-                                label: const Text('नकद', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                onPressed: cart.isEmpty ? null : () => _processCheckout('CASH'),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0284C7), padding: const EdgeInsets.symmetric(vertical: 12)),
-                                icon: const Icon(Icons.qr_code, color: Colors.white, size: 18),
-                                label: const Text('UPI', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                onPressed: cart.isEmpty ? null : () => _processCheckout('UPI'),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            // बिल प्रिंट बटन
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A), padding: const EdgeInsets.symmetric(vertical: 12)),
-                                icon: const Icon(Icons.print, color: Colors.white, size: 18),
-                                label: const Text('प्रिंट', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                onPressed: cart.isEmpty ? null : () => _processCheckout('PAID_PRINT', shouldPrint: true),
-                              ),
-                            ),
-                          ],
+                    // कैटेगरी टैब्स
+                    if (inventoryGroups.isEmpty)
+                      const Expanded(
+                        child: Center(
+                          child: Text('कोई आइटम उपलब्ध नहीं\n(ऊपर + दबाकर नया सामान जोड़ें)', textAlign: TextAlign.center),
                         ),
+                      )
+                    else ...[
+                      Container(
+                        height: 50,
+                        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                        color: Colors.white,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          children: inventoryGroups.keys.map((name) {
+                            final isSel = selectedCategory == name;
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              child: ChoiceChip(
+                                label: Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: isSel ? Colors.white : Colors.black87, fontSize: 12)),
+                                selected: isSel,
+                                selectedColor: const Color(0xFF0F172A),
+                                backgroundColor: const Color(0xFFF1F5F9),
+                                onSelected: (_) => setState(() => selectedCategory = name),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                      const Divider(height: 1),
+
+                      // ग्रिड कार्ड्स
+                      Expanded(
+                        child: selectedCategory == null || !inventoryGroups.containsKey(selectedCategory)
+                            ? const SizedBox()
+                            : GridView.builder(
+                                padding: const EdgeInsets.all(12),
+                                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 2,
+                                  childAspectRatio: 1.8,
+                                  crossAxisSpacing: 10,
+                                  mainAxisSpacing: 10,
+                                ),
+                                itemCount: inventoryGroups[selectedCategory]!.length,
+                                itemBuilder: (ctx, i) {
+                                  final v = inventoryGroups[selectedCategory]![i];
+                                  final double price = ((v['price'] ?? 0) as num).toDouble();
+                                  final String label = v['variant_label'] ?? '';
+                                  final int stock = (v['stock_qty'] ?? 0) as int;
+
+                                  return InkWell(
+                                    onTap: () => _addToCart(v['id'], selectedCategory!, label, price, stock),
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(10),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(color: stock <= 5 ? Colors.red.shade200 : const Color(0xFFE2E8F0)),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), maxLines: 1)),
+                                              Text('₹$price', style: const TextStyle(color: Color(0xFF059669), fontWeight: FontWeight.bold, fontSize: 14)),
+                                            ],
+                                          ),
+                                          Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: stock <= 5 ? Colors.red.shade50 : Colors.blueGrey.shade50,
+                                                  borderRadius: BorderRadius.circular(4),
+                                                ),
+                                                child: Text(
+                                                  'स्टॉक: $stock',
+                                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: stock <= 5 ? Colors.red : Colors.blueGrey),
+                                                ),
+                                              ),
+                                              const CircleAvatar(
+                                                radius: 11,
+                                                backgroundColor: Color(0xFFECFDF5),
+                                                child: Icon(Icons.add, size: 15, color: Color(0xFF059669)),
+                                              ),
+                                            ],
+                                          )
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
                     ],
-                  ),
+
+                    // निचला कार्ट और चेकआउट
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+                        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -3))],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (cart.isNotEmpty)
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxHeight: 90),
+                              child: ListView(
+                                shrinkWrap: true,
+                                children: cart.entries.map((e) {
+                                  final item = e.value;
+                                  return Row(
+                                    children: [
+                                      Expanded(child: Text('${item['name']} (${item['variant']})', style: const TextStyle(fontSize: 12))),
+                                      IconButton(
+                                        icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent, size: 17),
+                                        onPressed: () => _removeFromCart(e.key),
+                                      ),
+                                      Text('${item['qty']}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      IconButton(
+                                        icon: const Icon(Icons.add_circle_outline, color: Colors.green, size: 17),
+                                        onPressed: () => _addToCart(item['id'], item['name'], item['variant'], item['price'], item['stock']),
+                                      ),
+                                      SizedBox(
+                                        width: 50,
+                                        child: Text('₹${(item['price'] * item['qty']).toInt()}', textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      ),
+                                    ],
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(isTable ? '$selectedTable कुल:' : 'कुल देय:', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                              Text('₹${grandTotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+
+                          if (isTable)
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563EB), padding: const EdgeInsets.symmetric(vertical: 12)),
+                                icon: const Icon(Icons.add_task, color: Colors.white),
+                                label: Text('$selectedTable में जोड़ें', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                onPressed: cart.isEmpty ? null : () => _processCheckout('TABLE'),
+                              ),
+                            )
+                          else
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF059669), padding: const EdgeInsets.symmetric(vertical: 12)),
+                                    icon: const Icon(Icons.money, color: Colors.white, size: 18),
+                                    label: const Text('नकद', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                    onPressed: cart.isEmpty ? null : () => _processCheckout('CASH'),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0284C7), padding: const EdgeInsets.symmetric(vertical: 12)),
+                                    icon: const Icon(Icons.qr_code, color: Colors.white, size: 18),
+                                    label: const Text('UPI', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                    onPressed: cart.isEmpty ? null : () => _processCheckout('UPI'),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A), padding: const EdgeInsets.symmetric(vertical: 12)),
+                                    icon: const Icon(Icons.print, color: Colors.white, size: 18),
+                                    label: const Text('प्रिंट', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                    onPressed: cart.isEmpty ? null : () => _processCheckout('PAID_PRINT', shouldPrint: true),
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
     );
   }
 }
