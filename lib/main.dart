@@ -19,6 +19,7 @@ import 'package:ota_update/ota_update.dart';
 // नए मॉड्यूल्स व स्क्रीन फ़ाइलें
 import 'models/restaurant_profile_model.dart';
 import 'models/expense_model.dart';
+import 'screens/admin/counter_sale_screen';
 import 'screens/admin/restaurant_settings_screen.dart';
 import 'screens/admin/daily_expense_screen.dart';
 import 'screens/waiter/waiter_menu_order_view.dart';
@@ -2020,79 +2021,19 @@ class _FullCounterAppState extends State<FullCounterApp> {
                               onPressed: () {
                                 final n = customNameCtrl.text.trim();
                                 final p = double.tryParse(customPriceCtrl.text.trim()) ?? 0.0;
-                                if (n.isNotEmpty && p > 0) {
-                                  setDState(() {
-                                    final idx = saleCart.indexWhere((e) => e['name'] == n);
-                                    if (idx != -1) {
-                                      saleCart[idx]['qty'] += 1;
-                                    } else {
-                                      saleCart.add({'name': n, 'price': p, 'qty': 1});
-                                    }
-                                    customNameCtrl.clear();
-                                    customPriceCtrl.clear();
-                                  });
-                                }
-                              },
-                            ),
-                          )
-                        ],
-                      ),
-                    ),
-                    const Divider(height: 20),
-                    if (saleCart.isNotEmpty) ...[
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: () => setDState(() => saleCart.clear()),
-                          child: const Text('सब हटाएं', style: TextStyle(color: Colors.red)),
-                        ),
-                      ),
-                      ...saleCart.map((it) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('${it['name']} x ${it['qty']}'),
-                            Text('₹${(it['price'] * it['qty']).toInt()}'),
-                          ],
-                        ),
-                      )),
-                      const SizedBox(height: 8),
-                      Text('कुल राशि: ₹$totalAmount', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
-                      const SizedBox(height: 12),
-                    ],
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                            onPressed: totalAmount > 0 ? () => completeSale('CASH') : null,
-                            child: const Text('💵 नकद मिला', style: TextStyle(color: Colors.white)),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                            onPressed: totalAmount > 0 ? () => completeSale('UPI') : null,
-                            child: const Text('📱 UPI मिला', style: TextStyle(color: Colors.white)),
-                          ),
-                        ),
-                      ],
-                    )
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द करें')),
-            ],
-          );
-        },
+  // =========================================================================
+  // फ़ंक्शन 23: त्वरित काउंटर बिक्री (नया फुल-स्क्रीन इन्वेंटरी पेज)
+  // =========================================================================
+  void _openQuickCounterSaleDialog() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CounterSaleScreen(storeCode: widget.storeCode),
       ),
     );
+    // काउंटर सेल पेज से वापस आने पर डैशबोर्ड का गल्ला/बैलेंस रीफ़्रेश करें
+    _fetchDailyBalances();
   }
-
   // लॉगआउट फ़ंक्शन
   void _logout() async {
     final prefs = await SharedPreferences.getInstance();
