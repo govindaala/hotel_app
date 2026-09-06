@@ -235,14 +235,28 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         await _printReceipt(mode, total);
       }
 
-      if (mounted) {
+            if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('बिक्री दर्ज हुई: ₹$total ($mode)'), backgroundColor: Colors.green),
         );
+
+        // अगर टेबल (T-2 आदि) में सामान जोड़ा है, तो स्क्रीन बंद कर सामान T-2 को सौंपें
+        if (selectedTable != 'काउंटर सेल (डायरेक्ट)') {
+          Navigator.pop(context, {
+            'table': selectedTable,
+            'items': cart.values.map((v) => {
+              'name': '${v['name']} (${v['variant']})',
+              'qty': v['qty'],
+              'price': v['price'],
+            }).toList(),
+          });
+          return;
+        }
       }
 
       setState(() => cart.clear());
       _initScreenData();
+
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
