@@ -1915,8 +1915,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
   }
 
   
-  // =========================================================================
-  // फ़ंक्शन 23: त्वरित काउंटर बिक्री (नया फुल-स्क्रीन इन्वेंटरी पेज)
+    // =========================================================================
+  // फ़ंक्शन 23: त्वरित काउंटर बिक्री
   // =========================================================================
   void _openQuickCounterSaleDialog() async {
     await Navigator.push(
@@ -1925,7 +1925,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
         builder: (context) => CounterSaleScreen(storeCode: widget.storeCode),
       ),
     );
-    // काउंटर सेल पेज से वापस आने पर डैशबोर्ड का गल्ला/बैलेंस रीफ़्रेश करें
     _fetchDailyBalances();
   }
   // लॉगआउट फ़ंक्शन
