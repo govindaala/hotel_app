@@ -1915,9 +1915,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
   }
 
   
-    // =========================================================================
-    // फ़ंक्शन 23: त्वरित काउंटर बिक्री
-  // ==========================================================
+      // फ़ंक्शन 23: त्वरित काउंटर बिक्री (पक्का टेबल सिंक)
   void _openQuickCounterSaleDialog() async {
     final result = await Navigator.push(
       context,
@@ -1927,22 +1925,41 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
     _fetchDailyBalances();
 
-    // काउंटर सेल से टेबल (जैसे T-2) में आइटम जोड़ने का लॉजिक
-    if (result != null && result is Map<String, dynamic>) {
-      final String tableStr = result['table'] ?? '';
-      final List newItems = result['items'] ?? [];
+    // काउंटर सेल से टेबल में आइटम जोड़ने का लॉजिक
+    if (result != null && result is Map) {
+      final String tableStr = (result['table'] ?? '').toString();
+      final List rawItems = (result['items'] as List?) ?? [];
       final int? tbl = int.tryParse(tableStr.replaceAll(RegExp(r'[^0-9]'), ''));
 
-      if (tbl != null && newItems.isNotEmpty) {
+      if (tbl != null && rawItems.isNotEmpty) {
+        final newItems = rawItems.map((v) => {
+          'name': v['name']?.toString() ?? '',
+          'qty': int.tryParse(v['qty'].toString()) ?? 1,
+          'price': double.tryParse(v['price'].toString()) ?? 0.0,
+        }).toList();
+
         setState(() {
+          // 1. int की (जैसे 2) में जोड़ें
           activeOrders.putIfAbsent(tbl, () => []);
-          for (var item in newItems) {
-            activeOrders[tbl]!.add(Map<String, dynamic>.from(item));
-          }
+          activeOrders[tbl]!.addAll(newItems);
+
+          // 2. बैकअप: अगर स्ट्रिंग की ("2" या "T-2") इस्तेमाल होती हो
+          try { (activeOrders as dynamic)['$tbl']?.addAll(newItems); } catch (_) {}
+          try { (activeOrders as dynamic)['T-$tbl']?.addAll(newItems); } catch (_) {}
         });
+
+        // पुष्टि मैसेज
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ T-$tbl में काउंटर से ${newItems.length} सामान जुड़ गए!'),
+            backgroundColor: Colors.teal,
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
     }
   }
+
   // लॉगआउट फ़ंक्शन
   void _logout() async {
     final prefs = await SharedPreferences.getInstance();
