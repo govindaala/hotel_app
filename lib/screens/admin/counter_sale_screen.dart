@@ -34,7 +34,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       fetchErrorMessage = null;
     });
 
-    // 1. होटल की टेबल संख्या निकालना (पूरी तरह सुरक्षित)
+    // 1. टेबल संख्या निकालना
     int count = 10;
     try {
       final hotelRes = await supabase
@@ -58,7 +58,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       ];
     });
 
-    // 2. डिफ़ॉल्ट व होटल इन्वेंटरी लोड करना
+    // 2. इन्वेंटरी लोड करना
     try {
       final List<dynamic> allRows = await supabase
           .from('counter_inventory')
@@ -67,7 +67,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
 
       final Map<String, Map<String, dynamic>> mergedMap = {};
 
-      // ग्लोबल डिफ़ॉल्ट सामान (NULL restaurant_id)
       for (var row in allRows) {
         if (row['restaurant_id'] == null) {
           final key = '${row['item_name']}_${row['variant_label']}';
@@ -75,7 +74,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         }
       }
 
-      // इस होटल के अपने सामान / बदले हुए रेट
       for (var row in allRows) {
         if (row['restaurant_id']?.toString() == widget.storeCode) {
           final key = '${row['item_name']}_${row['variant_label']}';
@@ -106,13 +104,29 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     }
   }
 
+  // स्टॉक 0 होने पर बिल में न जुड़ने का कड़ा नियम
   void _addToCart(dynamic id, String name, String variant, double price, int stock) {
+    if (stock <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ यह सामान स्टॉक में नहीं है (Stock: 0)!'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
     final key = '$name ($variant)';
     final currentQty = cart[key]?['qty'] ?? 0;
 
-    if (stock > 0 && currentQty >= stock) {
+    if (currentQty >= stock) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('माफ़ करें! सिर्फ $stock स्टॉक बचा है।'), backgroundColor: Colors.orange),
+        SnackBar(
+          content: Text('माफ़ करें! सिर्फ $stock स्टॉक ही बचा है।'),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 2),
+        ),
       );
       return;
     }
@@ -144,8 +158,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     return sum;
   }
 
-  // थर्मल प्रिंटर से बिल प्रिंट
-  Future<void> _printReceipt(String mode, double total, List<String> itemsDetails) async {
+  Future<void> _printReceipt(String mode, double total) async {
     try {
       bool isConnected = await PrintBluetoothThermal.connectionStatus;
       if (!isConnected) return;
@@ -176,7 +189,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     } catch (_) {}
   }
 
-  // पेमेंट व चेकआउट
   Future<void> _processCheckout(String mode, {bool shouldPrint = false}) async {
     if (cart.isEmpty) return;
 
@@ -209,7 +221,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         });
       }
 
-      // स्टॉक घटाना
+      // बिक्री होते ही स्टॉक कम करना
       for (var item in cart.values) {
         if (item['id'] != null) {
           final int remaining = ((item['stock'] ?? 0) as int) - (item['qty'] as int);
@@ -220,7 +232,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       }
 
       if (shouldPrint) {
-        await _printReceipt(mode, total, details);
+        await _printReceipt(mode, total);
       }
 
       if (mounted) {
@@ -240,7 +252,117 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     }
   }
 
-  // 1. नया सामान / नया रेट जोड़ने का डायलॉग (+)
+  // किसी भी प्रोडक्ट को डेटाबेस से डिलीट करना
+  Future<void> _deleteProduct(dynamic id, String label) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('सामान डिलीट करें?'),
+        content: Text('क्या आप "$label" को इन्वेंटरी से पूरी तरह हटाना चाहते हैं?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('रद्द')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('हाँ, डिलीट करें', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && id != null) {
+      await supabase.from('counter_inventory').delete().eq('id', id);
+      _initScreenData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('"$label" डिलीट हो गया!'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  // किसी सामान का स्टॉक सीधे बदलना (+ जोड़ना या - घटाना)
+  void _openStockAdjustDialog(Map<String, dynamic> item) {
+    final stockCtrl = TextEditingController(text: '${item['stock_qty'] ?? 0}');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('स्टॉक बदलें: ${item['item_name']} (${item['variant_label']})', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('मौजूदा स्टॉक: ${item['stock_qty'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.blueGrey)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: stockCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'नया सही स्टॉक सेट करें',
+                hintText: 'उदा. 40 या 100',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+            onPressed: () async {
+              final int newQty = int.tryParse(stockCtrl.text.trim()) ?? 0;
+              if (item['id'] != null) {
+                await supabase.from('counter_inventory').update({
+                  'stock_qty': newQty < 0 ? 0 : newQty,
+                }).eq('id', item['id']);
+
+                Navigator.pop(ctx);
+                _initScreenData();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('स्टॉक अपडेट होकर $newQty हो गया!'), backgroundColor: Colors.teal),
+                );
+              }
+            },
+            child: const Text('सुरक्षित करें', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // कार्ड पर लॉन्ग-प्रेस करने पर खुलने वाला मेनू
+  void _showItemOptions(Map<String, dynamic> item) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_note, color: Colors.blue),
+              title: const Text('स्टॉक संख्या बदलें (+ जोड़ें / - घटाएँ)'),
+              subtitle: Text('वर्तमान स्टॉक: ${item['stock_qty'] ?? 0}'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _openStockAdjustDialog(item);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: const Text('यह सामान/वेरिएंट डिलीट करें', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _deleteProduct(item['id'], '${item['item_name']} - ${item['variant_label']}');
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // नया सामान जोड़ना (+)
   void _openAddCustomVariantDialog() {
     final nameCtrl = TextEditingController(text: selectedCategory ?? '');
     final varCtrl = TextEditingController();
@@ -258,7 +380,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
               TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'सामान (उदा. चिप्स, पानी)')),
               TextField(controller: varCtrl, decoration: const InputDecoration(labelText: 'रेंज / पैक (उदा. ₹15 वाला)')),
               TextField(controller: priceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'कीमत (₹)')),
-              TextField(controller: stockCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'शुरुआती स्टॉक मात्रा')),
+              TextField(controller: stockCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'शुरुआती स्टॉक संख्या')),
             ],
           ),
         ),
@@ -278,7 +400,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                   'item_name': n,
                   'variant_label': v,
                   'price': p,
-                  'stock_qty': s,
+                  'stock_qty': s < 0 ? 0 : s,
                 });
                 Navigator.pop(ctx);
                 _initScreenData();
@@ -291,69 +413,91 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     );
   }
 
-  // 2. स्टॉक बढ़ाने का डायलॉग (📦)
-  void _openAddStockDialog() {
+  // क्विक स्टॉक डायलॉग (📦)
+  void _openQuickStockDialog() {
     final List<Map<String, dynamic>> allItemsList = [];
     inventoryGroups.forEach((_, list) => allItemsList.addAll(list));
 
-    if (allItemsList.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('पहले कोई सामान जोड़ें, तभी स्टॉक बढ़ाया जा सकता है।')),
-      );
-      return;
-    }
+    if (allItemsList.isEmpty) return;
 
     Map<String, dynamic>? selectedItem = allItemsList.first;
     final qtyCtrl = TextEditingController();
+    bool isAdding = true;
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDState) => AlertDialog(
-          title: const Text('📦 इन्वेंटरी स्टॉक जोड़ें', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<Map<String, dynamic>>(
-                value: selectedItem,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'सामान चुनें'),
-                items: allItemsList.map((item) {
-                  return DropdownMenuItem(
-                    value: item,
-                    child: Text('${item['item_name']} - ${item['variant_label']} (स्टॉक: ${item['stock_qty'] ?? 0})', style: const TextStyle(fontSize: 13)),
-                  );
-                }).toList(),
-                onChanged: (val) => setDState(() => selectedItem = val),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: qtyCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'कितनी मात्रा आई? (उदा. 100)', border: OutlineInputBorder()),
-              ),
-            ],
+          title: const Text('📦 इन्वेंटरी स्टॉक समायोजन', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<Map<String, dynamic>>(
+                  value: selectedItem,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'सामान चुनें'),
+                  items: allItemsList.map((item) {
+                    return DropdownMenuItem(
+                      value: item,
+                      child: Text('${item['item_name']} - ${item['variant_label']} (स्टॉक: ${item['stock_qty'] ?? 0})', style: const TextStyle(fontSize: 12)),
+                    );
+                  }).toList(),
+                  onChanged: (val) => setDState(() => selectedItem = val),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    ChoiceChip(
+                      label: const Text('+ जोड़ें (आया)'),
+                      selected: isAdding,
+                      selectedColor: Colors.green.shade100,
+                      onSelected: (_) => setDState(() => isAdding = true),
+                    ),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('- घटाएँ (टूटा/हटा)'),
+                      selected: !isAdding,
+                      selectedColor: Colors.red.shade100,
+                      onSelected: (_) => setDState(() => isAdding = false),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: qtyCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: isAdding ? 'कितना स्टॉक आया?' : 'कितना स्टॉक कम करना है?',
+                    hintText: 'उदा. 50',
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
               onPressed: () async {
-                final int addQty = int.tryParse(qtyCtrl.text.trim()) ?? 0;
-                if (selectedItem != null && addQty > 0) {
+                final int changeQty = int.tryParse(qtyCtrl.text.trim()) ?? 0;
+                if (selectedItem != null && changeQty > 0) {
                   final int currentStock = (selectedItem!['stock_qty'] ?? 0) as int;
+                  final int newStock = isAdding ? (currentStock + changeQty) : (currentStock - changeQty);
+
                   await supabase.from('counter_inventory').update({
-                    'stock_qty': currentStock + addQty,
+                    'stock_qty': newStock < 0 ? 0 : newStock,
                   }).eq('id', selectedItem!['id']);
 
                   Navigator.pop(ctx);
                   _initScreenData();
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('${selectedItem!['item_name']} में +$addQty स्टॉक जुड़ा!'), backgroundColor: Colors.teal),
+                    SnackBar(content: Text('स्टॉक अपडेट होकर $newStock हो गया!'), backgroundColor: Colors.teal),
                   );
                 }
               },
-              child: const Text('स्टॉक सेव करें', style: TextStyle(color: Colors.white)),
+              child: const Text('अपडेट करें', style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
@@ -368,7 +512,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text('⚡ काउंटर सेल व इन्वेंटरी', style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 17)),
+        title: const Text('⚡ काउंटर सेल व इन्वेंटरी', style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 18)),
         backgroundColor: Colors.white,
         elevation: 0.5,
         leading: IconButton(
@@ -376,19 +520,16 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          // बटन 1: नया सामान / रेट जोड़ना (+)
           IconButton(
             icon: const Icon(Icons.add_circle_outline, color: Color(0xFF0284C7)),
-            tooltip: 'नया सामान / रेट जोड़ें',
+            tooltip: 'नया सामान जोड़ें',
             onPressed: _openAddCustomVariantDialog,
           ),
-          // बटन 2: स्टॉक बढ़ाना (📦)
           IconButton(
             icon: const Icon(Icons.inventory_2_outlined, color: Color(0xFF059669)),
-            tooltip: 'स्टॉक जोड़ें',
-            onPressed: _openAddStockDialog,
+            tooltip: 'स्टॉक जोड़ें/घटाएँ',
+            onPressed: _openQuickStockDialog,
           ),
-          // बटन 3: रिफ़्रेश (🔄)
           IconButton(
             icon: const Icon(Icons.refresh, color: Color(0xFF64748B)),
             tooltip: 'रीफ़्रेश',
@@ -416,7 +557,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                 )
               : Column(
                   children: [
-                    // टेबल सेलेक्टर
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                       color: isTable ? const Color(0xFFEFF6FF) : const Color(0xFFF1F5F9),
@@ -439,7 +579,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                       ),
                     ),
 
-                    // कैटेगरी टैब्स
                     if (inventoryGroups.isEmpty)
                       const Expanded(
                         child: Center(
@@ -488,16 +627,23 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                                   final double price = ((v['price'] ?? 0) as num).toDouble();
                                   final String label = v['variant_label'] ?? '';
                                   final int stock = (v['stock_qty'] ?? 0) as int;
+                                  final bool isOutOfStock = stock <= 0;
 
                                   return InkWell(
                                     onTap: () => _addToCart(v['id'], selectedCategory!, label, price, stock),
+                                    onLongPress: () => _showItemOptions(v), // दबाकर रखने पर डिलीट या स्टॉक एडिट मेनू
                                     borderRadius: BorderRadius.circular(10),
                                     child: Container(
                                       padding: const EdgeInsets.all(10),
                                       decoration: BoxDecoration(
-                                        color: Colors.white,
+                                        color: isOutOfStock ? const Color(0xFFF8FAFC) : Colors.white,
                                         borderRadius: BorderRadius.circular(10),
-                                        border: Border.all(color: stock <= 5 ? Colors.red.shade200 : const Color(0xFFE2E8F0)),
+                                        border: Border.all(
+                                          color: isOutOfStock
+                                              ? Colors.red.shade200
+                                              : (stock <= 5 ? Colors.orange.shade300 : const Color(0xFFE2E8F0)),
+                                          width: isOutOfStock ? 1.2 : 1,
+                                        ),
                                       ),
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -506,8 +652,25 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                                           Row(
                                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                             children: [
-                                              Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), maxLines: 1)),
-                                              Text('₹$price', style: const TextStyle(color: Color(0xFF059669), fontWeight: FontWeight.bold, fontSize: 14)),
+                                              Expanded(
+                                                child: Text(
+                                                  label,
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 13,
+                                                    color: isOutOfStock ? Colors.black45 : Colors.black87,
+                                                  ),
+                                                  maxLines: 1,
+                                                ),
+                                              ),
+                                              Text(
+                                                '₹$price',
+                                                style: TextStyle(
+                                                  color: isOutOfStock ? Colors.grey : const Color(0xFF059669),
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 14,
+                                                ),
+                                              ),
                                             ],
                                           ),
                                           Row(
@@ -516,18 +679,30 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                                               Container(
                                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                                 decoration: BoxDecoration(
-                                                  color: stock <= 5 ? Colors.red.shade50 : Colors.blueGrey.shade50,
+                                                  color: isOutOfStock
+                                                      ? Colors.red.shade50
+                                                      : (stock <= 5 ? Colors.orange.shade50 : Colors.blueGrey.shade50),
                                                   borderRadius: BorderRadius.circular(4),
                                                 ),
                                                 child: Text(
-                                                  'स्टॉक: $stock',
-                                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: stock <= 5 ? Colors.red : Colors.blueGrey),
+                                                  isOutOfStock ? 'स्टॉक: 0 (खत्म)' : 'स्टॉक: $stock',
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: isOutOfStock
+                                                        ? Colors.red
+                                                        : (stock <= 5 ? Colors.orange.shade800 : Colors.blueGrey),
+                                                  ),
                                                 ),
                                               ),
-                                              const CircleAvatar(
+                                              CircleAvatar(
                                                 radius: 11,
-                                                backgroundColor: Color(0xFFECFDF5),
-                                                child: Icon(Icons.add, size: 15, color: Color(0xFF059669)),
+                                                backgroundColor: isOutOfStock ? Colors.grey.shade200 : const Color(0xFFECFDF5),
+                                                child: Icon(
+                                                  isOutOfStock ? Icons.block : Icons.add,
+                                                  size: 14,
+                                                  color: isOutOfStock ? Colors.grey : const Color(0xFF059669),
+                                                ),
                                               ),
                                             ],
                                           )
@@ -540,7 +715,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                       ),
                     ],
 
-                    // निचला कार्ट और चेकआउट
+                    // बॉटम कार्ट व पेमेंट बार
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: const BoxDecoration(
