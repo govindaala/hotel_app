@@ -33,9 +33,6 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
   double upiAmount = 0.0;
   double otherAmount = 0.0;
 
-  // 3. टॉप सेलिंग डिशेज़
-  List<Map<String, dynamic>> topSellingItems = [];
-
   // 4. चार्ट डेटा (दिन और उनकी सेल)
   Map<int, double> dailyChartData = {};
 
@@ -64,16 +61,15 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
         startDate = DateTime(now.year, now.month, 1);
       }
 
-      // Supabase से इस स्टोर का डेटा फेच करें
+      // Supabase से daily_expenses टेबल का डेटा फेच करें
       final response = await supabase
-          .from('sales_reports')
+          .from('daily_expenses')
           .select('*')
-          .eq('store_code', widget.storeCode)
+          .eq('restaurant_id', widget.storeCode)
           .gte('created_at', startDate.toIso8601String())
           .order('created_at', ascending: true);
 
       final List<dynamic> salesList = response as List<dynamic>;
-      recordCount = salesList.length;
 
       // गणनाएँ रीसेट करें
       totalSales = 0.0;
@@ -85,32 +81,37 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
       upiAmount = 0.0;
       otherAmount = 0.0;
       dailyChartData.clear();
-      final Map<String, int> productCountMap = {};
+      recordCount = 0;
 
       for (var sale in salesList) {
-        // बिल राशि पार्स करें
-        final double amount = ((sale['total_amount'] ?? sale['total'] ?? sale['grand_total'] ?? 0.0) as num).toDouble();
+        final String title = (sale['title'] ?? '').toString().toUpperCase();
+        final String type = (sale['type'] ?? '').toString().toLowerCase();
+        
+        // सिर्फ "जमा" (Income/Sale) वाले रिकॉर्ड ही लें (खर्च को छोड़ दें)
+        if (type == 'expense' || (!title.contains('SALE') && !title.contains('सेल') && !title.contains('(CASH)') && !title.contains('(UPI)'))) {
+          continue; 
+        }
+
+        final double amount = ((sale['amount'] ?? 0.0) as num).toDouble();
+        if (amount <= 0) continue;
+
+        recordCount++;
         totalSales += amount;
 
         // मोड-वाइज (Pick Up vs Dine-In)
-        final String table = (sale['table_number'] ?? sale['table_name'] ?? sale['order_type'] ?? '').toString();
-        if (table.toLowerCase().contains('parcel') ||
-            table.toLowerCase().contains('pickup') ||
-            table.startsWith('P-') ||
-            table.startsWith('9')) {
+        if (title.contains('PARCEL') || title.contains('पार्सल') || title.contains('PICKUP')) {
           pickupOrders++;
           pickupAmount += amount;
-        } else {
+        } else if (title.contains('TABLE') || title.contains('टेबल')) {
           tableOrders++;
           tableAmount += amount;
         }
 
         // पेमेंट मोड-वाइज
-        final String pMode = (sale['payment_mode'] ?? sale['payment_type'] ?? 'CASH').toString().toUpperCase();
-        if (pMode == 'CASH') {
-          cashAmount += amount;
-        } else if (pMode == 'UPI' || pMode == 'ONLINE') {
+        if (title.contains('UPI') || title.contains('ONLINE')) {
           upiAmount += amount;
+        } else if (title.contains('CASH') || title.contains('नकद')) {
+          cashAmount += amount;
         } else {
           otherAmount += amount;
         }
@@ -118,35 +119,11 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
         // चार्ट डेटा (तारीख वार ग्रुपिंग)
         final DateTime createdAt = DateTime.tryParse(sale['created_at'].toString()) ?? now;
         dailyChartData[createdAt.day] = (dailyChartData[createdAt.day] ?? 0.0) + amount;
-
-        // टॉप सेलिंग डिशेज़ पार्स करें
-        dynamic rawItems = sale['items'] ?? sale['order_items'] ?? [];
-        List itemsList = [];
-        if (rawItems is List) {
-          itemsList = rawItems;
-        }
-
-        for (var it in itemsList) {
-          if (it is Map) {
-            final String name = it['name'] ?? it['item_name'] ?? 'अन्य डिश';
-            final int qty = ((it['qty'] ?? it['quantity'] ?? 1) as num).toInt();
-            productCountMap[name] = (productCountMap[name] ?? 0) + qty;
-          }
-        }
       }
 
       // औसत दैनिक सेल
       final int daysCount = now.day > 0 ? now.day : 1;
       avgDailySales = totalSales / (selectedFilter == 'Today' ? 1 : daysCount);
-
-      // टॉप सेलिंग सॉर्ट करें
-      final sortedProducts = productCountMap.entries.toList()
-        ..sort((a, b) => b.value.compareTo(a.value));
-
-      topSellingItems = sortedProducts.take(5).map((e) => {
-        'name': e.key,
-        'sold': e.value,
-      }).toList();
 
     } catch (e) {
       errorMessage = e.toString();
@@ -186,7 +163,6 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  // सर्वर एरर चेतावनी बैनर
                   if (errorMessage != null)
                     Container(
                       margin: const EdgeInsets.only(bottom: 16),
@@ -201,16 +177,12 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
                           const Icon(Icons.error_outline, color: Colors.red),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(
-                              'डेटा लोड नहीं हुआ:\n$errorMessage',
-                              style: const TextStyle(color: Colors.red, fontSize: 12),
-                            ),
+                            child: Text('डेटा लोड नहीं हुआ:\n$errorMessage', style: const TextStyle(color: Colors.red, fontSize: 12)),
                           ),
                         ],
                       ),
                     ),
 
-                  // डेटा खाली होने पर सूचना
                   if (errorMessage == null && recordCount == 0)
                     Container(
                       margin: const EdgeInsets.only(bottom: 16),
@@ -225,10 +197,7 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
                           const Icon(Icons.info_outline, color: Colors.amber),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(
-                              'स्टोर कोड "${widget.storeCode}" के लिए इस समयावधि ($selectedFilter) में कोई बिल रिकॉर्ड नहीं मिला।',
-                              style: const TextStyle(color: Color(0xFF92400E), fontSize: 12),
-                            ),
+                            child: Text('स्टोर कोड "${widget.storeCode}" के लिए इस समयावधि ($selectedFilter) में कोई बिक्री रिकॉर्ड नहीं मिला।', style: const TextStyle(color: Color(0xFF92400E), fontSize: 12)),
                           ),
                         ],
                       ),
@@ -241,8 +210,6 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
                   _buildModeWiseCard(),
                   const SizedBox(height: 16),
                   _buildPaymentWiseCard(),
-                  const SizedBox(height: 16),
-                  _buildTopSellingCard(),
                   const SizedBox(height: 20),
                 ],
               ),
@@ -253,10 +220,7 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
   Widget _buildSalesChartCard() {
     return Card(
       elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: Color(0xFFE2E8F0)),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: Color(0xFFE2E8F0))),
       color: Colors.white,
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -273,10 +237,7 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
             const SizedBox(height: 14),
             Container(
               height: 36,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF1F5F9),
-                borderRadius: BorderRadius.circular(8),
-              ),
+              decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(8)),
               child: Row(
                 children: ['Year', 'Month', 'Day'].map((view) {
                   final isSelected = chartView == view;
@@ -290,14 +251,7 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
                           borderRadius: BorderRadius.circular(6),
                         ),
                         alignment: Alignment.center,
-                        child: Text(
-                          view,
-                          style: TextStyle(
-                            color: isSelected ? Colors.white : const Color(0xFF64748B),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
+                        child: Text(view, style: TextStyle(color: isSelected ? Colors.white : const Color(0xFF64748B), fontWeight: FontWeight.bold, fontSize: 12)),
                       ),
                     ),
                   );
@@ -312,20 +266,14 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('Total:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                    Text(
-                      '₹${totalSales.toStringAsFixed(2)}',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                    ),
+                    Text('₹${totalSales.toStringAsFixed(2)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
                   ],
                 ),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     const Text('Avg:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                    Text(
-                      '₹${avgDailySales.toStringAsFixed(0)}',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFFD97706)),
-                    ),
+                    Text('₹${avgDailySales.toStringAsFixed(0)}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFFD97706))),
                   ],
                 ),
               ],
@@ -346,18 +294,12 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         if (dayAmount > 0)
-                          Text(
-                            '${(dayAmount / 1000).toStringAsFixed(1)}K',
-                            style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Color(0xFF08566E)),
-                          ),
+                          Text('${(dayAmount / 1000).toStringAsFixed(1)}K', style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Color(0xFF08566E))),
                         const SizedBox(height: 2),
                         Container(
                           width: 14,
                           height: barHeight,
-                          decoration: BoxDecoration(
-                            color: dayAmount > 0 ? const Color(0xFF08566E) : const Color(0xFFE2E8F0),
-                            borderRadius: BorderRadius.circular(3),
-                          ),
+                          decoration: BoxDecoration(color: dayAmount > 0 ? const Color(0xFF08566E) : const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(3)),
                         ),
                         const SizedBox(height: 4),
                         Text('$day', style: const TextStyle(fontSize: 9, color: Color(0xFF94A3B8))),
@@ -376,10 +318,7 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
   Widget _buildFilterCard() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE0F2FE),
-        borderRadius: BorderRadius.circular(12),
-      ),
+      decoration: BoxDecoration(color: const Color(0xFFE0F2FE), borderRadius: BorderRadius.circular(12)),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -394,9 +333,7 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
             value: selectedFilter,
             underline: const SizedBox(),
             icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF0284C7)),
-            items: ['Today', 'This Week', 'This Month'].map((f) {
-              return DropdownMenuItem(value: f, child: Text(f, style: const TextStyle(fontSize: 13)));
-            }).toList(),
+            items: ['Today', 'This Week', 'This Month'].map((f) => DropdownMenuItem(value: f, child: Text(f, style: const TextStyle(fontSize: 13)))).toList(),
             onChanged: (val) {
               if (val != null) {
                 setState(() => selectedFilter = val);
@@ -415,19 +352,9 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
       icon: Icons.pie_chart_outline,
       iconColor: Colors.teal,
       children: [
-        _buildRowItem(
-          icon: Icons.directions_walk,
-          title: 'Pick Up',
-          subtitle: '$pickupOrders orders',
-          amount: pickupAmount,
-        ),
+        _buildRowItem(icon: Icons.directions_walk, title: 'Pick Up', subtitle: '$pickupOrders orders', amount: pickupAmount),
         const Divider(height: 16),
-        _buildRowItem(
-          icon: Icons.table_restaurant_outlined,
-          title: 'Table',
-          subtitle: '$tableOrders orders',
-          amount: tableAmount,
-        ),
+        _buildRowItem(icon: Icons.table_restaurant_outlined, title: 'Table', subtitle: '$tableOrders orders', amount: tableAmount),
         const Divider(height: 20, thickness: 1),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -449,68 +376,22 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
         _buildRowItem(icon: Icons.money, title: 'Cash', amount: cashAmount),
         const Divider(height: 16),
         _buildRowItem(icon: Icons.qr_code_2, title: 'UPI', amount: upiAmount),
-        const Divider(height: 16),
-        _buildRowItem(icon: Icons.credit_card, title: 'Others', amount: otherAmount),
         const Divider(height: 20, thickness: 1),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             const Text('TOTAL', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-            Text('₹${(cashAmount + upiAmount + otherAmount).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            Text('₹${(cashAmount + upiAmount).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           ],
         ),
       ],
     );
   }
 
-  Widget _buildTopSellingCard() {
-    return _buildCard(
-      title: 'Top Selling Items',
-      icon: Icons.emoji_events_outlined,
-      iconColor: Colors.amber,
-      children: topSellingItems.isEmpty
-          ? [const Center(child: Text('कोई बिक्री रिकॉर्ड नहीं', style: TextStyle(color: Colors.grey, fontSize: 12)))]
-          : topSellingItems.asMap().entries.map((entry) {
-              final idx = entry.key;
-              final item = entry.value;
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Text(
-                      idx == 0 ? '🥇' : (idx == 1 ? '🥈' : (idx == 2 ? '🥉' : '🎖️')),
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        item['name'],
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                      ),
-                    ),
-                    Text(
-                      '${item['sold']} sold',
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0284C7), fontSize: 12),
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
-    );
-  }
-
-  Widget _buildCard({
-    required String title,
-    required IconData icon,
-    required Color iconColor,
-    required List<Widget> children,
-  }) {
+  Widget _buildCard({required String title, required IconData icon, required Color iconColor, required List<Widget> children}) {
     return Card(
       elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: Color(0xFFE2E8F0)),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: Color(0xFFE2E8F0))),
       color: Colors.white,
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -532,12 +413,7 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
     );
   }
 
-  Widget _buildRowItem({
-    required IconData icon,
-    required String title,
-    String? subtitle,
-    required double amount,
-  }) {
+  Widget _buildRowItem({required IconData icon, required String title, String? subtitle, required double amount}) {
     return Row(
       children: [
         Icon(icon, size: 18, color: const Color(0xFF64748B)),
