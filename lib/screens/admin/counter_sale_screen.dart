@@ -323,7 +323,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                     value: item,
                     child: Text('${item['item_name']} - ${item['variant_label']} (स्टॉक: ${item['stock_qty'] ?? 0})', style: const TextStyle(fontSize: 13)),
                   );
-                }).toList>,
+                }).toList(),
                 onChanged: (val) => setDState(() => selectedItem = val),
               ),
               const SizedBox(height: 12),
