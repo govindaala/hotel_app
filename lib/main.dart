@@ -1916,16 +1916,32 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
   
     // =========================================================================
-  // फ़ंक्शन 23: त्वरित काउंटर बिक्री
-  // =========================================================================
+    // फ़ंक्शन 23: त्वरित काउंटर बिक्री
+  // ==========================================================
   void _openQuickCounterSaleDialog() async {
-    await Navigator.push(
+    final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => CounterSaleScreen(storeCode: widget.storeCode),
       ),
     );
     _fetchDailyBalances();
+
+    // काउंटर सेल से टेबल (जैसे T-2) में आइटम जोड़ने का लॉजिक
+    if (result != null && result is Map<String, dynamic>) {
+      final String tableStr = result['table'] ?? '';
+      final List newItems = result['items'] ?? [];
+      final int? tbl = int.tryParse(tableStr.replaceAll(RegExp(r'[^0-9]'), ''));
+
+      if (tbl != null && newItems.isNotEmpty) {
+        setState(() {
+          activeOrders.putIfAbsent(tbl, () => []);
+          for (var item in newItems) {
+            activeOrders[tbl]!.add(Map<String, dynamic>.from(item));
+          }
+        });
+      }
+    }
   }
   // लॉगआउट फ़ंक्शन
   void _logout() async {
