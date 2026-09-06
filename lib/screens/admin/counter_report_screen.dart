@@ -417,7 +417,7 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(item['name'], style: const TextStyle(fontWeight: FontWeight.w640, fontSize: 13)),
+                      child: Text(item['name'], style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
                     ),
                     Text(
                       '${item['sold']} sold',
