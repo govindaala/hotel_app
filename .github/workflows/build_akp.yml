@@ -53,7 +53,7 @@ jobs:
         run: flutter pub get
 
       - name: Build APK
-        run: flutter build apk --release
+        run: flutter build apk --release --build-number=${{ github.run_number }}
 
       - name: Publish Direct APK Release (No Zip)
         uses: softprops/action-gh-release@v2
