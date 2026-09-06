@@ -22,6 +22,7 @@ import 'models/expense_model.dart';
 import 'screens/admin/restaurant_settings_screen.dart';
 import 'screens/admin/daily_expense_screen.dart';
 import 'screens/waiter/waiter_menu_order_view.dart';
+import 'screens/admin/counter_report_screen.dart';
 import 'Data/Menu_data_source.dart';
 
 // Supabase डेटाबेस कॉन्फ़िगरेशन
