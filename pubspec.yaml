@@ -21,7 +21,7 @@ dependencies:
 
   # PDF जनरेशन, स्क्रीनशॉट व शेयरिंग
   pdf: ^3.10.8
-  screenshot: ^3.0.0
+  screenshot: ^2.3.0
   path_provider: ^2.1.2
   share_plus: ^9.0.0
 
