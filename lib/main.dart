@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
+import 'package:screenshot/screenshot.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
@@ -1106,12 +1107,12 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
+  // 1. राशन पर्ची PDF (HD शुद्ध हिंदी)
   void _processAndExportRationPdf(String period, bool onlyPending,
       bool autoMergeQty, Set<String> selectedItems) async {
     DateTime cutoff = DateTime.now().subtract(const Duration(days: 10));
     if (period == 'today') {
-      cutoff =
-          DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+      cutoff = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
     } else if (period == '3_days') {
       cutoff = DateTime.now().subtract(const Duration(days: 3));
     }
@@ -1121,53 +1122,133 @@ class _FullCounterAppState extends State<FullCounterApp> {
       if (!selectedItems.contains(name)) return false;
       if (onlyPending && r['is_received'] == true) return false;
 
-      final createdAt =
-          DateTime.tryParse(r['created_at'] ?? '') ?? DateTime.now();
+      final createdAt = DateTime.tryParse(r['created_at'] ?? '') ?? DateTime.now();
       return createdAt.isAfter(cutoff) || createdAt.isAtSameMomentAs(cutoff);
     }).toList();
 
     if (filtered.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('चुने गए फ़िल्टर के अनुसार कोई रिकॉर्ड नहीं मिला!')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('चुने गए फ़िल्टर के अनुसार कोई रिकॉर्ड नहीं मिला!')));
       return;
     }
 
+    List<Map<String, dynamic>> finalRows = [];
+    if (autoMergeQty) {
+      Map<String, Map<String, dynamic>> mergedMap = {};
+      for (var r in filtered) {
+        String name = r['item_name'].toString().trim();
+        String rawQty = r['quantity'].toString().trim();
+        final match = RegExp(r'(\d+(?:\.\d+)?)').firstMatch(rawQty);
+        double val = match != null ? (double.tryParse(match.group(1)!) ?? 1.0) : 1.0;
+        String unit = rawQty.replaceAll(RegExp(r'[\d\.\s]'), '');
+        if (unit.isEmpty) unit = 'यूनिट';
+
+        if (!mergedMap.containsKey(name)) {
+          mergedMap[name] = {
+            'item_name': name,
+            'total_qty': val,
+            'unit': unit,
+            'is_received': r['is_received'] == true,
+            'date': (r['created_at'] ?? '').substring(0, 10),
+          };
+        } else {
+          mergedMap[name]!['total_qty'] = (mergedMap[name]!['total_qty'] as double) + val;
+          if (r['is_received'] != true) mergedMap[name]!['is_received'] = false;
+        }
+      }
+
+      mergedMap.forEach((k, v) {
+        double q = v['total_qty'];
+        String formattedQty = q % 1 == 0 ? q.toInt().toString() : q.toStringAsFixed(1);
+        finalRows.add({
+          'item_name': v['item_name'],
+          'quantity': '$formattedQty ${v['unit']}',
+          'is_received': v['is_received'],
+          'created_at': v['date'],
+        });
+      });
+    } else {
+      finalRows = filtered;
+    }
+
     try {
+      final Uint8List imageBytes = await ScreenshotController().captureFromWidget(
+        Container(
+          width: 600,
+          color: Colors.white,
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('${widget.hotelName} - राशन मांग सूची',
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black)),
+              const SizedBox(height: 4),
+              Text(
+                'पर्ची प्रकार: ${onlyPending ? "केवल बाज़ार मांग (पेंडिंग)" : "समग्र राशन रिकॉर्ड"} | दिनांक: ${DateTime.now().toString().substring(0, 10)}',
+                style: const TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(height: 10),
+              const Divider(color: Colors.black, thickness: 1.5),
+              const SizedBox(height: 10),
+              Table(
+                columnWidths: const {
+                  0: FlexColumnWidth(4.5),
+                  1: FlexColumnWidth(2.5),
+                  2: FlexColumnWidth(3),
+                },
+                children: [
+                  const TableRow(
+                    decoration: BoxDecoration(color: Color(0xFFF1F5F9)),
+                    children: [
+                      Padding(padding: EdgeInsets.all(8), child: Text('सामग्री व मात्रा', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black))),
+                      Padding(padding: EdgeInsets.all(8), child: Text('स्थिति', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black))),
+                      Padding(padding: EdgeInsets.all(8), child: Text('दिनांक', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black))),
+                    ],
+                  ),
+                  ...finalRows.map((r) {
+                    final bool isRec = r['is_received'] == true;
+                    return TableRow(
+                      children: [
+                        Padding(padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8), child: Text('${r['item_name']} (${r['quantity']})', style: const TextStyle(fontSize: 15, color: Colors.black, fontWeight: FontWeight.w500))),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                          child: Text(
+                            isRec ? 'आ गया ✓' : 'पेंडिंग ⏳',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: isRec ? Colors.green.shade800 : Colors.orange.shade900),
+                          ),
+                        ),
+                        Padding(padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8), child: Text((r['created_at'] ?? '').substring(0, 10), style: const TextStyle(fontSize: 14, color: Colors.black87))),
+                      ],
+                    );
+                  }),
+                ],
+              ),
+              const SizedBox(height: 20),
+              const Divider(color: Colors.black26),
+              Align(alignment: Alignment.centerRight, child: Text('कुल सामग्री: ${finalRows.length}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
+            ],
+          ),
+        ),
+        delay: const Duration(milliseconds: 50),
+        pixelRatio: 2.0,
+      );
+
       final pdf = pw.Document();
       pdf.addPage(
-        pw.MultiPage(
+        pw.Page(
           pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(24),
-          build: (pw.Context context) => [
-            pw.Center(
-              child: pw.Text('${widget.hotelName} - राशन मांग सूची',
-                  style: pw.TextStyle(
-                      fontSize: 20, fontWeight: pw.FontWeight.bold)),
-            ),
-            pw.SizedBox(height: 6),
-            pw.Divider(thickness: 1),
-            pw.SizedBox(height: 10),
-            ...filtered.map((r) => pw.Padding(
-                  padding: const pw.EdgeInsets.symmetric(vertical: 4),
-                  child: pw.Text(
-                      '• ${r['item_name']} (${r['quantity']}) - ${r['is_received'] == true ? "आ गया" : "पेंडिंग"}',
-                      style: const pw.TextStyle(fontSize: 13)),
-                )),
-          ],
+          margin: const pw.EdgeInsets.all(20),
+          build: (pw.Context context) => pw.Center(child: pw.Image(pw.MemoryImage(imageBytes))),
         ),
       );
 
       final dir = await getTemporaryDirectory();
-      final file = File(
-          '${dir.path}/ration_${DateTime.now().millisecondsSinceEpoch}.pdf');
+      final file = File('${dir.path}/ration_${DateTime.now().millisecondsSinceEpoch}.pdf');
       await file.writeAsBytes(await pdf.save());
-      await Share.shareXFiles([XFile(file.path)],
-          text: '🛒 ${widget.hotelName} राशन पर्ची');
+      await Share.shareXFiles([XFile(file.path)], text: '🛒 ${widget.hotelName} राशन पर्ची');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('PDF एरर: $e')));
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF एरर: $e')));
     }
   }
 
@@ -1185,8 +1266,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 Icon(Icons.analytics_outlined, color: Colors.blueAccent),
                 SizedBox(width: 8),
                 Text('वित्तीय व POS ऑडिट PDF',
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ],
             ),
             content: SizedBox(
@@ -1272,9 +1352,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // क्रिस्टल-क्लियर वेक्टर A4 लेज़र PDF जनरेटर
-  void _generateAndShareFinancialAuditPdf(
-      String range, DateTimeRange? customRange) async {
+  // 2. वित्तीय ऑडिट A4 लेज़र PDF (HD शुद्ध हिंदी, नो-बॉक्सेस)
+  void _generateAndShareFinancialAuditPdf(String range, DateTimeRange? customRange) async {
     DateTime startCutoff;
     DateTime endCutoff = DateTime.now();
     String rangeLabel = '';
@@ -1295,8 +1374,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } else if (range == 'custom' && customRange != null) {
       startCutoff = customRange.start;
       endCutoff = customRange.end.add(const Duration(days: 1));
-      rangeLabel =
-          'कस्टम अवधि (${startCutoff.toString().substring(0, 10)} से ${customRange.end.toString().substring(0, 10)})';
+      rangeLabel = 'कस्टम अवधि (${startCutoff.toString().substring(0, 10)} से ${customRange.end.toString().substring(0, 10)})';
     } else {
       startCutoff = DateTime(now.year, now.month, now.day);
       rangeLabel = 'दैनिक लेज़र रिपोर्ट';
@@ -1312,10 +1390,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
           .order('created_at', ascending: false);
 
       if (res == null || (res as List).isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('कोई रिकॉर्ड दर्ज नहीं है!')));
-        }
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('कोई रिकॉर्ड दर्ज नहीं है!')));
         return;
       }
 
@@ -1343,154 +1418,128 @@ class _FullCounterAppState extends State<FullCounterApp> {
       final double grossSales = totalCashIn + totalBankUpi;
       final double netCashInHand = totalCashIn - totalExpenses;
 
-      final pdf = pw.Document();
+      final Uint8List reportImage = await ScreenshotController().captureFromWidget(
+        Container(
+          width: 780,
+          color: Colors.white,
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                widget.hotelName,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.black),
+              ),
+              const SizedBox(height: 2),
+              const Text(
+                'वित्तीय लेज़र एवं बिक्री ऑडिट रिपोर्ट (FINANCIAL AUDIT)',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black54),
+              ),
+              Text(
+                rangeLabel,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: Colors.black87),
+              ),
+              const SizedBox(height: 12),
+              const Divider(color: Colors.black87, thickness: 1.2),
+              const SizedBox(height: 8),
 
-      pdf.addPage(
-        pw.MultiPage(
-          pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(24),
-          build: (pw.Context context) => [
-            pw.Center(
-              child: pw.Text(widget.hotelName,
-                  style: pw.TextStyle(
-                      fontSize: 22, fontWeight: pw.FontWeight.bold)),
-            ),
-            pw.Center(
-              child: pw.Text('वित्तीय लेज़र एवं बिक्री ऑडिट रिपोर्ट',
-                  style: const pw.TextStyle(
-                      fontSize: 13, color: PdfColors.grey700)),
-            ),
-            pw.Center(
-              child: pw.Text(rangeLabel,
-                  style: const pw.TextStyle(
-                      fontSize: 11, color: PdfColors.grey600)),
-            ),
-            pw.SizedBox(height: 12),
-            pw.Divider(thickness: 1),
-            pw.SizedBox(height: 8),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(10),
-              decoration: pw.BoxDecoration(
-                color: PdfColors.grey100,
-                borderRadius: pw.BorderRadius.circular(6),
-              ),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
-                children: [
-                  _pwSummaryBox(
-                      'Gross Sales', 'Rs ${grossSales.toStringAsFixed(0)}'),
-                  _pwSummaryBox(
-                      'Cash In', 'Rs ${totalCashIn.toStringAsFixed(0)}'),
-                  _pwSummaryBox(
-                      'UPI / Online', 'Rs ${totalBankUpi.toStringAsFixed(0)}'),
-                  _pwSummaryBox(
-                      'Expenses', 'Rs ${totalExpenses.toStringAsFixed(0)}'),
-                  _pwSummaryBox(
-                      'Net Register', 'Rs ${netCashInHand.toStringAsFixed(0)}'),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 16),
-            pw.Table(
-              border:
-                  pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
-              columnWidths: const {
-                0: pw.FlexColumnWidth(2.2),
-                1: pw.FlexColumnWidth(5.0),
-                2: pw.FlexColumnWidth(1.8),
-                3: pw.FlexColumnWidth(2.0),
-              },
-              children: [
-                pw.TableRow(
-                  decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.black26),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    pw.Padding(
-                        padding: const pw.EdgeInsets.all(6),
-                        child: pw.Text('Date & Time',
-                            style: pw.TextStyle(
-                                fontWeight: pw.FontWeight.bold, fontSize: 10))),
-                    pw.Padding(
-                        padding: const pw.EdgeInsets.all(6),
-                        child: pw.Text('Particulars',
-                            style: pw.TextStyle(
-                                fontWeight: pw.FontWeight.bold, fontSize: 10))),
-                    pw.Padding(
-                        padding: const pw.EdgeInsets.all(6),
-                        child: pw.Text('Type',
-                            style: pw.TextStyle(
-                                fontWeight: pw.FontWeight.bold, fontSize: 10))),
-                    pw.Padding(
-                        padding: const pw.EdgeInsets.all(6),
-                        child: pw.Text('Amount (Rs)',
-                            textAlign: pw.TextAlign.right,
-                            style: pw.TextStyle(
-                                fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                    _buildSummaryItem('कुल बिक्री (Gross)', '₹${grossSales.toStringAsFixed(0)}', Colors.blue.shade800),
+                    _buildSummaryItem('नकद बिक्री (Cash)', '₹${totalCashIn.toStringAsFixed(0)}', Colors.green.shade800),
+                    _buildSummaryItem('ऑनलाइन (UPI)', '₹${totalBankUpi.toStringAsFixed(0)}', Colors.purple.shade800),
+                    _buildSummaryItem('कुल खर्च (Expense)', '₹${totalExpenses.toStringAsFixed(0)}', Colors.red.shade800),
+                    _buildSummaryItem('रोकड़ गल्ला (Net)', '₹${netCashInHand.toStringAsFixed(0)}', Colors.black),
                   ],
                 ),
-                ...rows.map((r) {
-                  final bool isCashIn = (r['type'] ?? '') == 'CASH_IN';
-                  final dateStr = (r['created_at'] ?? '')
-                      .toString()
-                      .replaceAll('T', ' ')
-                      .substring(0, 16);
-                  return pw.TableRow(
+              ),
+              const SizedBox(height: 18),
+
+              const Text('सभी लेन-देन विवरण सूची:', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black)),
+              const SizedBox(height: 8),
+
+              Table(
+                columnWidths: const {
+                  0: FlexColumnWidth(2.2),
+                  1: FlexColumnWidth(5.0),
+                  2: FlexColumnWidth(1.6),
+                  3: FlexColumnWidth(1.8),
+                },
+                border: TableBorder.all(color: Colors.black26, width: 0.8),
+                children: [
+                  const TableRow(
+                    decoration: BoxDecoration(color: Color(0xFFE2E8F0)),
                     children: [
-                      pw.Padding(
-                          padding: const pw.EdgeInsets.all(5),
-                          child: pw.Text(dateStr,
-                              style: const pw.TextStyle(fontSize: 9))),
-                      pw.Padding(
-                          padding: const pw.EdgeInsets.all(5),
-                          child: pw.Text('${r['title'] ?? '-'}',
-                              style: const pw.TextStyle(fontSize: 9))),
-                      pw.Padding(
-                          padding: const pw.EdgeInsets.all(5),
-                          child: pw.Text(isCashIn ? 'IN' : 'OUT',
-                              style: pw.TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: pw.FontWeight.bold))),
-                      pw.Padding(
-                          padding: const pw.EdgeInsets.all(5),
-                          child: pw.Text('${r['amount']}',
-                              textAlign: pw.TextAlign.right,
-                              style: pw.TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: pw.FontWeight.bold))),
+                      Padding(padding: EdgeInsets.all(8), child: Text('दिनांक व समय', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black))),
+                      Padding(padding: EdgeInsets.all(8), child: Text('विवरण (Particulars)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black))),
+                      Padding(padding: EdgeInsets.all(8), child: Text('प्रकार', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black))),
+                      Padding(padding: EdgeInsets.all(8), child: Text('रकम (₹)', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black))),
                     ],
-                  );
-                }),
-              ],
-            ),
-          ],
+                  ),
+                  ...rows.map((r) {
+                    final bool isCashIn = (r['type'] ?? '') == 'CASH_IN';
+                    final dateStr = (r['created_at'] ?? '').toString().replaceAll('T', ' ').substring(0, 16);
+                    return TableRow(
+                      children: [
+                        Padding(padding: const EdgeInsets.all(7), child: Text(dateStr, style: const TextStyle(fontSize: 12, color: Colors.black87))),
+                        Padding(padding: const EdgeInsets.all(7), child: Text('${r['title'] ?? '-'}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black))),
+                        Padding(padding: const EdgeInsets.all(7), child: Text(isCashIn ? 'जमा (IN)' : 'खर्च (OUT)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isCashIn ? Colors.green.shade800 : Colors.red.shade800))),
+                        Padding(padding: const EdgeInsets.all(7), child: Text('₹${r['amount']}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black))),
+                      ],
+                    );
+                  }),
+                ],
+              ),
+              const SizedBox(height: 14),
+              const Divider(color: Colors.black26),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text('कुल रिकॉर्ड्स: ${rows.length}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54)),
+              ),
+            ],
+          ),
+        ),
+        delay: const Duration(milliseconds: 60),
+        pixelRatio: 2.2,
+      );
+
+      final pdf = pw.Document();
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(16),
+          build: (pw.Context context) => pw.Center(child: pw.Image(pw.MemoryImage(reportImage))),
         ),
       );
 
       final dir = await getTemporaryDirectory();
-      final file = File(
-          '${dir.path}/Ledger_Audit_${DateTime.now().millisecondsSinceEpoch}.pdf');
+      final file = File('${dir.path}/Ledger_Audit_${DateTime.now().millisecondsSinceEpoch}.pdf');
       await file.writeAsBytes(await pdf.save());
 
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        text: '📊 ${widget.hotelName} वित्तीय लेज़र व ऑडिट रिपोर्ट ($rangeLabel)',
-      );
+      await Share.shareXFiles([XFile(file.path)], text: '📊 ${widget.hotelName} वित्तीय लेज़र व बिक्री ऑडिट रिपोर्ट ($rangeLabel)');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('रिपोर्ट त्रुटि: $e')));
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('रिपोर्ट त्रुटि: $e')));
     }
   }
 
-  pw.Widget _pwSummaryBox(String title, String val) {
-    return pw.Column(
+  Widget _buildSummaryItem(String label, String value, Color color) {
+    return Column(
       children: [
-        pw.Text(title,
-            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
-        pw.SizedBox(height: 2),
-        pw.Text(val,
-            style:
-                pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+        Text(label, style: const TextStyle(fontSize: 11, color: Colors.black54)),
+        const SizedBox(height: 2),
+        Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color)),
       ],
     );
   }
@@ -1647,71 +1696,113 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
-  Future<void> _shareReceiptPdf(
-      int tbl, List<Map<String, dynamic>> items, double total) async {
+  // 3. प्रोफ़ेशनल बिल रसीद PDF + असली UPI QR कोड
+  Future<void> _shareReceiptPdf(int tbl, List<Map<String, dynamic>> items, double total) async {
     try {
       final String rawUpi = _restoProfile?.upiId ?? '';
       final String upiId = rawUpi.isNotEmpty ? rawUpi : "aala@upi";
+      final String restoAddr = _restoProfile?.address ?? '';
+      final String restoPhone = _restoProfile?.phone ?? '';
+
       final bool isParcel = tbl >= 900;
-      final String receiptTitle =
-          isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl";
+      final String receiptTitle = isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl";
+
+      final Uint8List receiptImage = await ScreenshotController().captureFromWidget(
+        Container(
+          width: 360,
+          color: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(widget.hotelName, textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black)),
+              if (restoAddr.isNotEmpty)
+                Padding(padding: const EdgeInsets.only(top: 2), child: Text(restoAddr, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black87))),
+              if (restoPhone.isNotEmpty)
+                Padding(padding: const EdgeInsets.only(top: 2), child: Text("मोबाइल: $restoPhone", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87))),
+              const SizedBox(height: 6),
+              const Divider(color: Colors.black, thickness: 1.2),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(receiptTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black)),
+                  Text("${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}  ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}", style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                ],
+              ),
+              const Divider(color: Colors.black54, thickness: 0.8),
+              const Row(
+                children: [
+                  Expanded(flex: 5, child: Text("सामग्री (Item)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black))),
+                  Expanded(flex: 2, child: Text("मात्रा", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black))),
+                  Expanded(flex: 3, child: Text("रकम (₹)", textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black))),
+                ],
+              ),
+              const Divider(color: Colors.black26),
+              ...items.map((it) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3.0),
+                child: Row(
+                  children: [
+                    Expanded(flex: 5, child: Text("${it['name']}", style: const TextStyle(fontSize: 13, color: Colors.black, fontWeight: FontWeight.w500))),
+                    Expanded(flex: 2, child: Text("x${it['qty']}", textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, color: Colors.black))),
+                    Expanded(flex: 3, child: Text("₹${(it['price'] * it['qty']).toInt()}", textAlign: TextAlign.right, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black))),
+                  ],
+                ),
+              )),
+              const Divider(color: Colors.black, thickness: 1.2),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("कुल योग (TOTAL):", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black)),
+                  Text("₹${total.toStringAsFixed(2)}", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(border: Border.all(color: Colors.black26), borderRadius: BorderRadius.circular(8)),
+                child: Column(
+                  children: [
+                    Image.network(
+                      'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${Uri.encodeComponent("upi://pay?pa=$upiId&pn=${widget.hotelName}&am=$total&cu=INR")}',
+                      width: 110,
+                      height: 110,
+                      fit: BoxFit.contain,
+                      errorBuilder: (ctx, err, stack) => Text("UPI: $upiId", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    ),
+                    const SizedBox(height: 4),
+                    Text("UPI: $upiId", style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black)),
+                    const Text("PhonePe / GooglePay / Paytm से स्कैन करें", style: TextStyle(fontSize: 9, color: Colors.black54)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Divider(color: Colors.black26),
+              const Text("धन्यवाद! फिर पधारें 🙏", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)),
+            ],
+          ),
+        ),
+        pixelRatio: 2.5,
+        delay: const Duration(milliseconds: 60),
+      );
 
       final pdf = pw.Document();
       pdf.addPage(
         pw.Page(
           pageFormat: PdfPageFormat.roll80,
-          margin: const pw.EdgeInsets.all(8),
-          build: (pw.Context context) => pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.center,
-            children: [
-              pw.Text(widget.hotelName,
-                  style: pw.TextStyle(
-                      fontSize: 18, fontWeight: pw.FontWeight.bold)),
-              pw.Text(receiptTitle,
-                  style: const pw.TextStyle(fontSize: 12)),
-              pw.Divider(),
-              ...items.map((it) => pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                    children: [
-                      pw.Text('${it['name']} x${it['qty']}',
-                          style: const pw.TextStyle(fontSize: 10)),
-                      pw.Text('Rs ${(it['price'] * it['qty']).toInt()}',
-                          style: const pw.TextStyle(fontSize: 10)),
-                    ],
-                  )),
-              pw.Divider(),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('Total:',
-                      style: pw.TextStyle(
-                          fontSize: 12, fontWeight: pw.FontWeight.bold)),
-                  pw.Text('Rs ${total.toStringAsFixed(2)}',
-                      style: pw.TextStyle(
-                          fontSize: 12, fontWeight: pw.FontWeight.bold)),
-                ],
-              ),
-              pw.SizedBox(height: 8),
-              pw.Text('UPI: $upiId',
-                  style: const pw.TextStyle(fontSize: 9)),
-              pw.Text('धन्यवाद! फिर पधारें',
-                  style: const pw.TextStyle(fontSize: 9)),
-            ],
-          ),
+          margin: const pw.EdgeInsets.all(6),
+          build: (pw.Context context) => pw.Center(child: pw.Image(pw.MemoryImage(receiptImage))),
         ),
       );
 
       final output = await getTemporaryDirectory();
-      final file = File(
-          "${output.path}/Bill_${tbl}_${DateTime.now().millisecondsSinceEpoch}.pdf");
+      final file = File("${output.path}/Bill_${tbl}_${DateTime.now().millisecondsSinceEpoch}.pdf");
       await file.writeAsBytes(await pdf.save());
 
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        text:
-            "नमस्ते! ${widget.hotelName} से आपका बिल ($receiptTitle)। कुल राशि: ₹$total",
-      );
-    } catch (_) {}
+      await Share.shareXFiles([XFile(file.path)], text: "नमस्ते! ${widget.hotelName} से आपका बिल ($receiptTitle)। कुल राशि: ₹$total");
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('शेयर एरर: $e')));
+    }
   }
 
   void _showStaffManagementDialog() {
