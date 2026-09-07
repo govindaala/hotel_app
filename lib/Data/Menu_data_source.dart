@@ -1,50 +1,51 @@
 class MenuItemModel {
   final String id;
-  final String category;
   final String name;
   final double price;
-  final bool isAvailable; // पॉज़ और एक्टिव (In Stock / Out of Stock) के लिए
+  final String category;
+  final bool isAvailable;
 
   const MenuItemModel({
     required this.id,
-    required this.category,
     required this.name,
     required this.price,
-    this.isAvailable = true, // डिफ़ॉल्ट रूप से चालू रहेगा
+    required this.category,
+    this.isAvailable = true,
   });
 
+  // यह फ़ंक्शन आउट-ऑफ-स्टॉक टॉगल के लिए ज़रूरी है
   MenuItemModel copyWith({
     String? id,
-    String? category,
     String? name,
     double? price,
+    String? category,
     bool? isAvailable,
   }) {
     return MenuItemModel(
       id: id ?? this.id,
-      category: category ?? this.category,
       name: name ?? this.name,
       price: price ?? this.price,
+      category: category ?? this.category,
       isAvailable: isAvailable ?? this.isAvailable,
     );
   }
 
   factory MenuItemModel.fromMap(Map<String, dynamic> map) {
     return MenuItemModel(
-      id: (map['id'] ?? '').toString(),
-      category: (map['category'] ?? 'अन्य').toString(),
-      name: (map['name'] ?? '').toString(),
-      price: ((map['price'] ?? 0.0) as num).toDouble(),
-      isAvailable: map['is_available'] ?? true,
+      id: map['id'].toString(),
+      name: map['name'] ?? '',
+      price: (map['price'] as num?)?.toDouble() ?? 0.0,
+      category: map['category'] ?? map['cat'] ?? 'अन्य',
+      isAvailable: map['is_available'] ?? map['available'] ?? true,
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
       'id': id,
-      'category': category,
       'name': name,
       'price': price,
+      'category': category,
       'is_available': isAvailable,
     };
   }
