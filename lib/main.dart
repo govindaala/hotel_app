@@ -16,7 +16,9 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:ota_update/ota_update.dart';
 
-// नए मॉड्यूल्स व स्क्रीन फ़ाइलें
+// =========================================================================
+// 1. मॉड्यूल्स व स्क्रीन फ़ाइलें (Imports & Models)
+// =========================================================================
 import 'models/restaurant_profile_model.dart';
 import 'models/expense_model.dart';
 import 'screens/admin/counter_sale_screen.dart';
@@ -26,17 +28,18 @@ import 'screens/waiter/waiter_menu_order_view.dart';
 import 'screens/admin/counter_report_screen.dart';
 import 'Data/Menu_data_source.dart';
 
-// Supabase डेटाबेस कॉन्फ़िगरेशन
+// =========================================================================
+// 2. ग्लोबल कॉन्फ़िगरेशन व वर्शन (Global Constants)
+// =========================================================================
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
 
-// ऐप का वर्तमान वर्शन कोड (v4)
 const int currentAppVersionCode = 4;
 const int tcpServerPort = 4040;
 const int udpDiscoveryPort = 4042;
 
 // =========================================================================
-// फ़ंक्शन 1: हिंदी वॉयस इंजन (Text-to-Speech)
+// 3. हिंदी वॉयस इंजन सर्विस (Text-to-Speech)
 // =========================================================================
 class VoiceService {
   static final FlutterTts _tts = FlutterTts();
@@ -62,7 +65,7 @@ class VoiceService {
 }
 
 // =========================================================================
-// फ़ंक्शन 2: बैकग्राउंड ऑटो-अपडेट चेकर व डाउनलोडर
+// 4. बैकग्राउंड ऑटो-अपडेट चेकर व डाउनलोडर (OTA Update)
 // =========================================================================
 Future<void> checkForAppUpdates(BuildContext context) async {
   try {
@@ -159,7 +162,7 @@ Future<void> checkForAppUpdates(BuildContext context) async {
   } catch (_) {}
 }
 
-// डिफ़ॉल्ट होटल मेन्यू
+// डिफ़ॉल्ट होटल मेन्यू मैपिंग
 final List<Map<String, dynamic>> defaultHotelMenu = kRestaurantMenu
     .map((m) => {
           'id': m.id,
@@ -171,7 +174,7 @@ final List<Map<String, dynamic>> defaultHotelMenu = kRestaurantMenu
     .toList();
 
 // =========================================================================
-// फ़ंक्शन 3: मुख्य मेन (main) फ़ंक्शन
+// 5. मुख्य मेन (main) फ़ंक्शन - ऐप की शुरुआत
 // =========================================================================
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -212,7 +215,7 @@ void main() async {
 }
 
 // =========================================================================
-// फ़ंक्शन 4: ऐप गेटवे (रोल चयन स्क्रीन)
+// 6. ऐप गेटवे (रोल चयन स्क्रीन: काउंटर, वेटर, कुक)
 // =========================================================================
 class AppGateway extends StatefulWidget {
   const AppGateway({super.key});
@@ -284,7 +287,7 @@ class _AppGatewayState extends State<AppGateway> {
 }
 
 // =========================================================================
-// फ़ंक्शन 5: स्टाफ़ ऑथेंटिकेशन (ऑटो-डिस्कवरी व लोकल वाई-फ़ाई लॉगिन)
+// 7. स्टाफ़ ऑथेंटिकेशन (लोकल वाई-फ़ाई हॉटस्पॉट ऑटो-डिस्कवरी व पिन लॉगिन)
 // =========================================================================
 class StaffAuthScreen extends StatefulWidget {
   final String role;
@@ -612,7 +615,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 }
 
 // =========================================================================
-// फ़ंक्शन 6: काउंटर मास्टर ऐप (सर्वर, बीकन व बिलिंग)
+// 8. काउंटर मास्टर ऐप (डैशबोर्ड, लोकल TCP सर्वर, बिलिंग व सेटलमेंट)
 // =========================================================================
 class FullCounterApp extends StatefulWidget {
   final String storeCode, hotelName;
@@ -680,6 +683,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     super.dispose();
   }
 
+  // UDP बीकॉस ब्रॉडकास्ट (वेटर/कुक को काउंटर ढूँढने के लिए)
   void _startUdpBeacon() async {
     try {
       _udpBeaconSocket =
@@ -817,6 +821,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
+  // लोकल TCP सॉकेट सर्वर (ऑफ़लाइन हॉटस्पॉट सिंक के लिए)
   void _startLocalSocketServer() async {
     try {
       for (var interface in await NetworkInterface.list()) {
@@ -1002,6 +1007,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
+  // राशन पर्ची PDF फ़िल्टर मॉडल
   void _openRationExportFilterModal() {
     if (rationDemands.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1107,7 +1113,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // 1. राशन पर्ची PDF (HD शुद्ध हिंदी)
+  // राशन पर्ची PDF जनरेटर (HD शुद्ध हिंदी)
   void _processAndExportRationPdf(String period, bool onlyPending,
       bool autoMergeQty, Set<String> selectedItems) async {
     DateTime cutoff = DateTime.now().subtract(const Duration(days: 10));
@@ -1352,7 +1358,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // 2. वित्तीय ऑडिट A4 लेज़र PDF (HD शुद्ध हिंदी, नो-बॉक्सेस)
+  // वित्तीय ऑडिट A4 लेज़र PDF रिपोर्ट
   void _generateAndShareFinancialAuditPdf(String range, DateTimeRange? customRange) async {
     DateTime startCutoff;
     DateTime endCutoff = DateTime.now();
@@ -1544,6 +1550,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
+  // ब्लूटूथ प्रिंटर डायलॉग
   void _showPrinterDialog() async {
     List<BluetoothInfo> availablePrinters = [];
     bool scanning = true;
@@ -1644,6 +1651,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
+  // थर्मल प्रिंटर बिल प्रिंटिंग
   Future<void> _printBillReceipt(
       int tbl, List<Map<String, dynamic>> items, double total) async {
     final bool isConn = await PrintBluetoothThermal.connectionStatus;
@@ -1696,7 +1704,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
-  // 3. प्रोफ़ेशनल बिल रसीद PDF + असली UPI QR कोड + FSSAI + GSTIN + Google Review QR + डिस्काउंट
+  // =========================================================================
+  // WhatsApp रसीद PDF + UPI QR + Google Review QR + FSSAI + GSTIN + Discount
+  // =========================================================================
   Future<void> _shareReceiptPdf(
       int tbl, List<Map<String, dynamic>> items, double subTotal,
       {double discount = 0.0, double discountPct = 0.0}) async {
@@ -1708,7 +1718,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
       final String restoPhone = _restoProfile?.phone ?? '';
       final String gstNo = _restoProfile?.gstNumber ?? '';
       final String fssaiNo = _restoProfile?.fssaiNumber ?? '';
-      final String reviewUrl = _restoProfile?.googleReviewUrl ?? '';
+      
+      // सुरक्षित रूप से गूगल रिव्यू लिंक SharedPreferences या Profile से प्राप्त करना
+      final prefs = await SharedPreferences.getInstance();
+      final String reviewUrl = prefs.getString('saved_hotel_review_url') ?? '';
 
       final bool isParcel = tbl >= 900;
       final String receiptTitle = isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl";
@@ -1818,6 +1831,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
               const SizedBox(height: 10),
 
+              // दो QR कोड्स (UPI पेमेंट + Google Review)
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(border: Border.all(color: Colors.black26), borderRadius: BorderRadius.circular(8)),
@@ -2194,7 +2208,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // टेबल व पार्सल बिल सेटलमेंट (1% से 99% खुला डिस्काउंट बॉक्स के साथ)
+  // =========================================================================
+  // काउंटर बिल सेटलमेंट (1% से 99% खुला डिस्काउंट इनपुट बॉक्स के साथ)
+  // =========================================================================
   void _settleBill(int tbl) {
     bool isParcel = tbl >= 900;
     List<Map<String, dynamic>> items = isParcel
@@ -2852,7 +2868,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 }
 
 // =========================================================================
-// फ़ंक्शन 7: वेटर ऐप (लोकल वाई-फ़ाई हॉटस्पॉट ऑटो-सिंक)
+// 9. वेटर ऐप (लोकल वाई-फ़ाई हॉटस्पॉट ऑटो-सिंक व ऑर्डरिंग)
 // =========================================================================
 class FullWaiterApp extends StatefulWidget {
   final String storeCode, staffId;
@@ -3257,7 +3273,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
 }
 
 // =========================================================================
-// फ़ंक्शन 8: कुक KDS (किचन डिस्प्ले सिस्टम)
+// 10. कुक KDS (किचन डिस्प्ले सिस्टम)
 // =========================================================================
 class FullCookApp extends StatefulWidget {
   final String storeCode;
