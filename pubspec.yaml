@@ -10,16 +10,14 @@ dependencies:
   flutter:
     sdk: flutter
 
-  
-  qr_flutter: ^4.1.0  # या नवीनतम वर्शन
-  
+  qr_flutter: ^4.1.0
 
   # डेटाबेस व बैकएंड सिंक
   supabase_flutter: ^2.5.6
   shared_preferences: ^2.2.3
   http: ^1.2.0
 
-  # ब्लूटूथ थर्मल प्रिंटर व पर्ची बाइट्स
+  # ब्लूटूथ थर्मल प्रिंटर व पर्ची राइटर्स
   print_bluetooth_thermal: ^1.1.2
   esc_pos_utils_plus: ^2.0.4
 
@@ -29,12 +27,12 @@ dependencies:
   path_provider: ^2.1.2
   share_plus: ^9.0.0
 
-  # ऑटो-अपडेट, आवाज़ (TTS) व तारीख फ़ॉर्मेटिंग
+  # ऑटो-अपडेट, आवाज (TTS) व तारीख फॉर्मेटिंग
   ota_update: ^5.0.0
   flutter_tts: ^4.0.2
   intl: ^0.19.0
 
-  # नेक्स्ट-लेवल बिज़नेस चार्ट्स व ग्राफ़िक्स
+  # नेक्स्ट-लेवल बिज़नेस चार्ट्स व ग्राफिक्स
   fl_chart: ^0.68.0
 
 dev_dependencies:
@@ -44,3 +42,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/fonts/NotoSansDevanagari-Regular.ttf
