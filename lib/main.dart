@@ -1605,7 +1605,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('रिपोर्ट त्रुटि: $e')));
     }
   }
-;
 
 
 
