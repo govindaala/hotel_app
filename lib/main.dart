@@ -1705,7 +1705,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
   }
 
   // =========================================================================
-  // WhatsApp रसीद PDF + UPI QR + Google Review QR + FSSAI + GSTIN + Discount
+  // WhatsApp रसीद PDF + सुरक्षित वैकल्पिक QR (UPI / Google Review / FSSAI / GSTIN / Discount)
   // =========================================================================
   Future<void> _shareReceiptPdf(
       int tbl, List<Map<String, dynamic>> items, double subTotal,
@@ -1713,7 +1713,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     try {
       final double finalTotal = (subTotal - discount) < 0 ? 0.0 : (subTotal - discount);
       final String rawUpi = _restoProfile?.upiId ?? '';
-      final String upiId = rawUpi.isNotEmpty ? rawUpi : "aala@upi";
+      final String upiId = rawUpi.isNotEmpty ? rawUpi : "";
       final String restoAddr = _restoProfile?.address ?? '';
       final String restoPhone = _restoProfile?.phone ?? '';
       final String gstNo = _restoProfile?.gstNumber ?? '';
@@ -1830,46 +1830,49 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
               const SizedBox(height: 10),
 
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(border: Border.all(color: Colors.black26), borderRadius: BorderRadius.circular(8)),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    Column(
-                      children: [
-                        Image.network(
-                          'https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${Uri.encodeComponent("upi://pay?pa=$upiId&pn=${widget.hotelName}&am=$finalTotal&cu=INR")}',
-                          width: 95,
-                          height: 95,
-                          fit: BoxFit.contain,
-                          errorBuilder: (ctx, err, stack) => Text("UPI: $upiId", style: const TextStyle(fontSize: 10)),
+              // वैकल्पिक QR कोड कंटेनर (यदि UPI या Review URL में से कोई भी उपलब्ध हो)
+              if (upiId.isNotEmpty || reviewUrl.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(border: Border.all(color: Colors.black26), borderRadius: BorderRadius.circular(8)),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      if (upiId.isNotEmpty)
+                        Column(
+                          children: [
+                            Image.network(
+                              'https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${Uri.encodeComponent("upi://pay?pa=$upiId&pn=${widget.hotelName}&am=$finalTotal&cu=INR")}',
+                              width: 95,
+                              height: 95,
+                              fit: BoxFit.contain,
+                              errorBuilder: (ctx, err, stack) => Text("UPI: $upiId", style: const TextStyle(fontSize: 10)),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text("पेमेंट UPI QR", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black)),
+                            Text("₹${finalTotal.toInt()}", style: const TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold)),
+                          ],
                         ),
-                        const SizedBox(height: 4),
-                        const Text("पेमेंट UPI QR", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black)),
-                        Text("₹${finalTotal.toInt()}", style: const TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    if (reviewUrl.isNotEmpty) ...[
-                      Container(width: 1, height: 110, color: Colors.black26),
-                      Column(
-                        children: [
-                          Image.network(
-                            'https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${Uri.encodeComponent(reviewUrl)}',
-                            width: 95,
-                            height: 95,
-                            fit: BoxFit.contain,
-                            errorBuilder: (ctx, err, stack) => const Text("Review Link", style: TextStyle(fontSize: 10)),
-                          ),
-                          const SizedBox(height: 4),
-                          const Text("Google Review ⭐", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-                          const Text("रेटिंग दें", style: TextStyle(fontSize: 9, color: Colors.black54)),
-                        ],
-                      ),
+                      if (upiId.isNotEmpty && reviewUrl.isNotEmpty)
+                        Container(width: 1, height: 110, color: Colors.black26),
+                      if (reviewUrl.isNotEmpty)
+                        Column(
+                          children: [
+                            Image.network(
+                              'https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${Uri.encodeComponent(reviewUrl)}',
+                              width: 95,
+                              height: 95,
+                              fit: BoxFit.contain,
+                              errorBuilder: (ctx, err, stack) => const Text("Review Link", style: TextStyle(fontSize: 10)),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text("Google Review ⭐", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+                            const Text("रेटिंग दें", style: TextStyle(fontSize: 9, color: Colors.black54)),
+                          ],
+                        ),
                     ],
-                  ],
+                  ),
                 ),
-              ),
 
               const SizedBox(height: 8),
               const Divider(color: Colors.black26),
@@ -2094,11 +2097,121 @@ class _FullCounterAppState extends State<FullCounterApp> {
   }
 
   // टेबल शिफ्टिंग / ट्रांसफर फ़ंक्शन
-  void _shiftTable(int fromType) {
-    // Left as stub for structural accuracy if called
+  void _shiftTable(int fromTable) {
+    List<int> emptyTables = [];
+    for (int i = 1; i <= widget.tables; i++) {
+      if (!activeOrders.containsKey(i) || activeOrders[i]!.isEmpty) {
+        emptyTables.add(i);
+      }
+    }
+
+    if (emptyTables.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('⚠️ कोई भी अन्य टेबल खाली नहीं है!'),
+            backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
+    int targetTable = emptyTables.first;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDState) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: Row(
+            children: [
+              const Icon(Icons.swap_horiz, color: Colors.blue),
+              const SizedBox(width: 8),
+              Text('टेबल T-$fromTable को शिफ्ट करें',
+                  style: const TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('T-$fromTable का पूरा बिल किस खाली टेबल पर ट्रांसफर करना है?',
+                  style: const TextStyle(fontSize: 13)),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<int>(
+                value: targetTable,
+                decoration: const InputDecoration(
+                  labelText: 'नई खाली टेबल चुनें',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.table_restaurant),
+                ),
+                items: emptyTables
+                    .map((t) =>
+                        DropdownMenuItem(value: t, child: Text('T-$t (खाली)')))
+                    .toList(),
+                onChanged: (val) {
+                  if (val != null) setDState(() => targetTable = val);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('रद्द')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0F172A)),
+              onPressed: () async {
+                Navigator.pop(ctx);
+                Navigator.pop(context);
+
+                final itemsToMove = List<Map<String, dynamic>>.from(
+                    activeOrders[fromTable] ?? []);
+
+                setState(() {
+                  activeOrders[targetTable] = itemsToMove;
+                  tableStateMap[targetTable] =
+                      tableStateMap[fromTable] ?? 'running';
+                  activeOrders.remove(fromTable);
+                  tableStateMap.remove(fromTable);
+                  _spokenBillTables.remove(fromTable);
+                });
+
+                _broadcastLocal({
+                  'type': 'TABLE_SHIFT',
+                  'from_table': fromTable,
+                  'to_table': targetTable,
+                  'items': itemsToMove,
+                });
+
+                try {
+                  await Supabase.instance.client
+                      .from('hotel_kots')
+                      .update({
+                        'table_no': targetTable,
+                        'table_name': 'T-$targetTable'
+                      })
+                      .eq('store_code', widget.storeCode)
+                      .eq('table_no', fromTable)
+                      .neq('status', 'settled');
+                } catch (_) {}
+
+                VoiceService.speak(
+                    "टेबल $fromTable का ऑर्डर टेबल $targetTable पर शिफ्ट किया गया");
+              },
+              child: const Text('शिफ्ट करें',
+                  style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
+  // =========================================================================
   // काउंटर बिल सेटलमेंट (1% से 99% खुला डिस्काउंट इनपुट बॉक्स के साथ)
+  // =========================================================================
   void _settleBill(int tbl) {
     bool isParcel = tbl >= 900;
     List<Map<String, dynamic>> items = isParcel
@@ -2230,6 +2343,18 @@ class _FullCounterAppState extends State<FullCounterApp> {
                       ),
                     ],
                   ),
+                  if (!isParcel)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.swap_horiz, color: Colors.blueAccent),
+                          label: const Text('टेबल शिफ्ट करें (Shift Table)'),
+                          onPressed: () => _shiftTable(tbl),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -3589,7 +3714,6 @@ class _FullCookAppState extends State<FullCookApp> {
                                     ),
                                     ElevatedButton(
                                       style: ElevatedButton.styleFrom(
-                                          authorizationColor: Colors.deepOrange, // wait, ensure valid color property if needed, but let's keep it clean: backgroundColor
                                           backgroundColor: isParcel
                                               ? Colors.deepOrange
                                               : Colors.teal),
@@ -3603,7 +3727,7 @@ class _FullCookAppState extends State<FullCookApp> {
                                 const Divider(),
                                 ...items.map((it) => Text(
                                     '${it['name']} x ${it['qty']}',
-                                    style: TextStyle(fontSize: 16))),
+                                    style: const TextStyle(fontSize: 16))),
                               ],
                             ),
                           ),
