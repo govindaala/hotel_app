@@ -1,28 +1,37 @@
-name: hotel_app
-description: "AALA Hotel POS System"
-publish_to: 'none'
-
-version: 1.0.2+3
+name: hotel_pos
+description: "Zero Cost Offline First Hotel POS and Supply System"
+publish_to: "none"
+version: 1.0.0+1
 
 environment:
-  sdk: '>=3.2.0 <4.0.0'
+  sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  supabase_flutter: ^2.3.4
-  provider: ^6.1.1
-  intl: ^0.19.0
-  pdf: ^3.10.7
-  printing: ^5.12.0
-  ota_update: ^5.0.1
+
+  # डेटाबेस व बैकएंड सिंक
+  supabase_flutter: ^2.5.6
+  shared_preferences: ^2.2.3
   http: ^1.2.0
-  share_plus: ^7.2.2
-  screenshot: ^2.3.0
-  flutter_tts: ^3.8.5
-  print_bluetooth_thermal: ^1.1.1
-  flutter_pos_printer_platform: ^1.0.8
+
+  # ब्लूटूथ थर्मल प्रिंटर व पर्ची बाइट्स
+  print_bluetooth_thermal: ^1.1.2
   esc_pos_utils_plus: ^2.0.4
+
+  # PDF जनरेशन, स्क्रीनशॉट व शेयरिंग
+  pdf: ^3.10.8
+  screenshot: ^3.0.0
+  path_provider: ^2.1.2
+  share_plus: ^9.0.0
+
+  # ऑटो-अपडेट, आवाज़ (TTS) व तारीख फ़ॉर्मेटिंग
+  ota_update: ^5.0.0
+  flutter_tts: ^4.0.2
+  intl: ^0.19.0
+
+  # नेक्स्ट-लेवल बिज़नेस चार्ट्स व ग्राफ़िक्स
+  fl_chart: ^0.68.0
 
 dev_dependencies:
   flutter_test:
