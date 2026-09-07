@@ -27,7 +27,6 @@ import 'screens/admin/daily_expense_screen.dart';
 import 'screens/waiter/waiter_menu_order_view.dart';
 import 'screens/admin/counter_report_screen.dart';
 import 'Data/Menu_data_source.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'receipt_generator.dart';
 
 
@@ -1553,23 +1552,28 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // ब्लूटूथ प्रिंटर डायलॉग
-  void _showPrinterDialog() async {
+  // ब्लूटूथ प्रिंटर डायलॉग + 58/80mm पेपर सेटिंग
+  Future<void> _showPrinterDialog() async {
     List<BluetoothInfo> availablePrinters = [];
     bool scanning = true;
+    final prefs = await SharedPreferences.getInstance();
+    int selectedWidth = prefs.getInt('saved_printer_width_mm') == 58 ? 58 : 80;
+
+    if (!mounted) return;
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (c, setDState) {
+        builder: (dialogCtx, setDState) {
           if (scanning) {
             PrintBluetoothThermal.pairedBluetooths.then((list) {
+              if (!dialogCtx.mounted) return;
               setDState(() {
                 availablePrinters = list;
                 scanning = false;
               });
             }).catchError((_) {
-              setDState(() => scanning = false);
+              if (dialogCtx.mounted) setDState(() => scanning = false);
             });
           }
 
@@ -1577,76 +1581,95 @@ class _FullCounterAppState extends State<FullCounterApp> {
             title: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('ब्लूटूथ प्रिंटर'),
+                const Text('थर्मल प्रिंटर'),
                 _isPrinterConnected
-                    ? const Text('कनेक्टेड ✓',
-                        style: TextStyle(
-                            color: Colors.green,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold))
-                    : const Text('डिस्कनेक्टेड',
-                        style: TextStyle(color: Colors.red, fontSize: 13)),
+                    ? const Text('कनेक्टेड ✓', style: TextStyle(color: Colors.green, fontSize: 13, fontWeight: FontWeight.bold))
+                    : const Text('डिस्कनेक्टेड', style: TextStyle(color: Colors.red, fontSize: 13)),
               ],
             ),
             content: SizedBox(
               width: double.maxFinite,
-              height: 250,
-              child: scanning
-                  ? const Center(child: CircularProgressIndicator())
-                  : availablePrinters.isEmpty
-                      ? const Center(
-                          child: Text(
-                              'कोई ब्लूटूथ प्रिंटर पेयर नहीं मिला!\nफ़ोन की ब्लूटूथ सेटिंग में जाकर प्रिंटर पेयर करें।',
-                              textAlign: TextAlign.center))
-                      : ListView.builder(
-                          itemCount: availablePrinters.length,
-                          itemBuilder: (context, index) {
-                            final p = availablePrinters[index];
-                            final bool isThis = _isPrinterConnected &&
-                                _connectedPrinterMac == p.macAdress;
-
-                            return ListTile(
-                              leading: Icon(Icons.print,
-                                  color: isThis ? Colors.green : Colors.grey),
-                              title: Text(p.name.isNotEmpty
-                                  ? p.name
-                                  : 'थर्मल प्रिंटर'),
-                              subtitle: Text(p.macAdress),
-                              trailing: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                    backgroundColor:
-                                        isThis ? Colors.red : Colors.green),
-                                onPressed: () async {
-                                  if (isThis) {
-                                    await PrintBluetoothThermal.disconnect;
-                                    setState(
-                                        () => _isPrinterConnected = false);
-                                    setDState(() {});
-                                  } else {
-                                    final res =
-                                        await PrintBluetoothThermal.connect(
-                                            macPrinterAddress: p.macAdress);
-                                    setState(() {
-                                      _isPrinterConnected = res;
-                                      if (res) {
-                                        _connectedPrinterMac = p.macAdress;
-                                      }
-                                    });
-                                    setDState(() {});
-                                  }
+              height: 330,
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.straighten, size: 20),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text('पेपर चौड़ाई', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                      DropdownButton<int>(
+                        value: selectedWidth,
+                        items: const [
+                          DropdownMenuItem(value: 58, child: Text('58 mm')),
+                          DropdownMenuItem(value: 80, child: Text('80 mm')),
+                        ],
+                        onChanged: (value) async {
+                          if (value == null) return;
+                          selectedWidth = value;
+                          await prefs.setInt('saved_printer_width_mm', value);
+                          if (dialogCtx.mounted) setDState(() {});
+                        },
+                      ),
+                    ],
+                  ),
+                  const Divider(),
+                  Expanded(
+                    child: scanning
+                        ? const Center(child: CircularProgressIndicator())
+                        : availablePrinters.isEmpty
+                            ? const Center(
+                                child: Text(
+                                  'कोई Bluetooth प्रिंटर पेयर नहीं मिला!\nफ़ोन की Bluetooth सेटिंग में जाकर प्रिंटर पेयर करें।',
+                                  textAlign: TextAlign.center,
+                                ),
+                              )
+                            : ListView.builder(
+                                itemCount: availablePrinters.length,
+                                itemBuilder: (context, index) {
+                                  final p = availablePrinters[index];
+                                  final bool isThis = _isPrinterConnected && _connectedPrinterMac == p.macAdress;
+                                  return ListTile(
+                                    leading: Icon(Icons.print, color: isThis ? Colors.green : Colors.grey),
+                                    title: Text(p.name.isNotEmpty ? p.name : 'थर्मल प्रिंटर'),
+                                    subtitle: Text(p.macAdress),
+                                    trailing: ElevatedButton(
+                                      style: ElevatedButton.styleFrom(backgroundColor: isThis ? Colors.red : Colors.green),
+                                      onPressed: () async {
+                                        try {
+                                          if (isThis) {
+                                            await PrintBluetoothThermal.disconnect;
+                                            if (mounted) setState(() => _isPrinterConnected = false);
+                                          } else {
+                                            final res = await PrintBluetoothThermal.connect(macPrinterAddress: p.macAdress);
+                                            if (mounted) {
+                                              setState(() {
+                                                _isPrinterConnected = res;
+                                                if (res) _connectedPrinterMac = p.macAdress;
+                                              });
+                                            }
+                                          }
+                                          if (dialogCtx.mounted) setDState(() {});
+                                        } catch (e) {
+                                          if (dialogCtx.mounted) {
+                                            ScaffoldMessenger.of(dialogCtx).showSnackBar(
+                                              SnackBar(content: Text('प्रिंटर कनेक्शन एरर: $e')),
+                                            );
+                                          }
+                                        }
+                                      },
+                                      child: Text(isThis ? 'हटाएँ' : 'कनेक्ट', style: const TextStyle(color: Colors.white)),
+                                    ),
+                                  );
                                 },
-                                child: Text(isThis ? 'हटाएँ' : 'कनेक्ट',
-                                    style:
-                                        const TextStyle(color: Colors.white)),
                               ),
-                            );
-                          },
-                        ),
+                  ),
+                ],
+              ),
             ),
             actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('बंद करें')),
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('बंद करें')),
             ],
           );
         },
@@ -1654,254 +1677,198 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // थर्मल प्रिंटर बिल प्रिंटिंग
+  // ESC/POS native QR. इसमें किसी इंटरनेट/API की जरूरत नहीं है।
+  List<int> _escPosQrCode(String data, {int size = 6}) {
+    final bytes = <int>[];
+    final dataBytes = utf8.encode(data);
+    if (dataBytes.length > 7089) return bytes;
+
+    final int storeLength = dataBytes.length + 3;
+    final int pL = storeLength & 0xFF;
+    final int pH = (storeLength >> 8) & 0xFF;
+    final int qrSize = size.clamp(1, 16);
+
+    bytes.addAll([29, 40, 107, 4, 0, 49, 65, 50, 0]); // Model 2
+    bytes.addAll([29, 40, 107, 3, 0, 49, 67, qrSize]); // Module size
+    bytes.addAll([29, 40, 107, 3, 0, 49, 69, 49]); // Error correction M
+    bytes.addAll([29, 40, 107, pL, pH, 49, 80, 48]); // Store
+    bytes.addAll(dataBytes);
+    bytes.addAll([29, 40, 107, 3, 0, 49, 81, 48]); // Print
+    return bytes;
+  }
+
+  String _cleanUpiId(String value) => value.trim();
+
+  // थर्मल प्रिंटर बिल: 58mm और 80mm दोनों के लिए dynamic layout + offline QR
   Future<void> _printBillReceipt(
       int tbl, List<Map<String, dynamic>> items, double total) async {
     final bool isConn = await PrintBluetoothThermal.connectionStatus;
     if (!isConn) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('⚠️ प्रिंटर कनेक्ट नहीं है!'),
-              backgroundColor: Colors.red),
+          const SnackBar(content: Text('⚠️ प्रिंटर कनेक्ट नहीं है!'), backgroundColor: Colors.red),
         );
       }
       return;
     }
 
     try {
-      final profile = await CapabilityProfile.load();
-      final generator = Generator(PaperSize.mm58, profile);
-      List<int> bytes = [];
+      final prefs = await SharedPreferences.getInstance();
+      final int paperWidth = prefs.getInt('saved_printer_width_mm') == 58 ? 58 : 80;
+      final profile = _restoProfile;
+      final capability = await CapabilityProfile.load();
+      final generator = Generator(
+        paperWidth == 58 ? PaperSize.mm58 : PaperSize.mm80,
+        capability,
+      );
+      final List<int> bytes = [];
+      final int nameWidth = paperWidth == 58 ? 18 : 28;
+      final int qtyWidth = paperWidth == 58 ? 5 : 7;
+      final int amountWidth = paperWidth == 58 ? 8 : 11;
 
-      final String header =
-          tbl >= 900 ? '📦 पार्सल पर्ची (Takeaway)' : 'टेबल: T-$tbl';
-      bytes += generator.text(widget.hotelName,
-          styles: const PosStyles(
-              align: PosAlign.center,
-              bold: true,
-              height: PosTextSize.size2,
-              width: PosTextSize.size2));
-      bytes += generator.text(header,
-          styles: const PosStyles(align: PosAlign.center, bold: true));
-      bytes += generator.hr();
-
-      for (var it in items) {
-        bytes += generator.row([
-          PosColumn(text: it['name'].toString(), width: 7),
-          PosColumn(text: 'x${it['qty']}', width: 2),
-          PosColumn(
-              text: '${(it['price'] * it['qty']).toInt()}',
-              width: 3,
-              styles: const PosStyles(align: PosAlign.right)),
-        ]);
+      void addText(String text, {PosStyles styles = const PosStyles()}) {
+        bytes.addAll(generator.text(text, styles: styles));
       }
 
-      bytes += generator.hr();
-      bytes += generator.text('कुल: Rs ${total.toStringAsFixed(2)}',
-          styles: const PosStyles(bold: true, align: PosAlign.right));
-      bytes += generator.feed(2);
-      bytes += generator.cut();
+      bytes.addAll([27, 64]);
+      addText(widget.hotelName, styles: const PosStyles(
+        align: PosAlign.center,
+        bold: true,
+        height: PosTextSize.size2,
+        width: PosTextSize.size2,
+      ));
+      if ((profile?.address ?? '').trim().isNotEmpty) {
+        addText(profile!.address!.trim(), styles: const PosStyles(align: PosAlign.center));
+      }
+      if ((profile?.phone ?? '').trim().isNotEmpty) {
+        addText('मोबाइल: ${profile!.phone!.trim()}', styles: const PosStyles(align: PosAlign.center));
+      }
+      if ((profile?.gstNumber ?? '').trim().isNotEmpty) {
+        addText('GSTIN: ${profile!.gstNumber!.trim()}', styles: const PosStyles(align: PosAlign.center));
+      }
+      if ((profile?.fssaiNumber ?? '').trim().isNotEmpty) {
+        addText('FSSAI: ${profile!.fssaiNumber!.trim()}', styles: const PosStyles(align: PosAlign.center));
+      }
+
+      final bool isParcel = tbl >= 900;
+      final String header = isParcel ? 'पार्सल: P-${tbl - 900}' : 'टेबल: T-$tbl';
+      addText(header, styles: const PosStyles(align: PosAlign.center, bold: true));
+      addText(
+        '${DateTime.now().day.toString().padLeft(2, '0')}/${DateTime.now().month.toString().padLeft(2, '0')}/${DateTime.now().year} '
+        '${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}',
+        styles: const PosStyles(align: PosAlign.center),
+      );
+      bytes.addAll(generator.hr());
+
+      bytes.addAll(generator.row([
+        PosColumn(text: 'आइटम', width: paperWidth == 58 ? 6 : 7, styles: const PosStyles(bold: true)),
+        PosColumn(text: 'Qty', width: 2, styles: const PosStyles(align: PosAlign.center, bold: true)),
+        PosColumn(text: 'रकम', width: paperWidth == 58 ? 4 : 3, styles: const PosStyles(align: PosAlign.right, bold: true)),
+      ]));
+      bytes.addAll(generator.hr());
+
+      for (final item in items) {
+        final String name = (item['name'] ?? '').toString();
+        final num qty = (item['qty'] ?? item['quantity'] ?? 1) is num
+            ? (item['qty'] ?? item['quantity'] ?? 1) as num
+            : num.tryParse((item['qty'] ?? item['quantity'] ?? 1).toString()) ?? 1;
+        final double price = (item['price'] as num?)?.toDouble() ?? double.tryParse('${item['price']}') ?? 0.0;
+        final double lineTotal = price * qty;
+        final String displayName = name.length > nameWidth ? '${name.substring(0, nameWidth - 1)}…' : name;
+        bytes.addAll(generator.row([
+          PosColumn(text: displayName, width: paperWidth == 58 ? 6 : 7),
+          PosColumn(text: 'x${qty % 1 == 0 ? qty.toInt() : qty}', width: 2, styles: const PosStyles(align: PosAlign.center)),
+          PosColumn(text: lineTotal.toStringAsFixed(0).padLeft(amountWidth), width: paperWidth == 58 ? 4 : 3, styles: const PosStyles(align: PosAlign.right)),
+        ]));
+      }
+
+      bytes.addAll(generator.hr());
+      addText('कुल: ₹${total.toStringAsFixed(2)}', styles: const PosStyles(align: PosAlign.right, bold: true, height: PosTextSize.size2));
+
+      final String upiId = _cleanUpiId(profile?.upiId ?? prefs.getString('saved_hotel_upi') ?? '');
+      final String reviewUrl = (profile?.googleReviewLink ?? prefs.getString('saved_hotel_review') ?? '').trim();
+      final double safeTotal = total < 0 ? 0 : total;
+
+      if (upiId.isNotEmpty) {
+        final String upiPayload = 'upi://pay?pa=${Uri.encodeComponent(upiId)}&pn=${Uri.encodeComponent(widget.hotelName)}&am=${safeTotal.toStringAsFixed(2)}&cu=INR';
+        addText('स्कैन करके ₹${safeTotal.toStringAsFixed(2)} पे करें', styles: const PosStyles(align: PosAlign.center, bold: true));
+        bytes.addAll(_escPosQrCode(upiPayload, size: paperWidth == 58 ? 5 : 6));
+        addText('UPI: $upiId', styles: const PosStyles(align: PosAlign.center));
+      }
+
+      if (reviewUrl.isNotEmpty) {
+        addText('⭐ Google Review ⭐', styles: const PosStyles(align: PosAlign.center, bold: true));
+        bytes.addAll(_escPosQrCode(reviewUrl, size: paperWidth == 58 ? 5 : 6));
+        addText('स्कैन करके रिव्यू दें', styles: const PosStyles(align: PosAlign.center));
+      }
+
+      final String footer = (profile?.footerMessage ?? '').trim().isNotEmpty
+          ? profile!.footerMessage!.trim()
+          : 'धन्यवाद! फिर पधारें 🙏';
+      addText(footer, styles: const PosStyles(align: PosAlign.center, bold: true));
+      bytes.addAll(generator.feed(3));
+      bytes.addAll(generator.cut());
 
       await PrintBluetoothThermal.writeBytes(bytes);
-    } catch (_) {}
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✅ बिल ${paperWidth}mm प्रिंटर पर भेज दिया गया')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ प्रिंट एरर: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
-  // =========================================================================
-  // WhatsApp रसीद PDF + सुरक्षित वैकल्पिक QR (UPI / Google Review / FSSAI / GSTIN / Discount)
-  // =========================================================================
+  // WhatsApp/PDF: 58/80mm के हिसाब से native PDF, QR पूरी तरह offline/vector
   Future<void> _shareReceiptPdf(
       int tbl, List<Map<String, dynamic>> items, double subTotal,
       {double discount = 0.0, double discountPct = 0.0}) async {
     try {
-      final double finalTotal = (subTotal - discount) < 0 ? 0.0 : (subTotal - discount);
-      final String rawUpi = _restoProfile?.upiId ?? '';
-      final String upiId = rawUpi.isNotEmpty ? rawUpi : "";
-      final String restoAddr = _restoProfile?.address ?? '';
-      final String restoPhone = _restoProfile?.phone ?? '';
-      final String gstNo = _restoProfile?.gstNumber ?? '';
-      final String fssaiNo = _restoProfile?.fssaiNumber ?? '';
-      
       final prefs = await SharedPreferences.getInstance();
-      final String reviewUrl = prefs.getString('saved_hotel_review_url') ?? '';
+      final int printerWidthMm = prefs.getInt('saved_printer_width_mm') == 58 ? 58 : 80;
+      final profile = _restoProfile;
+      final String upiId = (profile?.upiId ?? prefs.getString('saved_hotel_upi') ?? '').trim();
+      final String reviewUrl = (profile?.googleReviewLink ?? prefs.getString('saved_hotel_review') ?? '').trim();
+      final pdfDoc = await buildThermalReceiptPdf(
+        hotelName: widget.hotelName,
+        address: profile?.address ?? '',
+        phone: profile?.phone ?? '',
+        fssai: profile?.fssaiNumber ?? '',
+        gstin: profile?.gstNumber ?? '',
+        tbl: tbl,
+        items: items,
+        subTotal: subTotal,
+        discount: discount,
+        discountPct: discountPct,
+        upiId: upiId.isEmpty ? null : upiId,
+        reviewUrl: reviewUrl.isEmpty ? null : reviewUrl,
+        paperWidthMm: printerWidthMm,
+      );
 
+      final output = await getTemporaryDirectory();
       final bool isParcel = tbl >= 900;
-      final String receiptTitle = isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl";
+      final String receiptTitle = isParcel ? 'पार्सल (P-${tbl - 900})' : 'टेबल: T-$tbl';
+      final file = File('${output.path}/Bill_${tbl}_${DateTime.now().millisecondsSinceEpoch}.pdf');
+      await file.writeAsBytes(await pdfDoc.save());
 
-      final Uint8List receiptImage = await ScreenshotController().captureFromWidget(
-        Container(
-          width: 380,
-          color: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Text(widget.hotelName,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black)),
-              if (restoAddr.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(restoAddr,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 11, color: Colors.black87)),
-                ),
-              if (restoPhone.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text("मोबाइल: $restoPhone",
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black87)),
-                ),
-
-              if (fssaiNo.isNotEmpty || gstNo.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (fssaiNo.isNotEmpty)
-                      Text("FSSAI: $fssaiNo  ", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.black87)),
-                    if (gstNo.isNotEmpty)
-                      Text("GSTIN: $gstNo", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.black87)),
-                  ],
-                ),
-              ],
-
-              const SizedBox(height: 6),
-              const Divider(color: Colors.black, thickness: 1.2),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(receiptTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black)),
-                  Text(
-                    "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year} ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}",
-                    style: const TextStyle(fontSize: 11, color: Colors.black87),
-                  ),
-                ],
-              ),
-              const Divider(color: Colors.black54, thickness: 0.8),
-
-              const Row(
-                children: [
-                  Expanded(flex: 5, child: Text("सामग्री (Item)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black))),
-                  Expanded(flex: 2, child: Text("मात्रा", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black))),
-                  Expanded(flex: 3, child: Text("रकम (₹)", textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black))),
-                ],
-              ),
-              const Divider(color: Colors.black26),
-              ...items.map((it) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2.5),
-                    child: Row(
-                      children: [
-                        Expanded(flex: 5, child: Text("${it['name']}", style: const TextStyle(fontSize: 12, color: Colors.black, fontWeight: FontWeight.w500))),
-                        Expanded(flex: 2, child: Text("x${it['qty']}", textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black))),
-                        Expanded(flex: 3, child: Text("₹${(it['price'] * it['qty']).toInt()}", textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black))),
-                      ],
-                    ),
-                  )),
-
-              const Divider(color: Colors.black, thickness: 1.0),
-
-              if (discount > 0) ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text("उप-योग (Sub Total):", style: TextStyle(fontSize: 12, color: Colors.black54)),
-                    Text("₹${subTotal.toStringAsFixed(2)}", style: const TextStyle(fontSize: 12, color: Colors.black87)),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text("छूट / डिस्काउंट (${discountPct.toStringAsFixed(0)}%):",
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.red)),
-                    Text("-₹${discount.toStringAsFixed(2)}",
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.red)),
-                  ],
-                ),
-                const SizedBox(height: 3),
-              ],
-
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text("कुल देय (NET TOTAL):", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black)),
-                  Text("₹${finalTotal.toStringAsFixed(2)}", style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.black)),
-                ],
-              ),
-
-              const SizedBox(height: 10),
-
-              // वैकल्पिक QR कोड कंटेनर (यदि UPI या Review URL में से कोई भी उपलब्ध हो)
-              if (upiId.isNotEmpty || reviewUrl.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(border: Border.all(color: Colors.black26), borderRadius: BorderRadius.circular(8)),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      if (upiId.isNotEmpty)
-                        Column(
-                          children: [
-                            Image.network(
-                              'https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${Uri.encodeComponent("upi://pay?pa=$upiId&pn=${widget.hotelName}&am=$finalTotal&cu=INR")}',
-                              width: 95,
-                              height: 95,
-                              fit: BoxFit.contain,
-                              errorBuilder: (ctx, err, stack) => Text("UPI: $upiId", style: const TextStyle(fontSize: 10)),
-                            ),
-Future<void> _shareReceiptPdf(
-    int tbl, List<Map<String, dynamic>> items, double subTotal,
-    {double discount = 0.0, double discountPct = 0.0}) async {
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    // प्रिंटर सेटिंग्स से पेपर विड्थ प्राप्त करें (डिफ़ॉल्ट 80mm)
-    final int printerWidthMm = prefs.getInt('saved_printer_width_mm') ?? 80;
-
-    final String rawUpi = _restoProfile?.upiId ?? '';
-    final String upiId = rawUpi.isNotEmpty ? rawUpi : "";
-    final String restoAddr = _restoProfile?.address ?? '';
-    final String restoPhone = _restoProfile?.phone ?? '';
-    final String gstNo = _restoProfile?.gstNumber ?? '';
-    final String fssaiNo = _restoProfile?.fssaiNumber ?? '';
-    final String reviewUrl = prefs.getString('saved_hotel_review_url') ?? '';
-
-    // नेटिव वेक्टर रेंडरर से PDF डॉक्यूमेंट तैयार करें
-    final pdfDoc = await buildThermalReceiptPdf(
-      hotelName: widget.hotelName,
-      address: restoAddr,
-      phone: restoPhone,
-      fssai: fssaiNo,
-      gstin: gstNo,
-      tbl: tbl,
-      items: items,
-      subTotal: subTotal,
-      discount: discount,
-      discountPct: discountPct,
-      upiId: upiId,
-      reviewUrl: reviewUrl,
-      paperWidthMm: printerWidthMm, // 58mm या 80mm डाइनैमिक लेआउट
-    );
-
-    final output = await getTemporaryDirectory();
-    final bool isParcel = tbl >= 900;
-    final String receiptTitle = isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl";
-
-    final file = File("${output.path}/Bill_${tbl}_${DateTime.now().millisecondsSinceEpoch}.pdf");
-    await file.writeAsBytes(await pdfDoc.save());
-
-    final double finalTotal = (subTotal - discount) < 0 ? 0.0 : (subTotal - discount);
-    await Share.shareXFiles(
-      [XFile(file.path)],
-      text: "नमस्ते! ${widget.hotelName} से आपका बिल ($receiptTitle)। कुल राशि: ₹$finalTotal",
-    );
-  } catch (e) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('शेयर एरर: $e')));
+      final double finalTotal = (subTotal - discount).clamp(0.0, double.infinity).toDouble();
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'नमस्ते! ${widget.hotelName} से आपका बिल ($receiptTitle)। कुल राशि: ₹${finalTotal.toStringAsFixed(2)}',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF/WhatsApp एरर: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
-}
 
   void _showStaffManagementDialog() {
     final staffIdCtrl = TextEditingController();
