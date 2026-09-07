@@ -1851,61 +1851,57 @@ class _FullCounterAppState extends State<FullCounterApp> {
                               fit: BoxFit.contain,
                               errorBuilder: (ctx, err, stack) => Text("UPI: $upiId", style: const TextStyle(fontSize: 10)),
                             ),
-                            const SizedBox(height: 4),
-                            const Text("पेमेंट UPI QR", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black)),
-                            Text("₹${finalTotal.toInt()}", style: const TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                      if (upiId.isNotEmpty && reviewUrl.isNotEmpty)
-                        Container(width: 1, height: 110, color: Colors.black26),
-                      if (reviewUrl.isNotEmpty)
-                        Column(
-                          children: [
-                            Image.network(
-                              'https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${Uri.encodeComponent(reviewUrl)}',
-                              width: 95,
-                              height: 95,
-                              fit: BoxFit.contain,
-                              errorBuilder: (ctx, err, stack) => const Text("Review Link", style: TextStyle(fontSize: 10)),
-                            ),
-                            const SizedBox(height: 4),
-                            const Text("Google Review ⭐", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-                            const Text("रेटिंग दें", style: TextStyle(fontSize: 9, color: Colors.black54)),
-                          ],
-                        ),
-                    ],
-                  ),
-                ),
+Future<void> _shareReceiptPdf(
+    int tbl, List<Map<String, dynamic>> items, double subTotal,
+    {double discount = 0.0, double discountPct = 0.0}) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    // प्रिंटर सेटिंग्स से पेपर विड्थ प्राप्त करें (डिफ़ॉल्ट 80mm)
+    final int printerWidthMm = prefs.getInt('saved_printer_width_mm') ?? 80;
 
-              const SizedBox(height: 8),
-              const Divider(color: Colors.black26),
-              const Text("धन्यवाद! फिर पधारें 🙏", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)),
-            ],
-          ),
-        ),
-        pixelRatio: 2.5,
-        delay: const Duration(milliseconds: 60),
-      );
+    final String rawUpi = _restoProfile?.upiId ?? '';
+    final String upiId = rawUpi.isNotEmpty ? rawUpi : "";
+    final String restoAddr = _restoProfile?.address ?? '';
+    final String restoPhone = _restoProfile?.phone ?? '';
+    final String gstNo = _restoProfile?.gstNumber ?? '';
+    final String fssaiNo = _restoProfile?.fssaiNumber ?? '';
+    final String reviewUrl = prefs.getString('saved_hotel_review_url') ?? '';
 
-      final pdf = pw.Document();
-      pdf.addPage(
-        pw.Page(
-          pageFormat: PdfPageFormat.roll80,
-          margin: const pw.EdgeInsets.all(6),
-          build: (pw.Context context) => pw.Center(child: pw.Image(pw.MemoryImage(receiptImage))),
-        ),
-      );
+    // नेटिव वेक्टर रेंडरर से PDF डॉक्यूमेंट तैयार करें
+    final pdfDoc = await buildThermalReceiptPdf(
+      hotelName: widget.hotelName,
+      address: restoAddr,
+      phone: restoPhone,
+      fssai: fssaiNo,
+      gstin: gstNo,
+      tbl: tbl,
+      items: items,
+      subTotal: subTotal,
+      discount: discount,
+      discountPct: discountPct,
+      upiId: upiId,
+      reviewUrl: reviewUrl,
+      paperWidthMm: printerWidthMm, // 58mm या 80mm डाइनैमिक लेआउट
+    );
 
-      final output = await getTemporaryDirectory();
-      final file = File("${output.path}/Bill_${tbl}_${DateTime.now().millisecondsSinceEpoch}.pdf");
-      await file.writeAsBytes(await pdf.save());
+    final output = await getTemporaryDirectory();
+    final bool isParcel = tbl >= 900;
+    final String receiptTitle = isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl";
 
-      await Share.shareXFiles([XFile(file.path)],
-          text: "नमस्ते! ${widget.hotelName} से आपका बिल ($receiptTitle)। कुल राशि: ₹$finalTotal");
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('शेयर एरर: $e')));
+    final file = File("${output.path}/Bill_${tbl}_${DateTime.now().millisecondsSinceEpoch}.pdf");
+    await file.writeAsBytes(await pdfDoc.save());
+
+    final double finalTotal = (subTotal - discount) < 0 ? 0.0 : (subTotal - discount);
+    await Share.shareXFiles(
+      [XFile(file.path)],
+      text: "नमस्ते! ${widget.hotelName} से आपका बिल ($receiptTitle)। कुल राशि: ₹$finalTotal",
+    );
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('शेयर एरर: $e')));
     }
   }
+}
 
   void _showStaffManagementDialog() {
     final staffIdCtrl = TextEditingController();
