@@ -5,11 +5,15 @@ import '../../Data/Menu_data_source.dart';
 
 class WaiterMenuOrderView extends StatefulWidget {
   final Function(MenuItemModel item) onAddItem;
+  final Function(MenuItemModel item)? onRemoveItem;
+  final Map<dynamic, int>? cart;
   final List<MenuItemModel>? menuList;
 
   const WaiterMenuOrderView({
     super.key,
     required this.onAddItem,
+    this.onRemoveItem,
+    this.cart,
     this.menuList,
   });
 
@@ -23,6 +27,7 @@ class _WaiterMenuOrderViewState extends State<WaiterMenuOrderView> {
   List<MenuItemModel> _activeMenu = [];
   Map<String, bool> _stockStatusMap = {};
   bool _hideOutOfStock = false;
+  final Map<dynamic, int> _localCart = {};
 
   @override
   void initState() {
@@ -39,19 +44,16 @@ class _WaiterMenuOrderViewState extends State<WaiterMenuOrderView> {
   }
 
   Future<void> _initMenuData() async {
-    // 1. अगर पैरेंट स्क्रीन ने लाइव मेन्यू दिया है तो वह लें, अन्यथा डिफ़ॉल्ट लिस्ट
     List<MenuItemModel> baseList = widget.menuList ?? List.from(kRestaurantMenu);
 
-    // 2. लोकल कैश से उपलब्धता स्टेटस लोड करें (बिना इंटरनेट ऑफ़लाइन सुरक्षा)
     final prefs = await SharedPreferences.getInstance();
     final cachedStatuses = prefs.getStringList('cached_menu_stock_disabled') ?? [];
     final Map<String, bool> statusMap = {};
 
     for (var id in cachedStatuses) {
-      statusMap[id] = false; // बंद आइटम
+      statusMap[id] = false;
     }
 
-    // 3. यदि इंटरनेट उपलब्ध हो तो Supabase से ताज़ा स्थिति सिंक करें
     try {
       final res = await Supabase.instance.client
           .from('menu_items')
@@ -67,7 +69,6 @@ class _WaiterMenuOrderViewState extends State<WaiterMenuOrderView> {
       await prefs.setStringList('cached_menu_stock_disabled', disabledIds);
     } catch (_) {}
 
-    // मेन्यू में स्थिति अपडेट करें
     final updatedList = baseList.map((item) {
       final isAvailable = statusMap[item.id] ?? item.isAvailable;
       return item.copyWith(isAvailable: isAvailable);
@@ -79,6 +80,34 @@ class _WaiterMenuOrderViewState extends State<WaiterMenuOrderView> {
         _activeMenu = updatedList;
       });
     }
+  }
+
+  int _getItemCount(dynamic id) {
+    if (widget.cart != null) {
+      return widget.cart![id] ?? 0;
+    }
+    return _localCart[id] ?? 0;
+  }
+
+  void _handleIncrease(MenuItemModel item) {
+    widget.onAddItem(item);
+    setState(() {
+      _localCart[item.id] = (_localCart[item.id] ?? 0) + 1;
+    });
+  }
+
+  void _handleDecrease(MenuItemModel item) {
+    if (widget.onRemoveItem != null) {
+      widget.onRemoveItem!(item);
+    }
+    setState(() {
+      final cur = _getItemCount(item.id);
+      if (cur > 1) {
+        _localCart[item.id] = cur - 1;
+      } else {
+        _localCart.remove(item.id);
+      }
+    });
   }
 
   List<MenuItemModel> get _filteredItems {
@@ -97,7 +126,6 @@ class _WaiterMenuOrderViewState extends State<WaiterMenuOrderView> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // 1. सर्च बार और फ़िल्टर टॉगल
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           child: Row(
@@ -129,8 +157,6 @@ class _WaiterMenuOrderViewState extends State<WaiterMenuOrderView> {
             ],
           ),
         ),
-
-        // 2. श्रेणी फ़िल्टर चिप्स
         SizedBox(
           height: 44,
           child: ListView.builder(
@@ -166,10 +192,7 @@ class _WaiterMenuOrderViewState extends State<WaiterMenuOrderView> {
             },
           ),
         ),
-
         const Divider(height: 1),
-
-        // 3. मेन्यू लिस्ट (आउट-ऑफ-स्टॉक चेक के साथ)
         Expanded(
           child: _filteredItems.isEmpty
               ? const Center(
@@ -184,11 +207,11 @@ class _WaiterMenuOrderViewState extends State<WaiterMenuOrderView> {
                   itemBuilder: (context, index) {
                     final item = _filteredItems[index];
                     final bool isAvailable = item.isAvailable;
+                    final int qty = _getItemCount(item.id);
 
                     return ListTile(
-                      dense: true,
                       contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                          const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                       title: Text(
                         item.name,
                         style: TextStyle(
@@ -207,6 +230,15 @@ class _WaiterMenuOrderViewState extends State<WaiterMenuOrderView> {
                             item.category,
                             style: TextStyle(
                                 fontSize: 11, color: Colors.grey.shade600),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '₹${item.price.toStringAsFixed(0)}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: isAvailable ? Colors.green.shade800 : Colors.grey,
+                            ),
                           ),
                           if (!isAvailable) ...[
                             const SizedBox(width: 8),
@@ -230,45 +262,73 @@ class _WaiterMenuOrderViewState extends State<WaiterMenuOrderView> {
                           ]
                         ],
                       ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '₹${item.price.toStringAsFixed(0)}',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                              color: isAvailable
-                                  ? const Color(0xFF0F172A)
-                                  : Colors.grey,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            icon: Icon(
-                              isAvailable
-                                  ? Icons.add_circle
-                                  : Icons.remove_circle_outline,
-                              color: isAvailable
-                                  ? const Color(0xFF059669)
-                                  : Colors.grey.shade400,
-                              size: 28,
-                            ),
-                            onPressed: isAvailable
-                                ? () => widget.onAddItem(item)
-                                : () {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                            '⚠️ "${item.name}" अभी स्टॉक में उपलब्ध नहीं है!'),
-                                        backgroundColor: Colors.red.shade800,
-                                        duration: const Duration(seconds: 2),
+                      trailing: isAvailable
+                          ? (qty == 0
+                              ? ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF0F172A),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 4),
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8)),
+                                    elevation: 0,
+                                  ),
+                                  icon: const Icon(Icons.add,
+                                      size: 16, color: Colors.white),
+                                  label: const Text('जोड़ें',
+                                      style: TextStyle(
+                                          color: Colors.white, fontSize: 12)),
+                                  onPressed: () => _handleIncrease(item),
+                                )
+                              : Container(
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                        color: const Color(0xFFCBD5E1)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      InkWell(
+                                        onTap: () => _handleDecrease(item),
+                                        borderRadius: const BorderRadius.horizontal(
+                                            left: Radius.circular(8)),
+                                        child: const Padding(
+                                          padding: EdgeInsets.symmetric(
+                                              horizontal: 8, vertical: 6),
+                                          child: Icon(Icons.remove,
+                                              size: 18, color: Colors.redAccent),
+                                        ),
                                       ),
-                                    );
-                                  },
-                          ),
-                        ],
-                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 6),
+                                        color: Colors.white,
+                                        child: Text(
+                                          '$qty',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                            color: Color(0xFF0F172A),
+                                          ),
+                                        ),
+                                      ),
+                                      InkWell(
+                                        onTap: () => _handleIncrease(item),
+                                        borderRadius: const BorderRadius.horizontal(
+                                            right: Radius.circular(8)),
+                                        child: const Padding(
+                                          padding: EdgeInsets.symmetric(
+                                              horizontal: 8, vertical: 6),
+                                          child: Icon(Icons.add,
+                                              size: 18, color: Colors.green),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ))
+                          : const Icon(Icons.block, color: Colors.grey, size: 22),
                     );
                   },
                 ),
