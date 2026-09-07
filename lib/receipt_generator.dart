@@ -1,10 +1,7 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:share_plus/share_plus.dart';
 
 Future<pw.Document> buildThermalReceiptPdf({
   required String hotelName,
@@ -19,116 +16,111 @@ Future<pw.Document> buildThermalReceiptPdf({
   required double discountPct,
   required String? upiId,
   required String? reviewUrl,
-  required int paperWidthMm, // 58 या 80 mm थर्मल प्रिंटर विड्थ
+  required int paperWidthMm,
 }) async {
-  final pdf = pw.Document();
-
-  // हिंदी (Devanagari) टेक्स्ट के लिए Noto Sans Devanagari फॉन्ट लोड करना (ऑफलाइन)
+  // 1. हिंदी फ़ॉन्ट लोड करें
   pw.Font? devanagariFont;
   try {
     final fontData = await rootBundle.load('assets/templates/fonts/NotoSansDevanagari-Regular.ttf');
     devanagariFont = pw.Font.ttf(fontData);
   } catch (_) {}
 
-  // प्रिंटर की चौड़ाई के आधार पर पॉइंट्स (Points) और फॉन्ट साइज़ सेट करना
-  // 1 mm = 2.83465 points (58mm ≈ 164 points, 80mm ≈ 226 points)
+  // पूरे डॉक्यूमेंट पर ग्लोबल थीम सेट करें ताकि कोई भी शब्द डिब्बा न बने
+  final pdf = pw.Document(
+    theme: devanagariFont != null
+        ? pw.ThemeData.withFont(base: devanagariFont, bold: devanagariFont)
+        : null,
+  );
+
+  // 58mm और 80mm के अनुसार सही चौड़ाई व मार्जिन
   final double widthPoints = paperWidthMm == 58 ? 164.0 : 226.0;
-  final double horizontalPadding = paperWidthMm == 58 ? 6.0 : 10.0;
-  final double titleFontSize = paperWidthMm == 58 ? 12.0 : 15.0;
-  final double normalFontSize = paperWidthMm == 58 ? 8.0 : 10.0;
-  final double smallFontSize = paperWidthMm == 58 ? 7.0 : 8.0;
-  final double qrSize = paperWidthMm == 58 ? 55.0 : 75.0;
+  const double horizontalMargin = 4.0; // कम मार्जिन से टेक्स्ट कभी नहीं कटेगा
+  final double titleFontSize = paperWidthMm == 58 ? 11.0 : 13.0;
+  final double normalFontSize = paperWidthMm == 58 ? 7.5 : 9.0;
+  final double smallFontSize = paperWidthMm == 58 ? 6.5 : 7.5;
+  final double qrSize = paperWidthMm == 58 ? 55.0 : 70.0;
 
   final double finalTotal = (subTotal - discount) < 0 ? 0.0 : (subTotal - discount);
   final bool isParcel = tbl >= 900;
   final String receiptTitle = isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl";
+  final String dateStr = "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}";
 
   pdf.addPage(
     pw.Page(
-      pageFormat: PdfPageFormat(widthPoints, double.infinity, marginAll: horizontalPadding),
+      pageFormat: PdfPageFormat(widthPoints, double.infinity, marginAll: horizontalMargin),
       build: (pw.Context context) {
         return pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.center,
           children: [
-            // होटल का नाम
             pw.Text(
               hotelName,
               textAlign: pw.TextAlign.center,
-              style: pw.TextStyle(
-                font: devanagariFont,
-                fontSize: titleFontSize,
-                fontWeight: pw.FontWeight.bold,
-              ),
+              style: pw.TextStyle(fontSize: titleFontSize, fontWeight: pw.FontWeight.bold),
             ),
             if (address != null && address.isNotEmpty)
               pw.Padding(
-                padding: const pw.EdgeInsets.only(top: 2),
+                padding: const pw.EdgeInsets.only(top: 1),
                 child: pw.Text(
                   address,
                   textAlign: pw.TextAlign.center,
-                  style: pw.TextStyle(font: devanagariFont, fontSize: smallFontSize),
+                  style: pw.TextStyle(fontSize: smallFontSize),
                 ),
               ),
             if (phone != null && phone.isNotEmpty)
               pw.Padding(
-                padding: const pw.EdgeInsets.only(top: 2),
+                padding: const pw.EdgeInsets.only(top: 1),
                 child: pw.Text(
                   "मोबाइल: $phone",
-                  style: pw.TextStyle(font: devanagariFont, fontSize: smallFontSize, fontWeight: pw.FontWeight.bold),
+                  style: pw.TextStyle(fontSize: smallFontSize, fontWeight: pw.FontWeight.bold),
                 ),
               ),
-
-            // FSSAI और GSTIN विवरण
             if ((fssai != null && fssai.isNotEmpty) || (gstin != null && gstin.isNotEmpty))
               pw.Padding(
-                padding: const pw.EdgeInsets.only(top: 3),
-                child: pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.center,
+                padding: const pw.EdgeInsets.only(top: 2),
+                child: pw.Wrap(
+                  alignment: pw.WrapAlignment.center,
+                  spacing: 4,
                   children: [
                     if (fssai != null && fssai.isNotEmpty)
-                      pw.Text("FSSAI: $fssai ", style: pw.TextStyle(fontSize: smallFontSize - 1)),
+                      pw.Text("FSSAI: $fssai", style: pw.TextStyle(fontSize: smallFontSize - 1)),
                     if (gstin != null && gstin.isNotEmpty)
                       pw.Text("GSTIN: $gstin", style: pw.TextStyle(fontSize: smallFontSize - 1)),
                   ],
                 ),
               ),
-
-            pw.SizedBox(height: 4),
+            pw.SizedBox(height: 3),
             pw.Divider(thickness: 0.8),
-
-            // टेबल/पार्सल नंबर और दिनांक/समय
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Text(receiptTitle, style: pw.TextStyle(font: devanagariFont, fontSize: normalFontSize, fontWeight: pw.FontWeight.bold)),
-                pw.Text(
-                  "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year} ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}",
-                  style: pw.TextStyle(fontSize: smallFontSize - 1),
+                pw.Expanded(
+                  child: pw.Text(receiptTitle, style: pw.TextStyle(fontSize: normalFontSize, fontWeight: pw.FontWeight.bold)),
                 ),
+                pw.Text(dateStr, style: pw.TextStyle(fontSize: smallFontSize)),
               ],
             ),
             pw.Divider(thickness: 0.5),
 
-            // आइटम हेडर
+            // टेबल हेडर
             pw.Row(
               children: [
-                pw.Expanded(flex: paperWidthMm == 58 ? 4 : 5, child: pw.Text("आइटम", style: pw.TextStyle(font: devanagariFont, fontSize: smallFontSize, fontWeight: pw.FontWeight.bold))),
+                pw.Expanded(flex: 5, child: pw.Text("सामग्री", style: pw.TextStyle(fontSize: smallFontSize, fontWeight: pw.FontWeight.bold))),
                 pw.Expanded(flex: 2, child: pw.Text("मात्रा", textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: smallFontSize, fontWeight: pw.FontWeight.bold))),
-                pw.Expanded(flex: 3, child: pw.Text("रकम", textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: smallFontSize, fontWeight: pw.FontWeight.bold))),
+                pw.Expanded(flex: 3, child: pw.Text("रकम (₹)", textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: smallFontSize, fontWeight: pw.FontWeight.bold))),
               ],
             ),
             pw.SizedBox(height: 2),
 
-            // आइटम सूची (Items list)
+            // सामग्री सूची
             ...items.map((it) => pw.Padding(
                   padding: const pw.EdgeInsets.symmetric(vertical: 1.5),
                   child: pw.Row(
                     children: [
                       pw.Expanded(
-                        flex: paperWidthMm == 58 ? 4 : 5,
+                        flex: 5,
                         child: pw.Text(
                           it['name'].toString(),
-                          style: pw.TextStyle(font: devanagariFont, fontSize: normalFontSize),
+                          style: pw.TextStyle(fontSize: normalFontSize),
                         ),
                       ),
                       pw.Expanded(
@@ -142,7 +134,7 @@ Future<pw.Document> buildThermalReceiptPdf({
                       pw.Expanded(
                         flex: 3,
                         child: pw.Text(
-                          "₹${(it['price'] * it['qty']).toInt()}",
+                          "${(it['price'] * it['qty']).toInt()}",
                           textAlign: pw.TextAlign.right,
                           style: pw.TextStyle(fontSize: normalFontSize, fontWeight: pw.FontWeight.bold),
                         ),
@@ -150,40 +142,36 @@ Future<pw.Document> buildThermalReceiptPdf({
                     ],
                   ),
                 )),
-
             pw.Divider(thickness: 0.8),
 
-            // उप-योग और छूट (Subtotal & Discount)
             if (discount > 0) ...[
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text("उप-योग:", style: pw.TextStyle(font: devanagariFont, fontSize: smallFontSize)),
+                  pw.Text("उप-योग:", style: pw.TextStyle(fontSize: smallFontSize)),
                   pw.Text("₹${subTotal.toStringAsFixed(2)}", style: pw.TextStyle(fontSize: smallFontSize)),
                 ],
               ),
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text("छूट (${discountPct.toStringAsFixed(0)}%):", style: pw.TextStyle(font: devanagariFont, fontSize: smallFontSize, color: PdfColors.red)),
+                  pw.Text("छूट (${discountPct.toStringAsFixed(0)}%):", style: pw.TextStyle(fontSize: smallFontSize, color: PdfColors.red)),
                   pw.Text("-₹${discount.toStringAsFixed(2)}", style: pw.TextStyle(fontSize: smallFontSize, color: PdfColors.red)),
                 ],
               ),
               pw.SizedBox(height: 2),
             ],
 
-            // कुल देय (Net Total)
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Text("कुल देय:", style: pw.TextStyle(font: devanagariFont, fontSize: normalFontSize + 1, fontWeight: pw.FontWeight.bold)),
+                pw.Text("कुल देय:", style: pw.TextStyle(fontSize: normalFontSize + 1, fontWeight: pw.FontWeight.bold)),
                 pw.Text("₹${finalTotal.toStringAsFixed(2)}", style: pw.TextStyle(fontSize: normalFontSize + 2, fontWeight: pw.FontWeight.bold)),
               ],
             ),
+            pw.SizedBox(height: 5),
 
-            pw.SizedBox(height: 6),
-
-            // नेटिव वेक्टर/बारकोड QR रेंडरिंग (ऑफ़लाइन, बिना किसी API या Screenshot के)
+            // UPI व Review QR
             if ((upiId != null && upiId.isNotEmpty) || (reviewUrl != null && reviewUrl.isNotEmpty))
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
@@ -217,18 +205,17 @@ Future<pw.Document> buildThermalReceiptPdf({
                           ),
                         ),
                         pw.SizedBox(height: 2),
-                        pw.Text("Review ⭐", style: pw.TextStyle(fontSize: smallFontSize - 2, fontWeight: pw.FontWeight.bold)),
+                        pw.Text("Review", style: pw.TextStyle(fontSize: smallFontSize - 2, fontWeight: pw.FontWeight.bold)),
                       ],
                     ),
                 ],
               ),
-
-            pw.SizedBox(height: 6),
+            pw.SizedBox(height: 5),
             pw.Divider(thickness: 0.5),
             pw.Text(
-              "धन्यवाद! फिर पधारें 🙏",
+              "धन्यवाद! फिर पधारें",
               textAlign: pw.TextAlign.center,
-              style: pw.TextStyle(font: devanagariFont, fontSize: smallFontSize, fontWeight: pw.FontWeight.bold),
+              style: pw.TextStyle(fontSize: smallFontSize, fontWeight: pw.FontWeight.bold),
             ),
           ],
         );
