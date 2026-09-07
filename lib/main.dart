@@ -1696,86 +1696,169 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
-  // 3. प्रोफ़ेशनल बिल रसीद PDF + असली UPI QR कोड
-  Future<void> _shareReceiptPdf(int tbl, List<Map<String, dynamic>> items, double total) async {
+  // 3. प्रोफ़ेशनल बिल रसीद PDF + असली UPI QR कोड + FSSAI + GSTIN + Google Review QR + डिस्काउंट
+  Future<void> _shareReceiptPdf(
+      int tbl, List<Map<String, dynamic>> items, double subTotal,
+      {double discount = 0.0, double discountPct = 0.0}) async {
     try {
+      final double finalTotal = (subTotal - discount) < 0 ? 0.0 : (subTotal - discount);
       final String rawUpi = _restoProfile?.upiId ?? '';
       final String upiId = rawUpi.isNotEmpty ? rawUpi : "aala@upi";
       final String restoAddr = _restoProfile?.address ?? '';
       final String restoPhone = _restoProfile?.phone ?? '';
+      final String gstNo = _restoProfile?.gstNumber ?? '';
+      final String fssaiNo = _restoProfile?.fssaiNumber ?? '';
+      final String reviewUrl = _restoProfile?.googleReviewUrl ?? '';
 
       final bool isParcel = tbl >= 900;
       final String receiptTitle = isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl";
 
       final Uint8List receiptImage = await ScreenshotController().captureFromWidget(
         Container(
-          width: 360,
+          width: 380,
           color: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(widget.hotelName, textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black)),
+              Text(widget.hotelName,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black)),
               if (restoAddr.isNotEmpty)
-                Padding(padding: const EdgeInsets.only(top: 2), child: Text(restoAddr, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black87))),
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(restoAddr,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 11, color: Colors.black87)),
+                ),
               if (restoPhone.isNotEmpty)
-                Padding(padding: const EdgeInsets.only(top: 2), child: Text("मोबाइल: $restoPhone", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87))),
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text("मोबाइल: $restoPhone",
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black87)),
+                ),
+
+              if (fssaiNo.isNotEmpty || gstNo.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (fssaiNo.isNotEmpty)
+                      Text("FSSAI: $fssaiNo  ", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.black87)),
+                    if (gstNo.isNotEmpty)
+                      Text("GSTIN: $gstNo", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.black87)),
+                  ],
+                ),
+              ],
+
               const SizedBox(height: 6),
               const Divider(color: Colors.black, thickness: 1.2),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(receiptTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black)),
-                  Text("${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}  ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}", style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                  Text(
+                    "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year} ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}",
+                    style: const TextStyle(fontSize: 11, color: Colors.black87),
+                  ),
                 ],
               ),
               const Divider(color: Colors.black54, thickness: 0.8),
+
               const Row(
                 children: [
-                  Expanded(flex: 5, child: Text("सामग्री (Item)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black))),
-                  Expanded(flex: 2, child: Text("मात्रा", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black))),
-                  Expanded(flex: 3, child: Text("रकम (₹)", textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black))),
+                  Expanded(flex: 5, child: Text("सामग्री (Item)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black))),
+                  Expanded(flex: 2, child: Text("मात्रा", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black))),
+                  Expanded(flex: 3, child: Text("रकम (₹)", textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black))),
                 ],
               ),
               const Divider(color: Colors.black26),
               ...items.map((it) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3.0),
-                child: Row(
+                    padding: const EdgeInsets.symmetric(vertical: 2.5),
+                    child: Row(
+                      children: [
+                        Expanded(flex: 5, child: Text("${it['name']}", style: const TextStyle(fontSize: 12, color: Colors.black, fontWeight: FontWeight.w500))),
+                        Expanded(flex: 2, child: Text("x${it['qty']}", textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black))),
+                        Expanded(flex: 3, child: Text("₹${(it['price'] * it['qty']).toInt()}", textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black))),
+                      ],
+                    ),
+                  )),
+
+              const Divider(color: Colors.black, thickness: 1.0),
+
+              if (discount > 0) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(flex: 5, child: Text("${it['name']}", style: const TextStyle(fontSize: 13, color: Colors.black, fontWeight: FontWeight.w500))),
-                    Expanded(flex: 2, child: Text("x${it['qty']}", textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, color: Colors.black))),
-                    Expanded(flex: 3, child: Text("₹${(it['price'] * it['qty']).toInt()}", textAlign: TextAlign.right, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black))),
+                    const Text("उप-योग (Sub Total):", style: TextStyle(fontSize: 12, color: Colors.black54)),
+                    Text("₹${subTotal.toStringAsFixed(2)}", style: const TextStyle(fontSize: 12, color: Colors.black87)),
                   ],
                 ),
-              )),
-              const Divider(color: Colors.black, thickness: 1.2),
+                const SizedBox(height: 2),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("छूट / डिस्काउंट (${discountPct.toStringAsFixed(0)}%):",
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.red)),
+                    Text("-₹${discount.toStringAsFixed(2)}",
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.red)),
+                  ],
+                ),
+                const SizedBox(height: 3),
+              ],
+
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text("कुल योग (TOTAL):", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black)),
-                  Text("₹${total.toStringAsFixed(2)}", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+                  const Text("कुल देय (NET TOTAL):", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black)),
+                  Text("₹${finalTotal.toStringAsFixed(2)}", style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.black)),
                 ],
               ),
+
               const SizedBox(height: 10),
+
               Container(
-                padding: const EdgeInsets.all(6),
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(border: Border.all(color: Colors.black26), borderRadius: BorderRadius.circular(8)),
-                child: Column(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    Image.network(
-                      'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${Uri.encodeComponent("upi://pay?pa=$upiId&pn=${widget.hotelName}&am=$total&cu=INR")}',
-                      width: 110,
-                      height: 110,
-                      fit: BoxFit.contain,
-                      errorBuilder: (ctx, err, stack) => Text("UPI: $upiId", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    Column(
+                      children: [
+                        Image.network(
+                          'https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${Uri.encodeComponent("upi://pay?pa=$upiId&pn=${widget.hotelName}&am=$finalTotal&cu=INR")}',
+                          width: 95,
+                          height: 95,
+                          fit: BoxFit.contain,
+                          errorBuilder: (ctx, err, stack) => Text("UPI: $upiId", style: const TextStyle(fontSize: 10)),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text("पेमेंट UPI QR", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black)),
+                        Text("₹${finalTotal.toInt()}", style: const TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold)),
+                      ],
                     ),
-                    const SizedBox(height: 4),
-                    Text("UPI: $upiId", style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black)),
-                    const Text("PhonePe / GooglePay / Paytm से स्कैन करें", style: TextStyle(fontSize: 9, color: Colors.black54)),
+                    if (reviewUrl.isNotEmpty) ...[
+                      Container(width: 1, height: 110, color: Colors.black26),
+                      Column(
+                        children: [
+                          Image.network(
+                            'https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${Uri.encodeComponent(reviewUrl)}',
+                            width: 95,
+                            height: 95,
+                            fit: BoxFit.contain,
+                            errorBuilder: (ctx, err, stack) => const Text("Review Link", style: TextStyle(fontSize: 10)),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text("Google Review ⭐", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+                          const Text("रेटिंग दें", style: TextStyle(fontSize: 9, color: Colors.black54)),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
+
               const SizedBox(height: 8),
               const Divider(color: Colors.black26),
               const Text("धन्यवाद! फिर पधारें 🙏", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)),
@@ -1799,7 +1882,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
       final file = File("${output.path}/Bill_${tbl}_${DateTime.now().millisecondsSinceEpoch}.pdf");
       await file.writeAsBytes(await pdf.save());
 
-      await Share.shareXFiles([XFile(file.path)], text: "नमस्ते! ${widget.hotelName} से आपका बिल ($receiptTitle)। कुल राशि: ₹$total");
+      await Share.shareXFiles([XFile(file.path)],
+          text: "नमस्ते! ${widget.hotelName} से आपका बिल ($receiptTitle)। कुल राशि: ₹$finalTotal");
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('शेयर एरर: $e')));
     }
@@ -2110,113 +2194,168 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // टेबल व पार्सल बिल सेटलमेंट
+  // टेबल व पार्सल बिल सेटलमेंट (1% से 99% खुला डिस्काउंट बॉक्स के साथ)
   void _settleBill(int tbl) {
     bool isParcel = tbl >= 900;
     List<Map<String, dynamic>> items = isParcel
         ? (parcelOrders[tbl] ?? [])
         : (activeOrders[tbl] ?? []);
-    double total = items.fold(0, (sum, it) => sum + (it['price'] * it['qty']));
-    String titleText = isParcel
-        ? '📦 पार्सल बिल (P-${tbl - 900}): ₹$total'
-        : 'टेबल T-$tbl का बिल: ₹$total';
-
-    void completeSettlement(String mode) async {
-      Navigator.pop(context);
-
-      try {
-        await Supabase.instance.client
-            .from('hotel_kots')
-            .update({'status': 'settled'})
-            .eq('store_code', widget.storeCode)
-            .eq('table_no', tbl);
-      } catch (_) {}
-
-      try {
-        final source = isParcel ? 'PARCEL P-${tbl - 900}' : 'Table T-$tbl';
-        await Supabase.instance.client.from('daily_expenses').insert({
-          'restaurant_id': widget.storeCode,
-          'title': '$source Sale ($mode)',
-          'amount': total,
-          'type': 'CASH_IN',
-          'created_at': DateTime.now().toIso8601String(),
-        });
-      } catch (_) {}
-
-      if (isParcel) {
-        setState(() => parcelOrders.remove(tbl));
-      } else {
-        _spokenBillTables.remove(tbl);
-        setState(() {
-          activeOrders.remove(tbl);
-          tableStateMap.remove(tbl);
-        });
-      }
-
-      _fetchDailyBalances();
-      VoiceService.speak("बिल ₹${total.toInt()} $mode से प्राप्त हुआ");
-    }
+    double subTotal = items.fold(0, (sum, it) => sum + (it['price'] * it['qty']));
+    final pctCtrl = TextEditingController(text: '0');
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(titleText, style: const TextStyle(fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ...items.map((it) => Text(
-                '• ${it['name']} x ${it['qty']} = ₹${(it['price'] * it['qty']).toInt()}')),
-            const Divider(),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.print, size: 16),
-                    label: const Text('प्रिंट पर्ची'),
-                    onPressed: () => _printBillReceipt(tbl, items, total),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDState) {
+          double enteredPct = double.tryParse(pctCtrl.text.trim()) ?? 0.0;
+          if (enteredPct < 0) enteredPct = 0;
+          if (enteredPct > 99) enteredPct = 99;
+
+          final double discountAmt = (subTotal * enteredPct) / 100;
+          final double finalPayable = (subTotal - discountAmt) < 0 ? 0.0 : (subTotal - discountAmt);
+
+          void completeSettlement(String mode) async {
+            Navigator.pop(context);
+
+            try {
+              await Supabase.instance.client
+                  .from('hotel_kots')
+                  .update({'status': 'settled'})
+                  .eq('store_code', widget.storeCode)
+                  .eq('table_no', tbl);
+            } catch (_) {}
+
+            try {
+              final source = isParcel ? 'PARCEL P-${tbl - 900}' : 'Table T-$tbl';
+              await Supabase.instance.client.from('daily_expenses').insert({
+                'restaurant_id': widget.storeCode,
+                'title': '$source Sale ($mode)${enteredPct > 0 ? " [छूट $enteredPct% (-₹${discountAmt.toInt()})]" : ""}',
+                'amount': finalPayable,
+                'type': 'CASH_IN',
+                'created_at': DateTime.now().toIso8601String(),
+              });
+            } catch (_) {}
+
+            if (isParcel) {
+              setState(() => parcelOrders.remove(tbl));
+            } else {
+              _spokenBillTables.remove(tbl);
+              setState(() {
+                activeOrders.remove(tbl);
+                tableStateMap.remove(tbl);
+              });
+            }
+
+            _fetchDailyBalances();
+            VoiceService.speak("बिल ₹${finalPayable.toInt()} $mode से प्राप्त हुआ");
+          }
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            title: Text(isParcel ? '📦 पार्सल बिल (P-${tbl - 900})' : 'टेबल T-$tbl का बिल',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ...items.map((it) => Text('• ${it['name']} x ${it['qty']} = ₹${(it['price'] * it['qty']).toInt()}')),
+                  const Divider(),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('उप-योग (Subtotal):', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                      Text('₹${subTotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.share, size: 16, color: Colors.green),
-                    label: const Text('WhatsApp',
-                        style: TextStyle(color: Colors.green)),
-                    onPressed: () => _shareReceiptPdf(tbl, items, total),
+                  const SizedBox(height: 10),
+
+                  // खुला % इनपुट बॉक्स (1% से 99%)
+                  TextField(
+                    controller: pctCtrl,
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => setDState(() {}),
+                    decoration: InputDecoration(
+                      labelText: 'छूट प्रतिशत (1% - 99%)',
+                      hintText: 'उदा. 10 या 25',
+                      suffixText: '% OFF',
+                      suffixStyle: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      prefixIcon: const Icon(Icons.percent, color: Colors.deepOrange),
+                    ),
                   ),
-                ),
-              ],
-            ),
-            if (!isParcel)
-              Padding(
-                padding: const EdgeInsets.only(top: 8.0),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.swap_horiz, color: Colors.blueAccent),
-                    label: const Text('टेबल शिफ्ट करें (Shift Table)',
-                        style: TextStyle(color: Colors.blueAccent)),
-                    onPressed: () => _shiftTable(tbl),
+
+                  if (enteredPct > 0) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('छूट राशि ($enteredPct%):', style: const TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.w600)),
+                        Text('-₹${discountAmt.toStringAsFixed(2)}', style: const TextStyle(fontSize: 13, color: Colors.red, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ],
+
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('कुल देय राशि:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      Text('₹${finalPayable.toStringAsFixed(2)}',
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green)),
+                    ],
                   ),
-                ),
+                  const Divider(),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.print, size: 16),
+                          label: const Text('प्रिंट पर्ची'),
+                          onPressed: () => _printBillReceipt(tbl, items, finalPayable),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.share, size: 16, color: Colors.green),
+                          label: const Text('WhatsApp'),
+                          onPressed: () => _shareReceiptPdf(tbl, items, subTotal, discount: discountAmt, discountPct: enteredPct),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (!isParcel)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.swap_horiz, color: Colors.blueAccent),
+                          label: const Text('टेबल शिफ्ट करें (Shift Table)'),
+                          onPressed: () => _shiftTable(tbl),
+                        ),
+                      ),
+                    ),
+                ],
               ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            onPressed: () => completeSettlement('CASH'),
-            child: const Text('💵 कैश मिला', style: TextStyle(color: Colors.white)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-            onPressed: () => completeSettlement('UPI'),
-            child: const Text('📱 UPI मिला', style: TextStyle(color: Colors.white)),
-          ),
-        ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                onPressed: () => completeSettlement('CASH'),
+                child: const Text('💵 कैश मिला', style: TextStyle(color: Colors.white)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                onPressed: () => completeSettlement('UPI'),
+                child: const Text('📱 UPI मिला', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -3382,197 +3521,5 @@ class _FullCookAppState extends State<FullCookApp> {
         ),
       ),
     );
-    // व्हाट्सएप रसीद PDF व QR कोड जनरेटर
-  Future<void> _shareReceiptPdf(
-      int tbl, List<Map<String, dynamic>> items, double subTotal,
-      {double discount = 0.0, double discountPct = 0.0}) async {
-    try {
-      final double finalTotal = (subTotal - discount) < 0 ? 0.0 : (subTotal - discount);
-      final String rawUpi = _restoProfile?.upiId ?? '';
-      final String upiId = rawUpi.isNotEmpty ? rawUpi : "aala@upi";
-      final String restoAddr = _restoProfile?.address ?? '';
-      final String restoPhone = _restoProfile?.phone ?? '';
-      final String gstNo = _restoProfile?.gstNumber ?? '';
-      final String fssaiNo = _restoProfile?.fssaiNumber ?? '';
-      final String reviewUrl = _restoProfile?.googleReviewUrl ?? '';
-
-      final bool isParcel = tbl >= 900;
-      final String receiptTitle = isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl";
-
-      final Uint8List receiptImage = await ScreenshotController().captureFromWidget(
-        Container(
-          width: 380,
-          color: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Text(widget.hotelName,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black)),
-              if (restoAddr.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(restoAddr,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 11, color: Colors.black87)),
-                ),
-              if (restoPhone.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text("मोबाइल: $restoPhone",
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black87)),
-                ),
-
-              if (fssaiNo.isNotEmpty || gstNo.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (fssaiNo.isNotEmpty)
-                      Text("FSSAI: $fssaiNo  ", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.black87)),
-                    if (gstNo.isNotEmpty)
-                      Text("GSTIN: $gstNo", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.black87)),
-                  ],
-                ),
-              ],
-
-              const SizedBox(height: 6),
-              const Divider(color: Colors.black, thickness: 1.2),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(receiptTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black)),
-                  Text(
-                    "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year} ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}",
-                    style: const TextStyle(fontSize: 11, color: Colors.black87),
-                  ),
-                ],
-              ),
-              const Divider(color: Colors.black54, thickness: 0.8),
-
-              const Row(
-                children: [
-                  Expanded(flex: 5, child: Text("सामग्री (Item)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black))),
-                  Expanded(flex: 2, child: Text("मात्रा", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black))),
-                  Expanded(flex: 3, child: Text("रकम (₹)", textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black))),
-                ],
-              ),
-              const Divider(color: Colors.black26),
-              ...items.map((it) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2.5),
-                    child: Row(
-                      children: [
-                        Expanded(flex: 5, child: Text("${it['name']}", style: const TextStyle(fontSize: 12, color: Colors.black, fontWeight: FontWeight.w500))),
-                        Expanded(flex: 2, child: Text("x${it['qty']}", textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black))),
-                        Expanded(flex: 3, child: Text("₹${(it['price'] * it['qty']).toInt()}", textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black))),
-                      ],
-                    ),
-                  )),
-
-              const Divider(color: Colors.black, thickness: 1.0),
-
-              if (discount > 0) ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text("उप-योग (Sub Total):", style: TextStyle(fontSize: 12, color: Colors.black54)),
-                    Text("₹${subTotal.toStringAsFixed(2)}", style: const TextStyle(fontSize: 12, color: Colors.black87)),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text("छूट / डिस्काउंट (${discountPct.toStringAsFixed(0)}%):",
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.red)),
-                    Text("-₹${discount.toStringAsFixed(2)}",
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.red)),
-                  ],
-                ),
-                const SizedBox(height: 3),
-              ],
-
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text("कुल देय (NET TOTAL):", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black)),
-                  Text("₹${finalTotal.toStringAsFixed(2)}", style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.black)),
-                ],
-              ),
-
-              const SizedBox(height: 10),
-
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(border: Border.all(color: Colors.black26), borderRadius: BorderRadius.circular(8)),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    Column(
-                      children: [
-                        Image.network(
-                          'https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${Uri.encodeComponent("upi://pay?pa=$upiId&pn=${widget.hotelName}&am=$finalTotal&cu=INR")}',
-                          width: 95,
-                          height: 95,
-                          fit: BoxFit.contain,
-                          errorBuilder: (ctx, err, stack) => Text("UPI: $upiId", style: const TextStyle(fontSize: 10)),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text("पेमेंट UPI QR", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black)),
-                        Text("₹${finalTotal.toInt()}", style: const TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    if (reviewUrl.isNotEmpty) ...[
-                      Container(width: 1, height: 110, color: Colors.black26),
-                      Column(
-                        children: [
-                          Image.network(
-                            'https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${Uri.encodeComponent(reviewUrl)}',
-                            width: 95,
-                            height: 95,
-                            fit: BoxFit.contain,
-                            errorBuilder: (ctx, err, stack) => const Text("Review Link", style: TextStyle(fontSize: 10)),
-                          ),
-                          const SizedBox(height: 4),
-                          const Text("Google Review ⭐", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-                          const Text("रेटिंग दें", style: TextStyle(fontSize: 9, color: Colors.black54)),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 8),
-              const Divider(color: Colors.black26),
-              const Text("धन्यवाद! फिर पधारें 🙏", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)),
-            ],
-          ),
-        ),
-        pixelRatio: 2.5,
-        delay: const Duration(milliseconds: 60),
-      );
-
-      final pdf = pw.Document();
-      pdf.addPage(
-        pw.Page(
-          pageFormat: PdfPageFormat.roll80,
-          margin: const pw.EdgeInsets.all(6),
-          build: (pw.Context context) => pw.Center(child: pw.Image(pw.MemoryImage(receiptImage))),
-        ),
-      );
-
-      final output = await getTemporaryDirectory();
-      final file = File("${output.path}/Bill_${tbl}_${DateTime.now().millisecondsSinceEpoch}.pdf");
-      await file.writeAsBytes(await pdf.save());
-
-      await Share.shareXFiles([XFile(file.path)],
-          text: "नमस्ते! ${widget.hotelName} से आपका बिल ($receiptTitle)। कुल राशि: ₹$finalTotal");
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('शेयर एरर: $e')));
-    }
   }
-
 }
