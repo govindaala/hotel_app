@@ -1493,59 +1493,249 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   ),
                   ...rows.map((r) {
                     final bool isCashIn = (r['type'] ?? '') == 'CASH_IN';
-                    final dateStr = (r['created_at'] ?? '').toString().replaceAll('T', ' ').substring(0, 16);
-                    return TableRow(
+// =========================================================================
+// वित्तीय ऑडिट A4 लेज़र PDF रिपोर्ट (मल्टी-पेज एक्सेल लॉजिक)
+// =========================================================================
+void _generateAndShareFinancialAuditPdf(String range, DateTimeRange? customRange) async {
+  DateTime startCutoff;
+  DateTime endCutoff;
+  String rangeLabel = '';
+
+  final now = DateTime.now();
+  if (range == 'today') {
+    startCutoff = DateTime(now.year, now.month, now.day, 0, 0, 0);
+    endCutoff = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    rangeLabel = 'दैनिक लेज़र (${now.day}/${now.month}/${now.year})';
+  } else if (range == 'weekly') {
+    startCutoff = now.subtract(const Duration(days: 7));
+    endCutoff = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    rangeLabel = 'साप्ताहिक ऑडिट (पिछले 7 दिन)';
+  } else if (range == 'monthly') {
+    startCutoff = now.subtract(const Duration(days: 30));
+    endCutoff = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    rangeLabel = 'मासिक ऑडिट (पिछले 30 दिन)';
+  } else if (range == 'yearly') {
+    startCutoff = DateTime(now.year, 1, 1, 0, 0, 0);
+    endCutoff = DateTime(now.year, 12, 31, 23, 59, 59);
+    rangeLabel = 'वार्षिक ऑडिट (${now.year})';
+  } else if (range == 'custom' && customRange != null) {
+    startCutoff = DateTime(customRange.start.year, customRange.start.month, customRange.start.day, 0, 0, 0);
+    endCutoff = DateTime(customRange.end.year, customRange.end.month, customRange.end.day, 23, 59, 59);
+    rangeLabel = 'कस्टम अवधि (${startCutoff.day}/${startCutoff.month} से ${endCutoff.day}/${endCutoff.month})';
+  } else {
+    startCutoff = DateTime(now.year, now.month, now.day, 0, 0, 0);
+    endCutoff = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    rangeLabel = 'दैनिक लेज़र रिपोर्ट';
+  }
+
+  try {
+    final res = await Supabase.instance.client
+        .from('daily_expenses')
+        .select()
+        .eq('restaurant_id', widget.storeCode)
+        .gte('created_at', startCutoff.toUtc().toIso8601String())
+        .lte('created_at', endCutoff.toUtc().toIso8601String())
+        .order('created_at', ascending: false);
+
+    if (res == null || (res as List).isEmpty) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('चुनी गई अवधि में कोई रिकॉर्ड दर्ज नहीं है!')));
+      return;
+    }
+
+    final List rows = res;
+    double totalCashIn = 0.0;
+    double totalBankUpi = 0.0;
+    double totalExpenses = 0.0;
+
+    for (var r in rows) {
+      final amt = (r['amount'] as num?)?.toDouble() ?? 0.0;
+      final title = (r['title'] ?? '').toString();
+      final type = (r['type'] ?? '').toString();
+
+      if (type == 'CASH_IN') {
+        if (title.contains('(UPI)') || title.contains('बैंक')) {
+          totalBankUpi += amt;
+        } else {
+          totalCashIn += amt;
+        }
+      } else {
+        totalExpenses += amt;
+      }
+    }
+
+    final double grossSales = totalCashIn + totalBankUpi;
+    final double netCashInHand = totalCashIn - totalExpenses;
+
+    // तारीख को दो लाइन में साफ़ दिखाने का हेल्पर
+    String formatRowDate(String? iso) {
+      if (iso == null || iso.isEmpty) return "-";
+      final dt = DateTime.tryParse(iso)?.toLocal();
+      if (dt == null) return iso;
+      final d = "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}";
+      final t = "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+      return "$d\n$t";
+    }
+
+    // मल्टी-पेज चंकिंग: पहले पेज पर 10 रिकॉर्ड, अगले पन्नों पर 15 रिकॉर्ड
+    List<List<dynamic>> pagesData = [];
+    int firstPageLimit = 10;
+    int otherPageLimit = 15;
+
+    if (rows.length <= firstPageLimit) {
+      pagesData.add(rows);
+    } else {
+      pagesData.add(rows.sublist(0, firstPageLimit));
+      int current = firstPageLimit;
+      while (current < rows.length) {
+        int end = (current + otherPageLimit < rows.length) ? current + otherPageLimit : rows.length;
+        pagesData.add(rows.sublist(current, end));
+        current = end;
+      }
+    }
+
+    final pdf = pw.Document();
+    final int totalPages = pagesData.length;
+
+    for (int pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+      final currentRows = pagesData[pageIndex];
+      final bool isFirstPage = (pageIndex == 0);
+
+      final Uint8List pageImage = await ScreenshotController().captureFromWidget(
+        Material(
+          color: Colors.white,
+          child: Container(
+            width: 780,
+            color: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // हेडर (होटल का नाम व पेज नंबर)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      widget.hotelName,
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black),
+                    ),
+                    Text(
+                      'पेज ${pageIndex + 1} / $totalPages',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54),
+                    ),
+                  ],
+                ),
+                Text(
+                  'वित्तीय लेज़र एवं ऑडिट रिपोर्ट | $rangeLabel',
+                  style: const TextStyle(fontSize: 12, color: Colors.black87),
+                ),
+                const SizedBox(height: 6),
+                const Divider(color: Colors.black87, thickness: 1.2),
+
+                // समरी कार्ड्स केवल पहले पेज पर दिखेंगे (2 पंक्तियों में खुला लेआउट)
+                if (isFirstPage) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.black26),
+                    ),
+                    child: Column(
                       children: [
-                        Padding(padding: const EdgeInsets.all(7), child: Text(dateStr, style: const TextStyle(fontSize: 12, color: Colors.black87))),
-                        Padding(padding: const EdgeInsets.all(7), child: Text('${r['title'] ?? '-'}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black))),
-                        Padding(padding: const EdgeInsets.all(7), child: Text(isCashIn ? 'जमा (IN)' : 'खर्च (OUT)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isCashIn ? Colors.green.shade800 : Colors.red.shade800))),
-                        Padding(padding: const EdgeInsets.all(7), child: Text('₹${r['amount']}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black))),
+                        Row(
+                          children: [
+                            Expanded(child: _buildSummaryItem('कुल बिक्री (Gross)', '₹${grossSales.toStringAsFixed(0)}', Colors.blue.shade900)),
+                            Expanded(child: _buildSummaryItem('नकद (Cash)', '₹${totalCashIn.toStringAsFixed(0)}', Colors.green.shade800)),
+                            Expanded(child: _buildSummaryItem('ऑनलाइन (UPI)', '₹${totalBankUpi.toStringAsFixed(0)}', Colors.purple.shade800)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        const Divider(height: 1, color: Colors.black12),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(child: _buildSummaryItem('कुल खर्च (Expense)', '₹${totalExpenses.toStringAsFixed(0)}', Colors.red.shade800)),
+                            Expanded(child: _buildSummaryItem('रोकड़ गल्ला (Net Cash)', '₹${netCashInHand.toStringAsFixed(0)}', Colors.black)),
+                          ],
+                        ),
                       ],
-                    );
-                  }),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ] else ...[
+                  const SizedBox(height: 10),
                 ],
-              ),
-              const SizedBox(height: 14),
-              const Divider(color: Colors.black26),
-              Align(
-                alignment: Alignment.centerRight,
-                child: Text('कुल रिकॉर्ड्स: ${rows.length}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54)),
-              ),
-            ],
+
+                // एक्सेल जैसी लेज़र टेबल
+                Table(
+                  columnWidths: const {
+                    0: FlexColumnWidth(2.2), // दिनांक व समय
+                    1: FlexColumnWidth(4.8), // विवरण
+                    2: FlexColumnWidth(1.4), // प्रकार
+                    3: FlexColumnWidth(1.6), // रकम
+                  },
+                  border: TableBorder.all(color: Colors.black38, width: 0.8),
+                  children: [
+                    const TableRow(
+                      decoration: BoxDecoration(color: Color(0xFFE2E8F0)),
+                      children: [
+                        Padding(padding: EdgeInsets.all(7), child: Text('दिनांक व समय', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black))),
+                        Padding(padding: EdgeInsets.all(7), child: Text('विवरण (Particulars)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black))),
+                        Padding(padding: EdgeInsets.all(7), child: Text('प्रकार', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black))),
+                        Padding(padding: EdgeInsets.all(7), child: Text('रकम (₹)', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black))),
+                      ],
+                    ),
+                    ...currentRows.map((r) {
+                      final bool isCashIn = (r['type'] ?? '') == 'CASH_IN';
+                      return TableRow(
+                        children: [
+                          Padding(padding: const EdgeInsets.all(6), child: Text(formatRowDate(r['created_at']), style: const TextStyle(fontSize: 11, color: Colors.black87))),
+                          Padding(padding: const EdgeInsets.all(6), child: Text('${r['title'] ?? '-'}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.black))),
+                          Padding(padding: const EdgeInsets.all(6), child: Text(isCashIn ? 'जमा (IN)' : 'खर्च (OUT)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isCashIn ? Colors.green.shade800 : Colors.red.shade800))),
+                          Padding(padding: const EdgeInsets.all(6), child: Text('₹${r['amount']}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black))),
+                        ],
+                      );
+                    }),
+                  ],
+                ),
+
+                // आखिरी पेज पर फुटर समरी
+                if (pageIndex == totalPages - 1) ...[
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Text('कुल रिकॉर्ड्स: ${rows.length} | रिपोर्ट समाप्त', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black54)),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
-        delay: const Duration(milliseconds: 60),
+        delay: const Duration(milliseconds: 50),
         pixelRatio: 2.2,
       );
 
-      final pdf = pw.Document();
       pdf.addPage(
         pw.Page(
           pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(16),
-          build: (pw.Context context) => pw.Center(child: pw.Image(pw.MemoryImage(reportImage))),
+          margin: const pw.EdgeInsets.all(12),
+          build: (pw.Context context) => pw.Center(child: pw.Image(pw.MemoryImage(pageImage))),
         ),
       );
-
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/Ledger_Audit_${DateTime.now().millisecondsSinceEpoch}.pdf');
-      await file.writeAsBytes(await pdf.save());
-
-      await Share.shareXFiles([XFile(file.path)], text: '📊 ${widget.hotelName} वित्तीय लेज़र व बिक्री ऑडिट रिपोर्ट ($rangeLabel)');
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('रिपोर्ट त्रुटि: $e')));
     }
-  }
 
-  Widget _buildSummaryItem(String label, String value, Color color) {
-    return Column(
-      children: [
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.black54)),
-        const SizedBox(height: 2),
-        Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color)),
-      ],
-    );
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/Ledger_Audit_${DateTime.now().millisecondsSinceEpoch}.pdf');
+    await file.writeAsBytes(await pdf.save());
+
+    await Share.shareXFiles([XFile(file.path)], text: '📊 ${widget.hotelName} लेज़र ऑडिट रिपोर्ट ($rangeLabel)');
+  } catch (e) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('रिपोर्ट त्रुटि: $e')));
   }
+}
+
 
   // ब्लूटूथ प्रिंटर डायलॉग
   void _showPrinterDialog() async {
