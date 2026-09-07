@@ -26,7 +26,7 @@ Future<pw.Document> buildThermalReceiptPdf({
   // हिंदी (Devanagari) टेक्स्ट के लिए Noto Sans Devanagari फॉन्ट लोड करना (ऑफलाइन)
   pw.Font? devanagariFont;
   try {
-    final fontData = await rootBundle.load('assets/fonts/NotoSansDevanagari-Regular.ttf');
+    final fontData = await rootBundle.load('assets/templates/fonts/NotoSansDevanagari-Regular.ttf');
     devanagariFont = pw.Font.ttf(fontData);
   } catch (_) {}
 
