@@ -3382,5 +3382,197 @@ class _FullCookAppState extends State<FullCookApp> {
         ),
       ),
     );
+    // व्हाट्सएप रसीद PDF व QR कोड जनरेटर
+  Future<void> _shareReceiptPdf(
+      int tbl, List<Map<String, dynamic>> items, double subTotal,
+      {double discount = 0.0, double discountPct = 0.0}) async {
+    try {
+      final double finalTotal = (subTotal - discount) < 0 ? 0.0 : (subTotal - discount);
+      final String rawUpi = _restoProfile?.upiId ?? '';
+      final String upiId = rawUpi.isNotEmpty ? rawUpi : "aala@upi";
+      final String restoAddr = _restoProfile?.address ?? '';
+      final String restoPhone = _restoProfile?.phone ?? '';
+      final String gstNo = _restoProfile?.gstNumber ?? '';
+      final String fssaiNo = _restoProfile?.fssaiNumber ?? '';
+      final String reviewUrl = _restoProfile?.googleReviewUrl ?? '';
+
+      final bool isParcel = tbl >= 900;
+      final String receiptTitle = isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl";
+
+      final Uint8List receiptImage = await ScreenshotController().captureFromWidget(
+        Container(
+          width: 380,
+          color: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(widget.hotelName,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black)),
+              if (restoAddr.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(restoAddr,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 11, color: Colors.black87)),
+                ),
+              if (restoPhone.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text("मोबाइल: $restoPhone",
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black87)),
+                ),
+
+              if (fssaiNo.isNotEmpty || gstNo.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (fssaiNo.isNotEmpty)
+                      Text("FSSAI: $fssaiNo  ", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.black87)),
+                    if (gstNo.isNotEmpty)
+                      Text("GSTIN: $gstNo", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.black87)),
+                  ],
+                ),
+              ],
+
+              const SizedBox(height: 6),
+              const Divider(color: Colors.black, thickness: 1.2),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(receiptTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black)),
+                  Text(
+                    "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year} ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}",
+                    style: const TextStyle(fontSize: 11, color: Colors.black87),
+                  ),
+                ],
+              ),
+              const Divider(color: Colors.black54, thickness: 0.8),
+
+              const Row(
+                children: [
+                  Expanded(flex: 5, child: Text("सामग्री (Item)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black))),
+                  Expanded(flex: 2, child: Text("मात्रा", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black))),
+                  Expanded(flex: 3, child: Text("रकम (₹)", textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black))),
+                ],
+              ),
+              const Divider(color: Colors.black26),
+              ...items.map((it) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2.5),
+                    child: Row(
+                      children: [
+                        Expanded(flex: 5, child: Text("${it['name']}", style: const TextStyle(fontSize: 12, color: Colors.black, fontWeight: FontWeight.w500))),
+                        Expanded(flex: 2, child: Text("x${it['qty']}", textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black))),
+                        Expanded(flex: 3, child: Text("₹${(it['price'] * it['qty']).toInt()}", textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black))),
+                      ],
+                    ),
+                  )),
+
+              const Divider(color: Colors.black, thickness: 1.0),
+
+              if (discount > 0) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("उप-योग (Sub Total):", style: TextStyle(fontSize: 12, color: Colors.black54)),
+                    Text("₹${subTotal.toStringAsFixed(2)}", style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("छूट / डिस्काउंट (${discountPct.toStringAsFixed(0)}%):",
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.red)),
+                    Text("-₹${discount.toStringAsFixed(2)}",
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.red)),
+                  ],
+                ),
+                const SizedBox(height: 3),
+              ],
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("कुल देय (NET TOTAL):", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black)),
+                  Text("₹${finalTotal.toStringAsFixed(2)}", style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.black)),
+                ],
+              ),
+
+              const SizedBox(height: 10),
+
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(border: Border.all(color: Colors.black26), borderRadius: BorderRadius.circular(8)),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    Column(
+                      children: [
+                        Image.network(
+                          'https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${Uri.encodeComponent("upi://pay?pa=$upiId&pn=${widget.hotelName}&am=$finalTotal&cu=INR")}',
+                          width: 95,
+                          height: 95,
+                          fit: BoxFit.contain,
+                          errorBuilder: (ctx, err, stack) => Text("UPI: $upiId", style: const TextStyle(fontSize: 10)),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text("पेमेंट UPI QR", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black)),
+                        Text("₹${finalTotal.toInt()}", style: const TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    if (reviewUrl.isNotEmpty) ...[
+                      Container(width: 1, height: 110, color: Colors.black26),
+                      Column(
+                        children: [
+                          Image.network(
+                            'https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${Uri.encodeComponent(reviewUrl)}',
+                            width: 95,
+                            height: 95,
+                            fit: BoxFit.contain,
+                            errorBuilder: (ctx, err, stack) => const Text("Review Link", style: TextStyle(fontSize: 10)),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text("Google Review ⭐", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+                          const Text("रेटिंग दें", style: TextStyle(fontSize: 9, color: Colors.black54)),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 8),
+              const Divider(color: Colors.black26),
+              const Text("धन्यवाद! फिर पधारें 🙏", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)),
+            ],
+          ),
+        ),
+        pixelRatio: 2.5,
+        delay: const Duration(milliseconds: 60),
+      );
+
+      final pdf = pw.Document();
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.roll80,
+          margin: const pw.EdgeInsets.all(6),
+          build: (pw.Context context) => pw.Center(child: pw.Image(pw.MemoryImage(receiptImage))),
+        ),
+      );
+
+      final output = await getTemporaryDirectory();
+      final file = File("${output.path}/Bill_${tbl}_${DateTime.now().millisecondsSinceEpoch}.pdf");
+      await file.writeAsBytes(await pdf.save());
+
+      await Share.shareXFiles([XFile(file.path)],
+          text: "नमस्ते! ${widget.hotelName} से आपका बिल ($receiptTitle)। कुल राशि: ₹$finalTotal");
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('शेयर एरर: $e')));
+    }
   }
+
 }
