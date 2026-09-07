@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
@@ -34,18 +35,17 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       fetchErrorMessage = null;
     });
 
-    // 1. टेबल संख्या निकालना
+    // 1. टेबल संख्या लोड करना
     int count = 10;
     try {
       final hotelRes = await supabase
-          .from('restaurant_profiles')
-          .select('*')
-          .eq('restaurant_id', widget.storeCode)
+          .from('restaurants')
+          .select('total_tables')
+          .eq('store_code', widget.storeCode)
           .maybeSingle();
 
-      if (hotelRes != null) {
-        final val = hotelRes['total_tables'] ?? hotelRes['tables_count'] ?? hotelRes['table_count'];
-        if (val != null) count = int.tryParse(val.toString()) ?? 10;
+      if (hotelRes != null && hotelRes['total_tables'] != null) {
+        count = int.tryParse(hotelRes['total_tables'].toString()) ?? 10;
       }
     } catch (_) {
       count = 10;
@@ -104,7 +104,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     }
   }
 
-  // स्टॉक 0 होने पर बिल में न जुड़ने का कड़ा नियम
   void _addToCart(dynamic id, String name, String variant, double price, int stock) {
     if (stock <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -123,7 +122,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     if (currentQty >= stock) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('माफ़ करें! सिर्फ $stock स्टॉक ही बचा है।'),
+          content: Text('माफ़ करें! केवल $stock स्टॉक ही उपलब्ध है।'),
           backgroundColor: Colors.orange,
           duration: const Duration(seconds: 2),
         ),
@@ -135,7 +134,14 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       if (cart.containsKey(key)) {
         cart[key]!['qty'] = (cart[key]!['qty'] as int) + 1;
       } else {
-        cart[key] = {'id': id, 'name': name, 'variant': variant, 'price': price, 'qty': 1, 'stock': stock};
+        cart[key] = {
+          'id': id,
+          'name': name,
+          'variant': variant,
+          'price': price,
+          'qty': 1,
+          'stock': stock
+        };
       }
     });
   }
@@ -199,16 +205,23 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
 
     try {
       if (selectedTable != 'काउंटर सेल (डायरेक्ट)') {
+        final int tblNum = int.tryParse(selectedTable.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        final formattedItems = cart.values.map((v) => {
+          'name': '${v['name']} (${v['variant']})',
+          'item_name': '${v['name']} (${v['variant']})',
+          'qty': v['qty'],
+          'price': v['price'],
+          'total': v['price'] * v['qty'],
+        }).toList();
+
+        // 1. सुपाबेस स्कीमा से पूर्ण मिलान के साथ इन्सर्ट
         await supabase.from('hotel_kots').insert({
+          'store_code': widget.storeCode,
           'restaurant_id': widget.storeCode,
+          'table_no': tblNum,
           'table_name': selectedTable,
-          'items': cart.values.map((v) => {
-            'item_name': '${v['name']} (${v['variant']})',
-            'qty': v['qty'],
-            'price': v['price'],
-            'total': v['price'] * v['qty'],
-          }).toList(),
-          'status': 'served',
+          'items': jsonEncode(formattedItems),
+          'status': 'pending',
           'created_at': DateTime.now().toIso8601String(),
         });
       } else {
@@ -221,7 +234,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         });
       }
 
-      // बिक्री होते ही स्टॉक कम करना
+      // 2. स्टॉक घटाना
       for (var item in cart.values) {
         if (item['id'] != null) {
           final int remaining = ((item['stock'] ?? 0) as int) - (item['qty'] as int);
@@ -235,12 +248,17 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         await _printReceipt(mode, total);
       }
 
-            if (mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('बिक्री दर्ज हुई: ₹$total ($mode)'), backgroundColor: Colors.green),
+          SnackBar(
+            content: Text(selectedTable != 'काउंटर सेल (डायरेक्ट)'
+                ? '$selectedTable में सामान जोड़ दिया गया!'
+                : 'बिक्री दर्ज हुई: ₹$total ($mode)'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
         );
 
-        // अगर टेबल (T-2 आदि) में सामान जोड़ा है, तो स्क्रीन बंद कर सामान T-2 को सौंपें
         if (selectedTable != 'काउंटर सेल (डायरेक्ट)') {
           Navigator.pop(context, {
             'table': selectedTable,
@@ -256,7 +274,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
 
       setState(() => cart.clear());
       _initScreenData();
-
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -266,55 +283,26 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     }
   }
 
-  // किसी भी प्रोडक्ट को डेटाबेस से डिलीट करना
-  Future<void> _deleteProduct(dynamic id, String label) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('सामान डिलीट करें?'),
-        content: Text('क्या आप "$label" को इन्वेंटरी से पूरी तरह हटाना चाहते हैं?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('रद्द')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('हाँ, डिलीट करें', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true && id != null) {
-      await supabase.from('counter_inventory').delete().eq('id', id);
-      _initScreenData();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('"$label" डिलीट हो गया!'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  // किसी सामान का स्टॉक सीधे बदलना (+ जोड़ना या - घटाना)
   void _openStockAdjustDialog(Map<String, dynamic> item) {
     final stockCtrl = TextEditingController(text: '${item['stock_qty'] ?? 0}');
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('स्टॉक बदलें: ${item['item_name']} (${item['variant_label']})', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        title: Text('स्टॉक बदलें: ${item['item_name']} (${item['variant_label']})',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('मौजूदा स्टॉक: ${item['stock_qty'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.blueGrey)),
+            Text('मौजूदा स्टॉक: ${item['stock_qty'] ?? 0}',
+                style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.blueGrey)),
             const SizedBox(height: 12),
             TextField(
               controller: stockCtrl,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 labelText: 'नया सही स्टॉक सेट करें',
-                hintText: 'उदा. 40 या 100',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -333,9 +321,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
 
                 Navigator.pop(ctx);
                 _initScreenData();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('स्टॉक अपडेट होकर $newQty हो गया!'), backgroundColor: Colors.teal),
-                );
               }
             },
             child: const Text('सुरक्षित करें', style: TextStyle(color: Colors.white)),
@@ -345,11 +330,11 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     );
   }
 
-  // कार्ड पर लॉन्ग-प्रेस करने पर खुलने वाला मेनू
   void _showItemOptions(Map<String, dynamic> item) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
       builder: (ctx) => SafeArea(
         child: Wrap(
           children: [
@@ -364,10 +349,14 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.delete_outline, color: Colors.red),
-              title: const Text('यह सामान/वेरिएंट डिलीट करें', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-              onTap: () {
+              title: const Text('यह सामान डिलीट करें',
+                  style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+              onTap: () async {
                 Navigator.pop(ctx);
-                _deleteProduct(item['id'], '${item['item_name']} - ${item['variant_label']}');
+                if (item['id'] != null) {
+                  await supabase.from('counter_inventory').delete().eq('id', item['id']);
+                  _initScreenData();
+                }
               },
             ),
           ],
@@ -376,7 +365,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     );
   }
 
-  // नया सामान जोड़ना (+)
   void _openAddCustomVariantDialog() {
     final nameCtrl = TextEditingController(text: selectedCategory ?? '');
     final varCtrl = TextEditingController();
@@ -386,13 +374,14 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('➕ नया सामान / रेट जोड़ें', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+        title: const Text('➕ नया सामान / रेट जोड़ें',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'सामान (उदा. चिप्स, पानी)')),
-              TextField(controller: varCtrl, decoration: const InputDecoration(labelText: 'रेंज / पैक (उदा. ₹15 वाला)')),
+              TextField(controller: varCtrl, decoration: const InputDecoration(labelText: 'रेंज / पैक (उदा. ₹20 वाला)')),
               TextField(controller: priceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'कीमत (₹)')),
               TextField(controller: stockCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'शुरुआती स्टॉक संख्या')),
             ],
@@ -427,98 +416,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     );
   }
 
-  // क्विक स्टॉक डायलॉग (📦)
-  void _openQuickStockDialog() {
-    final List<Map<String, dynamic>> allItemsList = [];
-    inventoryGroups.forEach((_, list) => allItemsList.addAll(list));
-
-    if (allItemsList.isEmpty) return;
-
-    Map<String, dynamic>? selectedItem = allItemsList.first;
-    final qtyCtrl = TextEditingController();
-    bool isAdding = true;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDState) => AlertDialog(
-          title: const Text('📦 इन्वेंटरी स्टॉक समायोजन', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<Map<String, dynamic>>(
-                  value: selectedItem,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'सामान चुनें'),
-                  items: allItemsList.map((item) {
-                    return DropdownMenuItem(
-                      value: item,
-                      child: Text('${item['item_name']} - ${item['variant_label']} (स्टॉक: ${item['stock_qty'] ?? 0})', style: const TextStyle(fontSize: 12)),
-                    );
-                  }).toList(),
-                  onChanged: (val) => setDState(() => selectedItem = val),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    ChoiceChip(
-                      label: const Text('+ जोड़ें (आया)'),
-                      selected: isAdding,
-                      selectedColor: Colors.green.shade100,
-                      onSelected: (_) => setDState(() => isAdding = true),
-                    ),
-                    const SizedBox(width: 8),
-                    ChoiceChip(
-                      label: const Text('- घटाएँ (टूटा/हटा)'),
-                      selected: !isAdding,
-                      selectedColor: Colors.red.shade100,
-                      onSelected: (_) => setDState(() => isAdding = false),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: qtyCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: isAdding ? 'कितना स्टॉक आया?' : 'कितना स्टॉक कम करना है?',
-                    hintText: 'उदा. 50',
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
-              onPressed: () async {
-                final int changeQty = int.tryParse(qtyCtrl.text.trim()) ?? 0;
-                if (selectedItem != null && changeQty > 0) {
-                  final int currentStock = (selectedItem!['stock_qty'] ?? 0) as int;
-                  final int newStock = isAdding ? (currentStock + changeQty) : (currentStock - changeQty);
-
-                  await supabase.from('counter_inventory').update({
-                    'stock_qty': newStock < 0 ? 0 : newStock,
-                  }).eq('id', selectedItem!['id']);
-
-                  Navigator.pop(ctx);
-                  _initScreenData();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('स्टॉक अपडेट होकर $newStock हो गया!'), backgroundColor: Colors.teal),
-                  );
-                }
-              },
-              child: const Text('अपडेट करें', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final bool isTable = selectedTable != 'काउंटर सेल (डायरेक्ट)';
@@ -526,7 +423,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text('⚡ काउंटर सेल व इन्वेंटरी', style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 18)),
+        title: const Text('⚡ काउंटर सेल व इन्वेंटरी',
+            style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 18)),
         backgroundColor: Colors.white,
         elevation: 0.5,
         leading: IconButton(
@@ -538,11 +436,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
             icon: const Icon(Icons.add_circle_outline, color: Color(0xFF0284C7)),
             tooltip: 'नया सामान जोड़ें',
             onPressed: _openAddCustomVariantDialog,
-          ),
-          IconButton(
-            icon: const Icon(Icons.inventory_2_outlined, color: Color(0xFF059669)),
-            tooltip: 'स्टॉक जोड़ें/घटाएँ',
-            onPressed: _openQuickStockDialog,
           ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Color(0xFF64748B)),
@@ -576,14 +469,19 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                       color: isTable ? const Color(0xFFEFF6FF) : const Color(0xFFF1F5F9),
                       child: Row(
                         children: [
-                          Icon(Icons.table_restaurant, color: isTable ? const Color(0xFF2563EB) : const Color(0xFF64748B), size: 20),
+                          Icon(Icons.table_restaurant,
+                              color: isTable ? const Color(0xFF2563EB) : const Color(0xFF64748B), size: 20),
                           const SizedBox(width: 8),
-                          const Text('बिल किसमें जोड़ना है?:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                          const Text('बिल किसमें जोड़ना है?:',
+                              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
                           const Spacer(),
                           DropdownButton<String>(
                             value: selectedTable,
                             underline: const SizedBox(),
-                            style: TextStyle(fontWeight: FontWeight.bold, color: isTable ? const Color(0xFF2563EB) : const Color(0xFF0F172A), fontSize: 13),
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: isTable ? const Color(0xFF2563EB) : const Color(0xFF0F172A),
+                                fontSize: 13),
                             items: availableTables.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
                             onChanged: (val) {
                               if (val != null) setState(() => selectedTable = val);
@@ -596,7 +494,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                     if (inventoryGroups.isEmpty)
                       const Expanded(
                         child: Center(
-                          child: Text('कोई आइटम उपलब्ध नहीं\n(ऊपर + दबाकर नया सामान जोड़ें)', textAlign: TextAlign.center),
+                          child: Text('कोई सामान उपलब्ध नहीं\n(ऊपर + दबाकर जोड़ें)', textAlign: TextAlign.center),
                         ),
                       )
                     else ...[
@@ -611,7 +509,11 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                             return Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 4),
                               child: ChoiceChip(
-                                label: Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: isSel ? Colors.white : Colors.black87, fontSize: 12)),
+                                label: Text(name,
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: isSel ? Colors.white : Colors.black87,
+                                        fontSize: 12)),
                                 selected: isSel,
                                 selectedColor: const Color(0xFF0F172A),
                                 backgroundColor: const Color(0xFFF1F5F9),
@@ -623,7 +525,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                       ),
                       const Divider(height: 1),
 
-                      // ग्रिड कार्ड्स
                       Expanded(
                         child: selectedCategory == null || !inventoryGroups.containsKey(selectedCategory)
                             ? const SizedBox()
@@ -645,7 +546,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
 
                                   return InkWell(
                                     onTap: () => _addToCart(v['id'], selectedCategory!, label, price, stock),
-                                    onLongPress: () => _showItemOptions(v), // दबाकर रखने पर डिलीट या स्टॉक एडिट मेनू
+                                    onLongPress: () => _showItemOptions(v),
                                     borderRadius: BorderRadius.circular(10),
                                     child: Container(
                                       padding: const EdgeInsets.all(10),
@@ -729,7 +630,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                       ),
                     ],
 
-                    // बॉटम कार्ट व पेमेंट बार
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: const BoxDecoration(
