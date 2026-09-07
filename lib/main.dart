@@ -7,7 +7,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
-import 'package:screenshot/screenshot.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
@@ -316,7 +315,6 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
     super.dispose();
   }
 
-  // वाई-फ़ाई हॉटस्पॉट पर काउंटर मास्टर की ऑटो-डिस्कवरी
   void _startUdpDiscovery() async {
     try {
       _discoverySocket = await RawDatagramSocket.bind(
@@ -361,7 +359,6 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
     setState(() => _loading = true);
     final prefs = await SharedPreferences.getInstance();
 
-    // 1. मास्टर काउंटर लॉगिन
     if (widget.role == 'counter') {
       try {
         Map<String, dynamic>? res;
@@ -403,7 +400,6 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
       return;
     }
 
-    // 2. वेटर / कुक मोड: लोकल वाई-फ़ाई हॉटस्पॉट ऑथेंटिकेशन
     final String targetIp = _discoveredMasterIp.isNotEmpty
         ? _discoveredMasterIp
         : (prefs.getString('saved_counter_ip') ?? '192.168.43.1');
@@ -460,7 +456,6 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
       authSuccess = false;
     }
 
-    // यदि लोकल सॉकेट नहीं मिला तो क्लाउड या लोकल कैश से फ़ॉलबैक
     if (!authSuccess) {
       try {
         final res = await Supabase.instance.client
@@ -684,7 +679,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     super.dispose();
   }
 
-  // मास्टर द्वारा हॉटस्पॉट पर UDP सिग्नल ब्रॉडकास्ट
   void _startUdpBeacon() async {
     try {
       _udpBeaconSocket =
@@ -822,7 +816,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
-  // ऑफ़लाइन लोकल वाई-फ़ाई सॉकेट सर्वर (ऑथेंटिकेशन व KOT एक्सचेंज)
   void _startLocalSocketServer() async {
     try {
       for (var interface in await NetworkInterface.list()) {
@@ -844,7 +837,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
               if (line.trim().isEmpty) continue;
               final msg = jsonDecode(line);
 
-              // 1. स्टाफ़ लोकल ऑथेंटिकेशन
               if (msg['type'] == 'AUTH_STAFF') {
                 final sRole = msg['role'] ?? '';
                 final sId = msg['staff_id'] ?? '';
@@ -856,7 +848,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     s['role'] == sRole);
 
                 if (!matched && _staffCache.isEmpty) {
-                  matched = true; // प्रारंभिक फ़ॉलबैक
+                  matched = true;
                 }
 
                 client.write(jsonEncode({
@@ -866,15 +858,11 @@ class _FullCounterAppState extends State<FullCounterApp> {
                       'tables': widget.tables,
                     }) +
                     "\n");
-              }
-              // 2. मेन्यू डेटा रिक्वेस्ट
-              else if (msg['type'] == 'GET_MENU') {
+              } else if (msg['type'] == 'GET_MENU') {
                 client.write(jsonEncode(
                         {'type': 'MENU_DATA', 'menu': hotelMenu}) +
                     "\n");
-              }
-              // 3. नया KOT
-              else if (msg['type'] == 'NEW_KOT') {
+              } else if (msg['type'] == 'NEW_KOT') {
                 int tbl = msg['table'];
                 setState(() {
                   if (tbl >= 900) {
@@ -889,22 +877,16 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   }
                 });
                 _broadcastLocal(msg);
-              }
-              // 4. बिल रेडी अलर्ट
-              else if (msg['type'] == 'BILL_READY') {
+              } else if (msg['type'] == 'BILL_READY') {
                 int tbl = msg['table'];
                 setState(() => tableStateMap[tbl] = 'bill_ready');
                 if (!_spokenBillTables.contains(tbl)) {
                   _spokenBillTables.add(tbl);
                   VoiceService.speak("टेबल $tbl का बिल तैयार है");
                 }
-              }
-              // 5. कुक द्वारा ऑर्डर तैयार
-              else if (msg['type'] == 'ORDER_READY') {
+              } else if (msg['type'] == 'ORDER_READY') {
                 _broadcastLocal(msg);
-              }
-              // 6. राशन मांग
-              else if (msg['type'] == 'RATION_DEMAND') {
+              } else if (msg['type'] == 'RATION_DEMAND') {
                 _syncMasterData();
               }
             }
@@ -946,7 +928,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     _broadcastLocal({'type': 'MENU_DATA', 'menu': hotelMenu});
   }
 
-  // क्लाउड सिंक (लोकल डेटा सुरक्षित रखते हुए)
   void _syncMasterData() async {
     try {
       final tenDaysAgo =
@@ -1152,41 +1133,27 @@ class _FullCounterAppState extends State<FullCounterApp> {
     }
 
     try {
-      final Uint8List imageBytes = await ScreenshotController().captureFromWidget(
-        Container(
-          width: 600,
-          color: Colors.white,
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('${widget.hotelName} - राशन मांग सूची',
-                  style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black)),
-              const SizedBox(height: 10),
-              const Divider(color: Colors.black, thickness: 1.5),
-              ...filtered.map((r) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Text(
-                        '• ${r['item_name']} (${r['quantity']}) - ${r['is_received'] == true ? "आ गया" : "पेंडिंग"}',
-                        style: const TextStyle(
-                            fontSize: 15, color: Colors.black87)),
-                  )),
-            ],
-          ),
-        ),
-      );
-
       final pdf = pw.Document();
       pdf.addPage(
-        pw.Page(
+        pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(20),
-          build: (pw.Context context) =>
-              pw.Center(child: pw.Image(pw.MemoryImage(imageBytes))),
+          margin: const pw.EdgeInsets.all(24),
+          build: (pw.Context context) => [
+            pw.Center(
+              child: pw.Text('${widget.hotelName} - राशन मांग सूची',
+                  style: pw.TextStyle(
+                      fontSize: 20, fontWeight: pw.FontWeight.bold)),
+            ),
+            pw.SizedBox(height: 6),
+            pw.Divider(thickness: 1),
+            pw.SizedBox(height: 10),
+            ...filtered.map((r) => pw.Padding(
+                  padding: const pw.EdgeInsets.symmetric(vertical: 4),
+                  child: pw.Text(
+                      '• ${r['item_name']} (${r['quantity']}) - ${r['is_received'] == true ? "आ गया" : "पेंडिंग"}',
+                      style: const pw.TextStyle(fontSize: 13)),
+                )),
+          ],
         ),
       );
 
@@ -1202,6 +1169,330 @@ class _FullCounterAppState extends State<FullCounterApp> {
             .showSnackBar(SnackBar(content: Text('PDF एरर: $e')));
       }
     }
+  }
+
+  void _openComprehensivePdfReportModal() {
+    String selectedRange = 'today';
+    DateTimeRange? customRange;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (c, setDState) {
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.analytics_outlined, color: Colors.blueAccent),
+                SizedBox(width: 8),
+                Text('वित्तीय व POS ऑडिट PDF',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('रिपोर्ट की समय सीमा चुनें:',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('आज (Daily)'),
+                        selected: selectedRange == 'today',
+                        onSelected: (v) =>
+                            setDState(() => selectedRange = 'today'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('साप्ताहिक (7 दिन)'),
+                        selected: selectedRange == 'weekly',
+                        onSelected: (v) =>
+                            setDState(() => selectedRange = 'weekly'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('मासिक (30 दिन)'),
+                        selected: selectedRange == 'monthly',
+                        onSelected: (v) =>
+                            setDState(() => selectedRange = 'monthly'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('वार्षिक (Yearly)'),
+                        selected: selectedRange == 'yearly',
+                        onSelected: (v) =>
+                            setDState(() => selectedRange = 'yearly'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('कस्टम तारीख़ें'),
+                        selected: selectedRange == 'custom',
+                        onSelected: (v) async {
+                          final picked = await showDateRangePicker(
+                            context: context,
+                            firstDate: DateTime(2025),
+                            lastDate: DateTime(2030),
+                          );
+                          if (picked != null) {
+                            setDState(() {
+                              selectedRange = 'custom';
+                              customRange = picked;
+                            });
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('रद्द')),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0F172A)),
+                icon: const Icon(Icons.picture_as_pdf,
+                    color: Colors.white, size: 18),
+                label: const Text('A4 PDF शेयर करें',
+                    style: TextStyle(color: Colors.white)),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _generateAndShareFinancialAuditPdf(
+                      selectedRange, customRange);
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // क्रिस्टल-क्लियर वेक्टर A4 लेज़र PDF जनरेटर
+  void _generateAndShareFinancialAuditPdf(
+      String range, DateTimeRange? customRange) async {
+    DateTime startCutoff;
+    DateTime endCutoff = DateTime.now();
+    String rangeLabel = '';
+
+    final now = DateTime.now();
+    if (range == 'today') {
+      startCutoff = DateTime(now.year, now.month, now.day);
+      rangeLabel = 'दैनिक लेज़र रिपोर्ट (${now.day}/${now.month}/${now.year})';
+    } else if (range == 'weekly') {
+      startCutoff = now.subtract(const Duration(days: 7));
+      rangeLabel = 'साप्ताहिक ऑडिट (पिछले 7 दिन)';
+    } else if (range == 'monthly') {
+      startCutoff = now.subtract(const Duration(days: 30));
+      rangeLabel = 'मासिक ऑडिट (पिछले 30 दिन)';
+    } else if (range == 'yearly') {
+      startCutoff = DateTime(now.year, 1, 1);
+      rangeLabel = 'वार्षिक वित्तीय ऑडिट (${now.year})';
+    } else if (range == 'custom' && customRange != null) {
+      startCutoff = customRange.start;
+      endCutoff = customRange.end.add(const Duration(days: 1));
+      rangeLabel =
+          'कस्टम अवधि (${startCutoff.toString().substring(0, 10)} से ${customRange.end.toString().substring(0, 10)})';
+    } else {
+      startCutoff = DateTime(now.year, now.month, now.day);
+      rangeLabel = 'दैनिक लेज़र रिपोर्ट';
+    }
+
+    try {
+      final res = await Supabase.instance.client
+          .from('daily_expenses')
+          .select()
+          .eq('restaurant_id', widget.storeCode)
+          .gte('created_at', startCutoff.toIso8601String())
+          .lte('created_at', endCutoff.toIso8601String())
+          .order('created_at', ascending: false);
+
+      if (res == null || (res as List).isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('कोई रिकॉर्ड दर्ज नहीं है!')));
+        }
+        return;
+      }
+
+      final List rows = res;
+      double totalCashIn = 0.0;
+      double totalBankUpi = 0.0;
+      double totalExpenses = 0.0;
+
+      for (var r in rows) {
+        final amt = (r['amount'] as num?)?.toDouble() ?? 0.0;
+        final title = (r['title'] ?? '').toString();
+        final type = (r['type'] ?? '').toString();
+
+        if (type == 'CASH_IN') {
+          if (title.contains('(UPI)') || title.contains('बैंक')) {
+            totalBankUpi += amt;
+          } else {
+            totalCashIn += amt;
+          }
+        } else {
+          totalExpenses += amt;
+        }
+      }
+
+      final double grossSales = totalCashIn + totalBankUpi;
+      final double netCashInHand = totalCashIn - totalExpenses;
+
+      final pdf = pw.Document();
+
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(24),
+          build: (pw.Context context) => [
+            pw.Center(
+              child: pw.Text(widget.hotelName,
+                  style: pw.TextStyle(
+                      fontSize: 22, fontWeight: pw.FontWeight.bold)),
+            ),
+            pw.Center(
+              child: pw.Text('वित्तीय लेज़र एवं बिक्री ऑडिट रिपोर्ट',
+                  style: const pw.TextStyle(
+                      fontSize: 13, color: PdfColors.grey700)),
+            ),
+            pw.Center(
+              child: pw.Text(rangeLabel,
+                  style: const pw.TextStyle(
+                      fontSize: 11, color: PdfColors.grey600)),
+            ),
+            pw.SizedBox(height: 12),
+            pw.Divider(thickness: 1),
+            pw.SizedBox(height: 8),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey100,
+                borderRadius: pw.BorderRadius.circular(6),
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+                children: [
+                  _pwSummaryBox(
+                      'Gross Sales', 'Rs ${grossSales.toStringAsFixed(0)}'),
+                  _pwSummaryBox(
+                      'Cash In', 'Rs ${totalCashIn.toStringAsFixed(0)}'),
+                  _pwSummaryBox(
+                      'UPI / Online', 'Rs ${totalBankUpi.toStringAsFixed(0)}'),
+                  _pwSummaryBox(
+                      'Expenses', 'Rs ${totalExpenses.toStringAsFixed(0)}'),
+                  _pwSummaryBox(
+                      'Net Register', 'Rs ${netCashInHand.toStringAsFixed(0)}'),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 16),
+            pw.Table(
+              border:
+                  pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+              columnWidths: const {
+                0: pw.FlexColumnWidth(2.2),
+                1: pw.FlexColumnWidth(5.0),
+                2: pw.FlexColumnWidth(1.8),
+                3: pw.FlexColumnWidth(2.0),
+              },
+              children: [
+                pw.TableRow(
+                  decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                  children: [
+                    pw.Padding(
+                        padding: const pw.EdgeInsets.all(6),
+                        child: pw.Text('Date & Time',
+                            style: pw.TextStyle(
+                                fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                    pw.Padding(
+                        padding: const pw.EdgeInsets.all(6),
+                        child: pw.Text('Particulars',
+                            style: pw.TextStyle(
+                                fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                    pw.Padding(
+                        padding: const pw.EdgeInsets.all(6),
+                        child: pw.Text('Type',
+                            style: pw.TextStyle(
+                                fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                    pw.Padding(
+                        padding: const pw.EdgeInsets.all(6),
+                        child: pw.Text('Amount (Rs)',
+                            textAlign: pw.TextAlign.right,
+                            style: pw.TextStyle(
+                                fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                  ],
+                ),
+                ...rows.map((r) {
+                  final bool isCashIn = (r['type'] ?? '') == 'CASH_IN';
+                  final dateStr = (r['created_at'] ?? '')
+                      .toString()
+                      .replaceAll('T', ' ')
+                      .substring(0, 16);
+                  return pw.TableRow(
+                    children: [
+                      pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(dateStr,
+                              style: const pw.TextStyle(fontSize: 9))),
+                      pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text('${r['title'] ?? '-'}',
+                              style: const pw.TextStyle(fontSize: 9))),
+                      pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(isCashIn ? 'IN' : 'OUT',
+                              style: pw.TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: pw.FontWeight.bold))),
+                      pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text('${r['amount']}',
+                              textAlign: pw.TextAlign.right,
+                              style: pw.TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: pw.FontWeight.bold))),
+                    ],
+                  );
+                }),
+              ],
+            ),
+          ],
+        ),
+      );
+
+      final dir = await getTemporaryDirectory();
+      final file = File(
+          '${dir.path}/Ledger_Audit_${DateTime.now().millisecondsSinceEpoch}.pdf');
+      await file.writeAsBytes(await pdf.save());
+
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: '📊 ${widget.hotelName} वित्तीय लेज़र व ऑडिट रिपोर्ट ($rangeLabel)',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('रिपोर्ट त्रुटि: $e')));
+      }
+    }
+  }
+
+  pw.Widget _pwSummaryBox(String title, String val) {
+    return pw.Column(
+      children: [
+        pw.Text(title,
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+        pw.SizedBox(height: 2),
+        pw.Text(val,
+            style:
+                pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+      ],
+    );
   }
 
   void _showPrinterDialog() async {
@@ -1353,6 +1644,73 @@ class _FullCounterAppState extends State<FullCounterApp> {
       bytes += generator.cut();
 
       await PrintBluetoothThermal.writeBytes(bytes);
+    } catch (_) {}
+  }
+
+  Future<void> _shareReceiptPdf(
+      int tbl, List<Map<String, dynamic>> items, double total) async {
+    try {
+      final String rawUpi = _restoProfile?.upiId ?? '';
+      final String upiId = rawUpi.isNotEmpty ? rawUpi : "aala@upi";
+      final bool isParcel = tbl >= 900;
+      final String receiptTitle =
+          isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl";
+
+      final pdf = pw.Document();
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.roll80,
+          margin: const pw.EdgeInsets.all(8),
+          build: (pw.Context context) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.center,
+            children: [
+              pw.Text(widget.hotelName,
+                  style: pw.TextStyle(
+                      fontSize: 18, fontWeight: pw.FontWeight.bold)),
+              pw.Text(receiptTitle,
+                  style: const pw.TextStyle(fontSize: 12)),
+              pw.Divider(),
+              ...items.map((it) => pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text('${it['name']} x${it['qty']}',
+                          style: const pw.TextStyle(fontSize: 10)),
+                      pw.Text('Rs ${(it['price'] * it['qty']).toInt()}',
+                          style: const pw.TextStyle(fontSize: 10)),
+                    ],
+                  )),
+              pw.Divider(),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('Total:',
+                      style: pw.TextStyle(
+                          fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                  pw.Text('Rs ${total.toStringAsFixed(2)}',
+                      style: pw.TextStyle(
+                          fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                ],
+              ),
+              pw.SizedBox(height: 8),
+              pw.Text('UPI: $upiId',
+                  style: const pw.TextStyle(fontSize: 9)),
+              pw.Text('धन्यवाद! फिर पधारें',
+                  style: const pw.TextStyle(fontSize: 9)),
+            ],
+          ),
+        ),
+      );
+
+      final output = await getTemporaryDirectory();
+      final file = File(
+          "${output.path}/Bill_${tbl}_${DateTime.now().millisecondsSinceEpoch}.pdf");
+      await file.writeAsBytes(await pdf.save());
+
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text:
+            "नमस्ते! ${widget.hotelName} से आपका बिल ($receiptTitle)। कुल राशि: ₹$total",
+      );
     } catch (_) {}
   }
 
@@ -1548,6 +1906,120 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
+  // टेबल शिफ्टिंग / ट्रांसफर फ़ंक्शन
+  void _shiftTable(int fromTable) {
+    List<int> emptyTables = [];
+    for (int i = 1; i <= widget.tables; i++) {
+      if (!activeOrders.containsKey(i) || activeOrders[i]!.isEmpty) {
+        emptyTables.add(i);
+      }
+    }
+
+    if (emptyTables.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('⚠️ कोई भी अन्य टेबल खाली नहीं है!'),
+            backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
+    int targetTable = emptyTables.first;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDState) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: Row(
+            children: [
+              const Icon(Icons.swap_horiz, color: Colors.blue),
+              const SizedBox(width: 8),
+              Text('टेबल T-$fromTable को शिफ्ट करें',
+                  style: const TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('T-$fromTable का पूरा बिल किस खाली टेबल पर ट्रांसफर करना है?',
+                  style: const TextStyle(fontSize: 13)),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<int>(
+                value: targetTable,
+                decoration: const InputDecoration(
+                  labelText: 'नई खाली टेबल चुनें',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.table_restaurant),
+                ),
+                items: emptyTables
+                    .map((t) =>
+                        DropdownMenuItem(value: t, child: Text('T-$t (खाली)')))
+                    .toList(),
+                onChanged: (val) {
+                  if (val != null) setDState(() => targetTable = val);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('रद्द')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0F172A)),
+              onPressed: () async {
+                Navigator.pop(ctx);
+                Navigator.pop(context);
+
+                final itemsToMove = List<Map<String, dynamic>>.from(
+                    activeOrders[fromTable] ?? []);
+
+                setState(() {
+                  activeOrders[targetTable] = itemsToMove;
+                  tableStateMap[targetTable] =
+                      tableStateMap[fromTable] ?? 'running';
+                  activeOrders.remove(fromTable);
+                  tableStateMap.remove(fromTable);
+                  _spokenBillTables.remove(fromTable);
+                });
+
+                _broadcastLocal({
+                  'type': 'TABLE_SHIFT',
+                  'from_table': fromTable,
+                  'to_table': targetTable,
+                  'items': itemsToMove,
+                });
+
+                try {
+                  await Supabase.instance.client
+                      .from('hotel_kots')
+                      .update({
+                        'table_no': targetTable,
+                        'table_name': 'T-$targetTable'
+                      })
+                      .eq('store_code', widget.storeCode)
+                      .eq('table_no', fromTable)
+                      .neq('status', 'settled');
+                } catch (_) {}
+
+                VoiceService.speak(
+                    "टेबल $fromTable का ऑर्डर टेबल $targetTable पर शिफ्ट किया गया");
+              },
+              child: const Text('शिफ्ट करें',
+                  style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // टेबल व पार्सल बिल सेटलमेंट
   void _settleBill(int tbl) {
     bool isParcel = tbl >= 900;
     List<Map<String, dynamic>> items = isParcel
@@ -1614,8 +2086,30 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     onPressed: () => _printBillReceipt(tbl, items, total),
                   ),
                 ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.share, size: 16, color: Colors.green),
+                    label: const Text('WhatsApp',
+                        style: TextStyle(color: Colors.green)),
+                    onPressed: () => _shareReceiptPdf(tbl, items, total),
+                  ),
+                ),
               ],
             ),
+            if (!isParcel)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.swap_horiz, color: Colors.blueAccent),
+                    label: const Text('टेबल शिफ्ट करें (Shift Table)',
+                        style: TextStyle(color: Colors.blueAccent)),
+                    onPressed: () => _shiftTable(tbl),
+                  ),
+                ),
+              ),
           ],
         ),
         actions: [
@@ -1816,6 +2310,11 @@ class _FullCounterAppState extends State<FullCounterApp> {
                       CounterReportsScreen(storeCode: widget.storeCode),
                 ),
               ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.analytics_outlined, color: Colors.cyanAccent),
+              tooltip: 'लेज़र ऑडिट PDF',
+              onPressed: _openComprehensivePdfReportModal,
             ),
             IconButton(
               icon: const Icon(Icons.settings_outlined, color: Colors.white),
