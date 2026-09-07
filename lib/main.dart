@@ -27,6 +27,8 @@ import 'screens/admin/daily_expense_screen.dart';
 import 'screens/waiter/waiter_menu_order_view.dart';
 import 'screens/admin/counter_report_screen.dart';
 import 'Data/Menu_data_source.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+
 
 // =========================================================================
 // 2. ग्लोबल कॉन्फ़िगरेशन व वर्शन (Global Constants)
