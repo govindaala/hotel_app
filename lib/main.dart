@@ -3375,6 +3375,9 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
 // =========================================================================
 // 10. कुक KDS (किचन डिस्प्ले सिस्टम)
 // =========================================================================
+    // =========================================================================
+// 10. कुक KDS (किचन डिस्प्ले सिस्टम - राशन मांग सहित)
+// =========================================================================
 class FullCookApp extends StatefulWidget {
   final String storeCode;
   const FullCookApp({super.key, required this.storeCode});
@@ -3387,9 +3390,7 @@ class _FullCookAppState extends State<FullCookApp> {
   bool _socketConnected = false;
   Socket? _cookSocket;
   List<Map<String, dynamic>> kitchenOrders = [];
-  List<String> presetRations = ['आटा', 'चावल', 'तेल', 'पनीर', 'शक्कर'];
-  final Map<String, String> selectedRations = {};
-  final _customItemCtrl = TextEditingController();
+  List<String> presetRations = ['आटा', 'चावल', 'तेल', 'पनीर', 'शक्कर', 'दूध', 'सब्जी', 'मसाले'];
   final Set<String> _spokenOrderKots = {};
   Timer? _cookSyncTimer;
 
@@ -3525,6 +3526,157 @@ class _FullCookAppState extends State<FullCookApp> {
     }
   }
 
+  // ==========================================
+  // रसोई राशन मांग डायलॉग (Ration Demand Sheet)
+  // ==========================================
+  void _openRationDemandDialog() {
+    final itemCtrl = TextEditingController();
+    final qtyCtrl = TextEditingController();
+    String selectedPreset = '';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDState) {
+          return Padding(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.shopping_basket, color: Colors.orange, size: 24),
+                        SizedBox(width: 8),
+                        Text('रसोई राशन मांग (Kitchen Demand)',
+                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const Divider(),
+                const SizedBox(height: 6),
+                const Text('त्वरित चयन करें:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: presetRations.map((item) {
+                    final isSel = selectedPreset == item;
+                    return ChoiceChip(
+                      label: Text(item),
+                      selected: isSel,
+                      selectedColor: Colors.orange.shade100,
+                      onSelected: (val) {
+                        setDState(() {
+                          selectedPreset = val ? item : '';
+                          if (val) itemCtrl.text = item;
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: itemCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'सामग्री का नाम (उदा. दूध, आटा, टमाटर)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.fastfood_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: qtyCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'मात्रा व इकाई (उदा. 5 किलो, 2 पैकेट, 10 लीटर)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.scale_outlined),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal.shade800,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  icon: const Icon(Icons.send),
+                  label: const Text('काउंटर पर मांग भेजें ➔',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  onPressed: () async {
+                    final item = itemCtrl.text.trim();
+                    final qty = qtyCtrl.text.trim();
+
+                    if (item.isEmpty || qty.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('कृपया सामग्री और मात्रा दोनों भरें!')),
+                      );
+                      return;
+                    }
+
+                    Navigator.pop(ctx);
+                    await _sendRationDemand(item, qty);
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _sendRationDemand(String item, String qty) async {
+    // 1. लोकल हॉटस्पॉट से काउंटर पर भेजना
+    if (_socketConnected && _cookSocket != null) {
+      try {
+        _cookSocket!.write(jsonEncode({
+          'type': 'RATION_DEMAND',
+          'item_name': item,
+          'quantity': qty,
+        }) + "\n");
+      } catch (_) {}
+    }
+
+    // 2. Supabase डेटाबेस में स्टोर करना (ताकि काउंटर की राशन पर्ची में जुड़ जाए)
+    try {
+      await Supabase.instance.client.from('ration_demands').insert({
+        'store_code': widget.storeCode,
+        'item_name': item,
+        'quantity': qty,
+        'is_received': false,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+    } catch (_) {}
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('मांग काउंटर पर भेज दी गई: $item ($qty)'),
+          backgroundColor: Colors.green.shade800,
+        ),
+      );
+    }
+  }
+
   void _logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
@@ -3545,6 +3697,19 @@ class _FullCookAppState extends State<FullCookApp> {
           title: const Text('कुक KDS', style: TextStyle(color: Colors.white)),
           backgroundColor: Colors.teal,
           actions: [
+            // राशन मांग बटन
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber.shade700,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              icon: const Icon(Icons.shopping_basket, size: 18),
+              label: const Text('राशन मांग', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              onPressed: _openRationDemandDialog,
+            ),
+            const SizedBox(width: 8),
             IconButton(
                 icon: const Icon(Icons.logout, color: Colors.white),
                 onPressed: _logout),
@@ -3636,6 +3801,10 @@ class _FullCookAppState extends State<FullCookApp> {
           ],
         ),
       ),
+    );
+  }
+}
+
     );
   }
 }
