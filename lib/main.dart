@@ -3805,6 +3805,4 @@ class _FullCookAppState extends State<FullCookApp> {
   }
 }
 
-    );
-  }
-}
+
