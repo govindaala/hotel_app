@@ -11,12 +11,6 @@ dependencies:
     sdk: flutter
 
   qr_flutter: ^4.1.0
-  flutter_launcher_icons:
-  android: true
-  ios: false
-  image_path: "assets/app_icon.png"
-  min_sdk_android: 21
-  
 
   # डेटाबेस व बैकएंड सिंक
   supabase_flutter: ^2.5.6
@@ -45,8 +39,16 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/app_icon.png"
+  min_sdk_android: 21
 
 flutter:
   uses-material-design: true
   assets:
     - assets/templates/fonts/NotoSansDevanagari-Regular.ttf
+    - assets/app_icon.png
