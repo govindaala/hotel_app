@@ -51,4 +51,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/templates/fonts/NotoSansDevanagari-Regular.ttf
-    - assets/app_icon.png
+    - assets/templates/app_icon.png
