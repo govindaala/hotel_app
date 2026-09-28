@@ -20,7 +20,6 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
   List<RestaurantPartnerModel> _partners = [];
   List<PartnerLedgerModel> _ledgerHistory = [];
 
-  // त्वरित मासिक आँकड़े
   double _monthlySales = 0.0;
   double _monthlyExpenses = 0.0;
 
@@ -33,7 +32,6 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
   Future<void> _fetchPartnerData() async {
     setState(() => _isLoading = true);
     try {
-      // 1. पार्टनर्स लोड करना
       final partnersRes = await _supabase
           .from('restaurant_partners')
           .select('*')
@@ -44,7 +42,6 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
           .map((e) => RestaurantPartnerModel.fromMap(e))
           .toList();
 
-      // 2. लेज़र इतिहास लोड करना
       final ledgerRes = await _supabase
           .from('partner_ledger')
           .select('*')
@@ -56,7 +53,6 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
           .map((e) => PartnerLedgerModel.fromMap(e))
           .toList();
 
-      // 3. चालू माह की बिक्री और खर्चे का अनुमान
       final now = DateTime.now();
       final firstDayOfMonth = DateTime(now.year, now.month, 1).toIso8601String();
 
@@ -96,7 +92,6 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
     }
   }
 
-  // पार्टनर द्वारा खर्च या गल्ला विड्रॉल दर्ज करना
   void _openAddTransactionModal(String defaultType) {
     if (_partners.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -106,7 +101,7 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
     }
 
     RestaurantPartnerModel selectedPartner = _partners.first;
-    String type = defaultType; // 'POCKET_EXPENSE' or 'DRAWING'
+    String type = defaultType;
     final amountController = TextEditingController();
     final noteController = TextEditingController();
 
@@ -216,7 +211,6 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
     );
   }
 
-  // 1-क्लिक प्रॉफिट-स्प्लिट ऑडिट संवाद (1-Click Profit Split Audit)
   void _showProfitSplitDialog() {
     final double netProfit = (_monthlySales - _monthlyExpenses).clamp(0.0, double.infinity);
 
@@ -239,7 +233,7 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
                   child: Column(
                     children: [
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.between,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text('कुल बिक्री (Sales):'),
                           Text('₹${_monthlySales.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -247,7 +241,7 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
                       ),
                       const SizedBox(height: 4),
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.between,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text('कुल खर्चे (Expenses):'),
                           Text('₹${_monthlyExpenses.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
@@ -255,7 +249,7 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
                       ),
                       const Divider(),
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.between,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text('शुद्ध मुनाफा (Net Profit):', style: TextStyle(fontWeight: FontWeight.bold)),
                           Text('₹${netProfit.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 16)),
@@ -268,10 +262,8 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
                 const Text('पार्टनर-वाइज़ फाइनल पे-आउट:', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 ..._partners.map((p) {
-                  // पार्टनर का शेयर
                   final double baseShare = (netProfit * p.sharePercentage) / 100.0;
 
-                  // पार्टनर का पॉकेट खर्च और गल्ला विड्रॉल जोड़ना
                   double pocketExp = 0.0;
                   double drawings = 0.0;
 
@@ -302,7 +294,7 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
                         Text('• गल्ले से निकाला एडवांस: -₹${drawings.toStringAsFixed(0)}', style: const TextStyle(color: Colors.red)),
                         const Divider(),
                         Row(
-                          mainAxisAlignment: MainAxisAlignment.between,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text('अंतिम मिलने योग्य रकम:', style: TextStyle(fontWeight: FontWeight.bold)),
                             Text('₹${finalPayout.toStringAsFixed(0)}',
@@ -357,7 +349,6 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // शीर्ष एक्शन कार्ड्स
                     Row(
                       children: [
                         Expanded(
@@ -389,7 +380,6 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
                     ),
                     const SizedBox(height: 20),
 
-                    // पार्टनर कार्ड सूची
                     const Text('पार्टनर्स एवं हिस्सेदारी', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 10),
                     if (_partners.isEmpty)
@@ -453,9 +443,8 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
                       ),
                     const SizedBox(height: 24),
 
-                    // हाल के लेन-देन (Ledger Feed)
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.between,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text('हाल के लेन-देन (Ledger Activity)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                         TextButton(
