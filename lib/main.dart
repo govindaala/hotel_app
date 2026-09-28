@@ -17,7 +17,7 @@ import 'package:http/http.dart' as http;
 import 'package:ota_update/ota_update.dart';
 
 // =========================================================================
-// 1. मॉड्यूल्स व स्क्रीन फ़ाइलें (Imports & Models)
+// 1. मॉड्यूल्स, स्क्रीन फ़ाइलें व नए ERP इंजन (Imports & Models)
 // =========================================================================
 import 'models/restaurant_profile_model.dart';
 import 'models/expense_model.dart';
@@ -28,6 +28,12 @@ import 'screens/waiter/waiter_menu_order_view.dart';
 import 'screens/admin/counter_report_screen.dart';
 import 'Data/Menu_data_source.dart';
 import 'receipt_generator.dart';
+
+// नए एडवांस्ड ERP एवं लर्निंग मॉड्यूल्स
+import 'screens/admin/partner_ledger_screen.dart';
+import 'screens/admin/star_waiter_screen.dart';
+import 'screens/admin/vendor_ration_screen.dart';
+import 'services/kitchen_learning_service.dart';
 
 // =========================================================================
 // 2. ग्लोबल कॉन्फ़िगरेशन व वर्शन (Global Constants)
@@ -163,7 +169,7 @@ Future<void> checkForAppUpdates(BuildContext context) async {
   } catch (_) {}
 }
 
-// डिफ़ॉल्ट होटल मेन्यू मैपिंग
+// डिफ़ॉल्ट होटल मेन्यू मैपिंग[span_0](start_span)[span_0](end_span)
 final List<Map<String, dynamic>> defaultHotelMenu = kRestaurantMenu
     .map((m) => {
           'id': m.id,
@@ -175,7 +181,7 @@ final List<Map<String, dynamic>> defaultHotelMenu = kRestaurantMenu
     .toList();
 
 // =========================================================================
-// 5. मुख्य मेन (main) फ़ंक्शन - ऐप की शुरुआत
+// 5. मुख्य मेन (main) फ़ंक्शन - ऐप की शुरुआत[span_1](start_span)[span_1](end_span)
 // =========================================================================
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -216,7 +222,7 @@ void main() async {
 }
 
 // =========================================================================
-// 6. ऐप गेटवे (रोल चयन स्क्रीन: काउंटर, वेटर, कुक)
+// 6. ऐप गेटवे (रोल चयन स्क्रीन: काउंटर, वेटर, कुक)[span_2](start_span)[span_2](end_span)
 // =========================================================================
 class AppGateway extends StatefulWidget {
   const AppGateway({super.key});
@@ -288,7 +294,7 @@ class _AppGatewayState extends State<AppGateway> {
 }
 
 // =========================================================================
-// 7. स्टाफ़ ऑथेंटिकेशन (लोकल वाई-फ़ाई हॉटस्पॉट ऑटो-डिस्कवरी व पिन लॉगिन)
+// 7. स्टाफ़ ऑथेंटिकेशन (लोकल वाई-फ़ाई हॉटस्पॉट ऑटो-डिस्कवरी व पिन लॉगिन)[span_3](start_span)[span_3](end_span)
 // =========================================================================
 class StaffAuthScreen extends StatefulWidget {
   final String role;
@@ -612,7 +618,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 }
 
 // =========================================================================
-// 8. काउंटर मास्टर ऐप (डैशबोर्ड, लोकल TCP सर्वर, बिलिंग व सेटलमेंट)
+// 8. काउंटर मास्टर ऐप (डैशबोर्ड, लोकल TCP सर्वर, बिलिंग व इनवॉइस सिंक)[span_4](start_span)[span_4](end_span)
 // =========================================================================
 class FullCounterApp extends StatefulWidget {
   final String storeCode, hotelName;
@@ -639,6 +645,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
   List<Map<String, dynamic>> hotelMenu = [];
   Map<int, List<Map<String, dynamic>>> activeOrders = {};
   Map<int, String> tableStateMap = {};
+  Map<int, String> tableWaiterMap = {}; // स्टार वेटर लिंकिंग के लिए
   List<Map<String, dynamic>> rationDemands = [];
   final Set<int> _spokenBillTables = {};
   Timer? _cloudSyncTimer;
@@ -680,7 +687,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     super.dispose();
   }
 
-  // UDP बीकॉस ब्रॉडकास्ट (वेटर/कुक को काउंटर ढूँढने के लिए)
   void _startUdpBeacon() async {
     try {
       _udpBeaconSocket =
@@ -818,7 +824,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
-  // लोकल TCP सॉकेट सर्वर (ऑफ़लाइन हॉटस्पॉट सिंक के लिए)
   void _startLocalSocketServer() async {
     try {
       for (var interface in await NetworkInterface.list()) {
@@ -867,6 +872,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     "\n");
               } else if (msg['type'] == 'NEW_KOT') {
                 int tbl = msg['table'];
+                if (msg.containsKey('waiter_id') && msg['waiter_id'] != null) {
+                  tableWaiterMap[tbl] = msg['waiter_id'].toString();
+                }
                 setState(() {
                   if (tbl >= 900) {
                     parcelOrders.putIfAbsent(tbl, () => []);
@@ -958,6 +966,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
           int tbl = k['table_no'] ?? 0;
           String st = k['status'] ?? 'pending';
 
+          if (k['waiter_id'] != null) {
+            tableWaiterMap[tbl] = k['waiter_id'].toString();
+          }
+
           dynamic rawItems = k['items'];
           List itemsList = [];
           if (rawItems is List) {
@@ -1004,7 +1016,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
-  // राशन पर्ची PDF फ़िल्टर मॉडल
   void _openRationExportFilterModal() {
     if (rationDemands.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1110,7 +1121,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // राशन पर्ची PDF जनरेटर (HD शुद्ध हिंदी)
   void _processAndExportRationPdf(String period, bool onlyPending,
       bool autoMergeQty, Set<String> selectedItems) async {
     DateTime cutoff = DateTime.now().subtract(const Duration(days: 10));
@@ -1354,7 +1364,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
       ),
     );
   }
-  // समरी कार्ड हेल्पर विजेट
+
   Widget _buildSummaryItem(String label, String value, Color color) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1366,7 +1376,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // वित्तीय ऑडिट A4 लेज़र PDF रिपोर्ट (मल्टी-पेज एक्सेल लॉजिक)
   void _generateAndShareFinancialAuditPdf(String range, DateTimeRange? customRange) async {
     DateTime startCutoff;
     DateTime endCutoff;
@@ -1450,7 +1459,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
         return "$d\n$t";
       }
 
-      // पेज ब्रेक लॉजिक: पहले पेज पर 10 रिकॉर्ड, बाकी पर 15 रिकॉर्ड
       final List<List<dynamic>> pagesData = [];
       const int firstPageLimit = 10;
       const int otherPageLimit = 15;
@@ -1606,9 +1614,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     }
   }
 
-
-
-  // ब्लूटूथ प्रिंटर डायलॉग
   void _showPrinterDialog() async {
     List<BluetoothInfo> availablePrinters = [];
     bool scanning = true;
@@ -1709,7 +1714,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // थर्मल प्रिंटर बिल प्रिंटिंग
   Future<void> _printBillReceipt(
       int tbl, List<Map<String, dynamic>> items, double total) async {
     final bool isConn = await PrintBluetoothThermal.connectionStatus;
@@ -1762,9 +1766,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
-  // =========================================================================
-  // WhatsApp रसीद PDF शेयरिंग (नेटिव PDF और ऑफलाइन QR के साथ)
-  // =========================================================================
   Future<void> _shareReceiptPdf(
       int tbl, List<Map<String, dynamic>> items, double subTotal,
       {double discount = 0.0, double discountPct = 0.0}) async {
@@ -2007,7 +2008,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // टेबल शिफ्टिंग / ट्रांसफर फ़ंक्शन
   void _shiftTable(int fromTable) {
     List<int> emptyTables = [];
     for (int i = 1; i <= widget.tables; i++) {
@@ -2084,6 +2084,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   activeOrders[targetTable] = itemsToMove;
                   tableStateMap[targetTable] =
                       tableStateMap[fromTable] ?? 'running';
+                  if (tableWaiterMap.containsKey(fromTable)) {
+                    tableWaiterMap[targetTable] = tableWaiterMap[fromTable]!;
+                    tableWaiterMap.remove(fromTable);
+                  }
                   activeOrders.remove(fromTable);
                   tableStateMap.remove(fromTable);
                   _spokenBillTables.remove(fromTable);
@@ -2121,7 +2125,56 @@ class _FullCounterAppState extends State<FullCounterApp> {
   }
 
   // =========================================================================
-  // काउंटर बिल सेटलमेंट (1% से 99% खुला डिस्काउंट इनपुट बॉक्स के साथ)
+  // पक्की इनवॉइस सेविंग (आइटम-वाइज ऑडिट व स्टार वेटर लिंकिंग)[span_5](start_span)[span_5](end_span)
+  // =========================================================================
+  Future<void> _savePermanentInvoice({
+    required String billNo,
+    required int tableNo,
+    required String? waiterId,
+    required double subtotal,
+    required double discountAmt,
+    required double finalAmount,
+    required String paymentMode,
+    required List<Map<String, dynamic>> items,
+  }) async {
+    try {
+      final invoiceRes = await Supabase.instance.client.from('invoices').insert({
+        'store_code': widget.storeCode,
+        'bill_no': billNo,
+        'table_no': tableNo,
+        'waiter_id': waiterId,
+        'subtotal': subtotal,
+        'discount_amt': discountAmt,
+        'final_amount': finalAmount,
+        'payment_mode': paymentMode,
+        'created_at': DateTime.now().toIso8601String(),
+      }).select('id').maybeSingle();
+
+      if (invoiceRes != null && invoiceRes['id'] != null) {
+        final String newInvoiceId = invoiceRes['id'].toString();
+        final List<Map<String, dynamic>> itemsToInsert = items.map((it) {
+          final double price = (it['price'] as num?)?.toDouble() ?? 0.0;
+          final int qty = (it['qty'] as num?)?.toInt() ?? 1;
+          return {
+            'invoice_id': newInvoiceId,
+            'item_id': it['id']?.toString() ?? '',
+            'item_name': it['name'] ?? '',
+            'category': it['category'] ?? it['cat'] ?? 'General',
+            'price': price,
+            'qty': qty,
+            'total_price': price * qty,
+          };
+        }).toList();
+
+        if (itemsToInsert.isNotEmpty) {
+          await Supabase.instance.client.from('invoice_items').insert(itemsToInsert);
+        }
+      }
+    } catch (_) {}
+  }
+
+  // =========================================================================
+  // काउंटर बिल सेटलमेंट (पक्की इनवॉइसिंग व स्टार वेटर सिंक सहित)[span_6](start_span)[span_6](end_span)
   // =========================================================================
   void _settleBill(int tbl) {
     bool isParcel = tbl >= 900;
@@ -2145,6 +2198,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
           void completeSettlement(String mode) async {
             Navigator.pop(context);
 
+            final String currentWaiterId = tableWaiterMap[tbl] ?? 'SELF_COUNTER';
+            final String generatedBillNo = 'BILL-${DateTime.now().millisecondsSinceEpoch % 100000}';
+
+            // 1. होटल KOT को settled मार्क करना
             try {
               await Supabase.instance.client
                   .from('hotel_kots')
@@ -2153,6 +2210,19 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   .eq('table_no', tbl);
             } catch (_) {}
 
+            // 2. पक्की इनवॉइस व आइटम-वाइज विवरण सेव करना
+            await _savePermanentInvoice(
+              billNo: generatedBillNo,
+              tableNo: tbl,
+              waiterId: isParcel ? 'PARCEL' : currentWaiterId,
+              subtotal: subTotal,
+              discountAmt: discountAmt,
+              finalAmount: finalPayable,
+              paymentMode: mode,
+              items: items,
+            );
+
+            // 3. गल्ले के त्वरित कैश हिसाब में जोड़ना
             try {
               final source = isParcel ? 'PARCEL P-${tbl - 900}' : 'Table T-$tbl';
               await Supabase.instance.client.from('daily_expenses').insert({
@@ -2171,6 +2241,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
               setState(() {
                 activeOrders.remove(tbl);
                 tableStateMap.remove(tbl);
+                tableWaiterMap.remove(tbl);
               });
             }
 
@@ -2357,7 +2428,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
                                 'store_code': widget.storeCode,
                                 'table_no': parcelId,
                                 'items': jsonEncode(newOrderItems),
-                                'status': 'pending'
+                                'status': 'pending',
+                                'source': 'PARCEL',
+                                'created_at': DateTime.now().toIso8601String(),
                               });
                             } catch (_) {}
 
@@ -2440,6 +2513,40 @@ class _FullCounterAppState extends State<FullCounterApp> {
               style: const TextStyle(color: Colors.white)),
           backgroundColor: const Color(0xFF0F172A),
           actions: [
+            // 1. स्मार्ट वेंडर राशन प्रबंधन
+            IconButton(
+              icon: const Icon(Icons.inventory_2_outlined, color: Colors.lightGreenAccent),
+              tooltip: 'स्मार्ट राशन व वेंडर्स',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => VendorRationScreen(storeCode: widget.storeCode),
+                ),
+              ),
+            ),
+            // 2. स्टार वेटर लीडरबोर्ड
+            IconButton(
+              icon: const Icon(Icons.emoji_events_outlined, color: Colors.amberAccent),
+              tooltip: 'स्टार वेटर लीडरबोर्ड',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => StarWaiterScreen(storeCode: widget.storeCode),
+                ),
+              ),
+            ),
+            // 3. पार्टनर लेज़र व लाभ बंटवारा
+            IconButton(
+              icon: const Icon(Icons.handshake_outlined, color: Colors.cyanAccent),
+              tooltip: 'पार्टनर लेज़र व बंटवारा',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PartnerLedgerScreen(storeCode: widget.storeCode),
+                ),
+              ),
+            ),
+            // 4. दैनिक खर्च व गल्ला
             IconButton(
               icon: const Icon(Icons.account_balance_wallet_outlined,
                   color: Colors.white),
@@ -2454,8 +2561,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 ),
               ),
             ),
+            // 5. माय रिपोर्ट्स
             IconButton(
-              icon: const Icon(Icons.bar_chart_rounded, color: Colors.amber),
+              icon: const Icon(Icons.bar_chart_rounded, color: Colors.orangeAccent),
               tooltip: 'माय रिपोर्ट्स',
               onPressed: () => Navigator.push(
                 context,
@@ -2465,11 +2573,13 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 ),
               ),
             ),
+            // 6. लेज़र ऑडिट PDF
             IconButton(
-              icon: const Icon(Icons.analytics_outlined, color: Colors.cyanAccent),
+              icon: const Icon(Icons.analytics_outlined, color: Colors.white70),
               tooltip: 'लेज़र ऑडिट PDF',
               onPressed: _openComprehensivePdfReportModal,
             ),
+            // 7. होटल सेटिंग्स
             IconButton(
               icon: const Icon(Icons.settings_outlined, color: Colors.white),
               tooltip: 'होटल सेटिंग्स',
@@ -2485,6 +2595,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 ),
               ),
             ),
+            // 8. ब्लूटूथ प्रिंटर
             IconButton(
               icon: Icon(Icons.print,
                   color: _isPrinterConnected
@@ -2493,16 +2604,19 @@ class _FullCounterAppState extends State<FullCounterApp> {
               tooltip: 'प्रिंटर',
               onPressed: _showPrinterDialog,
             ),
+            // 9. स्टाफ़ प्रबंधन
             IconButton(
               icon: const Icon(Icons.group, color: Colors.orangeAccent),
               tooltip: 'स्टाफ़',
               onPressed: _showStaffManagementDialog,
             ),
+            // 10. राशन मांग पर्ची
             IconButton(
                 icon: const Icon(Icons.shopping_cart_checkout,
                     color: Colors.amber),
                 tooltip: 'राशन मांग पर्ची',
                 onPressed: _openRationExportFilterModal),
+            // 11. लॉगआउट
             IconButton(
                 icon: const Icon(Icons.logout, color: Colors.redAccent),
                 tooltip: 'लॉगआउट',
@@ -2776,7 +2890,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 }
 
 // =========================================================================
-// 9. वेटर ऐप (लोकल वाई-फ़ाई हॉटस्पॉट ऑटो-सिंक व ऑर्डरिंग)
+// 9. वेटर ऐप (लोकल वाई-फ़ाई हॉटस्पॉट ऑटो-सिंक व स्टार वेटर KOT ट्रैकिंग)[span_7](start_span)[span_7](end_span)
 // =========================================================================
 class FullWaiterApp extends StatefulWidget {
   final String storeCode, staffId;
@@ -3210,23 +3324,29 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                                   }
                                 });
 
+                                // 1. लोकल TCP पैकेट में वेटर आईडी भेजना
                                 if (_socketConnected && _waiterSocket != null) {
                                   try {
                                     _waiterSocket!.write(jsonEncode({
                                           'type': 'NEW_KOT',
                                           'table': tableNum,
+                                          'waiter_id': widget.staffId,
                                           'items': newOrderItems,
                                         }) +
                                         "\n");
                                   } catch (_) {}
                                 }
 
+                                // 2. Supabase क्लाउड में वेटर आईडी के साथ KOT दर्ज करना
                                 try {
                                   await Supabase.instance.client.from('hotel_kots').insert({
                                     'store_code': widget.storeCode,
                                     'table_no': tableNum,
+                                    'waiter_id': widget.staffId,
                                     'items': jsonEncode(newOrderItems),
-                                    'status': 'pending'
+                                    'status': 'pending',
+                                    'source': 'WAITER',
+                                    'created_at': DateTime.now().toIso8601String(),
                                   });
                                 } catch (_) {}
 
@@ -3342,8 +3462,8 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                       liveTables[tbl]!.isNotEmpty;
                   String st = tableStatus[tbl] ?? '';
                   Color c = st == 'bill_ready'
-                      ? Colors.purple
-                      : (isOccupied ? Colors.red : Colors.green);
+                        ? Colors.purple
+                        : (isOccupied ? Colors.red : Colors.green);
                   String txt = st == 'bill_ready'
                       ? 'बिल तैयार'
                       : (isOccupied ? 'रनिंग' : 'खाली');
@@ -3373,10 +3493,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
 }
 
 // =========================================================================
-// 10. कुक KDS (किचन डिस्प्ले सिस्टम)
-// =========================================================================
-    // =========================================================================
-// 10. कुक KDS (किचन डिस्प्ले सिस्टम - राशन मांग सहित)
+// 10. कुक KDS (किचन डिस्प्ले सिस्टम - ऑटो-लर्निंग व राशन मांग सहित)[span_8](start_span)[span_8](end_span)
 // =========================================================================
 class FullCookApp extends StatefulWidget {
   final String storeCode;
@@ -3435,8 +3552,10 @@ class _FullCookAppState extends State<FullCookApp> {
             final msg = jsonDecode(l);
             if (msg['type'] == 'NEW_KOT' && mounted) {
               int tbl = msg['table'];
-              setState(() =>
-                  kitchenOrders.insert(0, Map<String, dynamic>.from(msg)));
+              final newKotMap = Map<String, dynamic>.from(msg);
+              newKotMap['created_at'] = DateTime.now().toIso8601String();
+              setState(() => kitchenOrders.insert(0, newKotMap));
+
               if (tbl >= 900) {
                 VoiceService.speak("नया पार्सल ऑर्डर आया है");
               } else {
@@ -3489,7 +3608,12 @@ class _FullCookAppState extends State<FullCookApp> {
             } catch (_) {}
           }
 
-          loaded.add({'id': id, 'table': tbl, 'items': items});
+          loaded.add({
+            'id': id,
+            'table': tbl,
+            'items': items,
+            'created_at': r['created_at'],
+          });
 
           if (!_spokenOrderKots.contains(id)) {
             _spokenOrderKots.add(id);
@@ -3505,6 +3629,7 @@ class _FullCookAppState extends State<FullCookApp> {
     } catch (_) {}
   }
 
+  // कुक KDS में मार्क रेडी व सेल्फ-लर्निंग ट्रिगर
   void _markOrderReady(int index) async {
     final order = kitchenOrders[index];
     setState(() => kitchenOrders.removeAt(index));
@@ -3519,16 +3644,25 @@ class _FullCookAppState extends State<FullCookApp> {
 
     if (order['id'] != null) {
       try {
-        await Supabase.instance.client
-            .from('hotel_kots')
-            .update({'status': 'ready'}).eq('id', order['id']);
-      } catch (_) {}
+        final kotId = order['id'].toString();
+        final createdAt = DateTime.tryParse(order['created_at']?.toString() ?? '') ?? DateTime.now();
+
+        // 1. सिस्टम को कुक की वास्तविक गति सिखाना और टाइमर सीखना
+        await KitchenLearningService.recordKotCompletionAndLearn(
+          storeCode: widget.storeCode,
+          kotId: kotId,
+          createdAt: createdAt,
+        );
+      } catch (_) {
+        try {
+          await Supabase.instance.client
+              .from('hotel_kots')
+              .update({'status': 'ready'}).eq('id', order['id']);
+        } catch (_) {}
+      }
     }
   }
 
-  // ==========================================
-  // रसोई राशन मांग डायलॉग (Ration Demand Sheet)
-  // ==========================================
   void _openRationDemandDialog() {
     final itemCtrl = TextEditingController();
     final qtyCtrl = TextEditingController();
@@ -3645,7 +3779,6 @@ class _FullCookAppState extends State<FullCookApp> {
   }
 
   Future<void> _sendRationDemand(String item, String qty) async {
-    // 1. लोकल हॉटस्पॉट से काउंटर पर भेजना
     if (_socketConnected && _cookSocket != null) {
       try {
         _cookSocket!.write(jsonEncode({
@@ -3656,7 +3789,6 @@ class _FullCookAppState extends State<FullCookApp> {
       } catch (_) {}
     }
 
-    // 2. Supabase डेटाबेस में स्टोर करना (ताकि काउंटर की राशन पर्ची में जुड़ जाए)
     try {
       await Supabase.instance.client.from('ration_demands').insert({
         'store_code': widget.storeCode,
@@ -3697,7 +3829,6 @@ class _FullCookAppState extends State<FullCookApp> {
           title: const Text('कुक KDS', style: TextStyle(color: Colors.white)),
           backgroundColor: Colors.teal,
           actions: [
-            // राशन मांग बटन
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.amber.shade700,
@@ -3804,5 +3935,3 @@ class _FullCookAppState extends State<FullCookApp> {
     );
   }
 }
-
-
