@@ -693,7 +693,7 @@ class FullCounterApp extends StatefulWidget {
 }
 
 class _FullCounterAppState extends State<FullCounterApp> {
-  int _currentTab = 0; // 0: Tables, 1: Menu, 2: Quick POS
+  int _currentTab = 0;
   String localIp = 'IP ढूँढ रहा है...';
   ServerSocket? server;
   final List<Socket> connectedClients = [];
@@ -701,7 +701,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
   late String _currentPartnerId;
   late String _currentPartnerName;
 
-  // Dynamic Incentive Switch
   bool _isIncentiveActive = false;
   double _incentivePct = 1.0;
 
@@ -736,7 +735,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     _currentPartnerId = widget.activePartnerId;
     _currentPartnerName = widget.activePartnerName;
 
-    _loadMenu(); // Permanent Supabase sync yahan automatic ho jayega
+    _loadMenu();
     _loadRestoProfile();
     _loadStaffCache();
     _startLocalSocketServer();
@@ -764,9 +763,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     super.dispose();
   }
 
-  // =========================================================================
-  // Permanent Supabase Cloud Menu Sync
-  // =========================================================================
+  // Supabase Cloud Menu Sync
   Future<void> _syncMenuToCloud() async {
     if (hotelMenu.isEmpty) return;
     try {
@@ -797,8 +794,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
       await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
     }
 
-    // Cloud par check karein: Agar Supabase mein pehle se items hain toh fetch karein,
-    // warna local menu ko Supabase par permanently upload kar dein.
     try {
       final res = await Supabase.instance.client
           .from('menu_items')
@@ -826,7 +821,71 @@ class _FullCounterAppState extends State<FullCounterApp> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
     _broadcastLocal({'type': 'MENU_DATA', 'menu': hotelMenu});
-    await _syncMenuToCloud(); // Har bar save karte hi Supabase cloud par permanent update
+    await _syncMenuToCloud();
+  }
+
+  // Master Data Sync Method (KOTs aur Ration Demands Sync)
+  void _syncMasterData() async {
+    try {
+      final tenDaysAgo = DateTime.now().subtract(const Duration(days: 10)).toIso8601String();
+      final res = await Supabase.instance.client
+          .from('ration_demands')
+          .select()
+          .eq('store_code', widget.storeCode)
+          .gte('created_at', tenDaysAgo)
+          .order('created_at', ascending: false);
+      if (res != null && mounted) {
+        setState(() => rationDemands = List<Map<String, dynamic>>.from(res));
+      }
+    } catch (_) {}
+
+    try {
+      final kots = await Supabase.instance.client
+          .from('hotel_kots')
+          .select()
+          .eq('store_code', widget.storeCode)
+          .neq('status', 'settled');
+
+      if (kots != null && mounted) {
+        for (var k in kots) {
+          int tbl = k['table_no'] ?? 0;
+          String st = k['status'] ?? 'pending';
+
+          if (k['waiter_id'] != null) {
+            tableWaiterMap[tbl] = k['waiter_id'].toString();
+          }
+
+          dynamic rawItems = k['items'];
+          List itemsList = (rawItems is List) ? rawItems : [];
+          if (rawItems is String) {
+            try { itemsList = jsonDecode(rawItems); } catch (_) {}
+          }
+
+          if (tbl >= 900) {
+            parcelOrders.putIfAbsent(tbl, () => []);
+            if (parcelOrders[tbl]!.isEmpty) {
+              parcelOrders[tbl] = List<Map<String, dynamic>>.from(itemsList);
+            }
+          } else if (tbl > 0) {
+            activeOrders.putIfAbsent(tbl, () => []);
+            if (activeOrders[tbl]!.isEmpty) {
+              activeOrders[tbl] = List<Map<String, dynamic>>.from(itemsList);
+            }
+            if (st == 'bill_ready') {
+              tableStateMap[tbl] = 'bill_ready';
+            } else if (!tableStateMap.containsKey(tbl)) {
+              tableStateMap[tbl] = 'running';
+            }
+
+            if (st == 'bill_ready' && !_spokenBillTables.contains(tbl)) {
+              _spokenBillTables.add(tbl);
+              VoiceService.speak("टेबल $tbl का बिल तैयार है");
+            }
+          }
+        }
+        setState(() {});
+      }
+    } catch (_) {}
   }
 
   void _toggleIncentiveOffer(bool isEnabled) {
@@ -1452,7 +1511,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     return ListTile(
                       leading: const Icon(Icons.print_outlined),
                       title: Text(d.name),
-                      subtitle: Text(d.macAdress), // Single 'd' macAdress fix
+                      subtitle: Text(d.macAdress),
                       onTap: () async {
                         final bool connected = await PrintBluetoothThermal.connect(macPrinterAddress: d.macAdress);
                         setState(() => _isPrinterConnected = connected);
@@ -2159,9 +2218,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // =========================================================================
   // Side Drawer - White Menu Icon & All ERP Options
-  // =========================================================================
   Widget _buildAppDrawer() {
     return Drawer(
       child: Column(
@@ -2366,7 +2423,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
       child: Scaffold(
         drawer: _buildAppDrawer(),
         appBar: AppBar(
-          iconTheme: const IconThemeData(color: Colors.white), // Chamkila white menu icon
+          iconTheme: const IconThemeData(color: Colors.white),
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -3165,7 +3222,6 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
         ),
         body: Column(
           children: [
-            // 1. Ready Food Alert Banner
             if (_readyTablesAlert.isNotEmpty)
               Container(
                 color: Colors.green.shade800,
@@ -3192,7 +3248,6 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                 ),
               ),
 
-            // 2. Dynamic Incentive Offer Banner
             if (_incentiveActive)
               Container(
                 color: Colors.amber.shade100,
@@ -3215,11 +3270,10 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
               color: _socketConnected ? Colors.green.shade700 : Colors.blueGrey.shade800,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               child: Row(
-                mainAxisAlignment: dynamic,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween, // Syntax error resolved here
                 children: [
                   Text(_socketConnected ? '🟢 हॉटस्पॉट कनेक्टेड' : '⚪ वाई-फ़ाई स्कैन...',
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-                  const Spacer(),
                   const Text('लोकल LAN', style: TextStyle(color: Colors.white70, fontSize: 11)),
                 ],
               ),
@@ -3278,7 +3332,6 @@ class _FullCookAppState extends State<FullCookApp> {
   final Set<String> _spokenOrderKots = {};
   Timer? _cookSyncTimer;
 
-  // Undo Buffer
   Map<String, dynamic>? _lastReadyOrder;
 
   @override
