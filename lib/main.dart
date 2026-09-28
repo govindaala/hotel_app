@@ -163,7 +163,7 @@ final List<Map<String, dynamic>> defaultHotelMenu = kRestaurantMenu
     .toList();
 
 // =========================================================================
-// 2. मुख्य मेन (main) - 1 सेकंड फ़ास्ट स्टार्टअप
+// 2. मुख्य मेन (main) - सुपर फ़ास्ट 1 सेकंड स्टार्टअप
 // =========================================================================
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -671,7 +671,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 }
 
 // =========================================================================
-// 5. काउंटर मास्टर ऐप (Bottom Bar, Staff ID, Menu Edit & POS Restored)
+// 5. काउंटर मास्टर ऐप
 // =========================================================================
 class FullCounterApp extends StatefulWidget {
   final String storeCode, hotelName;
@@ -693,7 +693,7 @@ class FullCounterApp extends StatefulWidget {
 }
 
 class _FullCounterAppState extends State<FullCounterApp> {
-  int _currentTab = 0; // 0: टेबल्स, 1: मेन्यू, 2: क्विक सेल (POS)
+  int _currentTab = 0;
   String localIp = 'IP ढूँढ रहा है...';
   ServerSocket? server;
   final List<Socket> connectedClients = [];
@@ -1029,9 +1029,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // =========================================================================
-  // स्टाफ़ प्रबंधन डायलॉग (वेटर व कुक ID, पिन जोड़ना व हटाना)
-  // =========================================================================
   void _openStaffManagementDialog() {
     showDialog(
       context: context,
@@ -1341,6 +1338,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
+  // ब्लूटूथ प्रिंटर पेयरिंग डायलॉग (d.macAdress फ़िक्स के साथ)
   void _openPrinterDialog() async {
     showDialog(
       context: context,
@@ -1374,9 +1372,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     return ListTile(
                       leading: const Icon(Icons.print_outlined),
                       title: Text(d.name),
-                      subtitle: Text(d.macAddress),
+                      subtitle: Text(d.macAdress), // Single 'd' macAdress fix
                       onTap: () async {
-                        final bool connected = await PrintBluetoothThermal.connect(macPrinterAddress: d.macAddress);
+                        final bool connected = await PrintBluetoothThermal.connect(macPrinterAddress: d.macAdress); // Single 'd' macAdress fix
                         setState(() => _isPrinterConnected = connected);
                         Navigator.pop(ctx);
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -2148,7 +2146,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
               label: const Text('हैंडओवर', style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 12)),
               onPressed: _showPartnerHandoverDialog,
             ),
-            // 👥 स्टाफ़ (वेटर व कुक) ID प्रबंधन बटन
             IconButton(
               icon: const Icon(Icons.badge_outlined, color: Colors.cyanAccent),
               tooltip: 'स्टाफ़ वेटर/कुक ID',
@@ -2444,14 +2441,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
+  // काउंटर डायरेक्ट क्विक POS (Fix: Sirf storeCode pass kiya hai)
   Widget _buildQuickPosView() {
     return CounterSaleScreen(
       storeCode: widget.storeCode,
-      restoProfile: _restoProfile,
-      onSaleComplete: (amt, mode) {
-        _fetchDailyBalances();
-        VoiceService.speak("काउंटर बिक्री ₹${amt.toInt()} $mode से संपन्न हुई");
-      },
     );
   }
 }
