@@ -1,5 +1,5 @@
 name: hotel_pos
-description: "AALA POS - Modern Multi-Tenant Hotel ERP & Supply System"
+description: "Zero Cost Offline First Hotel POS and Supply System"
 publish_to: "none"
 version: 1.0.0+1
 
@@ -10,16 +10,15 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # QR जनरेशन व एक्सटर्नल लिंकिंग
   qr_flutter: ^4.1.0
   url_launcher: ^6.2.5
 
-  # डेटाबेस व क्लाउड सिंक
-  supabase_flutter: ^2.6.0
+  # डेटाबेस व बैकएंड सिंक
+  supabase_flutter: ^2.5.6
   shared_preferences: ^2.2.3
   http: ^1.2.0
 
-  # ब्लूटूथ थर्मल प्रिंटर
+  # ब्लूटूथ थर्मल प्रिंटर व पर्ची सपोर्ट
   print_bluetooth_thermal: ^1.1.2
   esc_pos_utils_plus: ^2.0.4
 
@@ -29,17 +28,28 @@ dependencies:
   path_provider: ^2.1.2
   share_plus: ^9.0.0
 
-  # ऑटो-अपडेट व वॉयस
+  # ऑटो-अपडेट, आवाज़ (TTS) व तारीख फॉर्मेटिंग
   ota_update: ^5.0.0
   flutter_tts: ^4.0.2
   intl: ^0.19.0
 
+  # सेल्स व एनालिटिक्स चार्ट्स
+  fl_chart: ^0.68.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.0
+  flutter_icons: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/templates/app_icon.png"
+  min_sdk_android: 21
 
 flutter:
   uses-material-design: true
   assets:
+    - assets/templates/fonts/NotoSansDevanagari-Regular.ttf
     - assets/templates/app_icon.png
