@@ -671,7 +671,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 }
 
 // =========================================================================
-// 5. काउंटर मास्टर ऐप
+// 5. काउंटर मास्टर ऐप (Drawer, Staff ID, Menu Edit & Quick POS)
 // =========================================================================
 class FullCounterApp extends StatefulWidget {
   final String storeCode, hotelName;
@@ -693,7 +693,7 @@ class FullCounterApp extends StatefulWidget {
 }
 
 class _FullCounterAppState extends State<FullCounterApp> {
-  int _currentTab = 0;
+  int _currentTab = 0; // 0: टेबल्स, 1: मेन्यू, 2: क्विक सेल (POS)
   String localIp = 'IP ढूँढ रहा है...';
   ServerSocket? server;
   final List<Socket> connectedClients = [];
@@ -1029,6 +1029,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
+  // =========================================================================
+  // स्टाफ़ प्रबंधन डायलॉग (वेटर व कुक ID, पिन जोड़ना व हटाना)
+  // =========================================================================
   void _openStaffManagementDialog() {
     showDialog(
       context: context,
@@ -2117,6 +2120,224 @@ class _FullCounterAppState extends State<FullCounterApp> {
     }
   }
 
+  // लॉगआउट की पुष्टि हेतु डायलॉग
+  void _confirmAndLogout() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red),
+            SizedBox(width: 8),
+            Text('लॉगआउट की पुष्टि', style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text('क्या आप सच में इस होटल काउंटर से लॉगआउट करना चाहते हैं?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _logout();
+            },
+            child: const Text('लॉगआउट', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // =========================================================================
+  // प्रोफेशनल साइड मेनू (Drawer)
+  // =========================================================================
+  Widget _buildAppDrawer() {
+    return Drawer(
+      child: Column(
+        children: [
+          UserAccountsDrawerHeader(
+            decoration: const BoxDecoration(color: Color(0xFF0F172A)),
+            accountName: Text(
+              widget.hotelName,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+            ),
+            accountEmail: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('स्टोर कोड: ${widget.storeCode}  •  टेबल्स: ${widget.tables}',
+                    style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade900,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '👤 गल्ला प्रभारी: $_currentPartnerName',
+                    style: const TextStyle(color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            currentAccountPicture: const CircleAvatar(
+              backgroundColor: Colors.amber,
+              child: Icon(Icons.storefront, size: 36, color: Color(0xFF0F172A)),
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.swap_horiz, color: Colors.indigo),
+                  title: const Text('गल्ला हैंडओवर (Shift Change)', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('पिन डालकर दूसरा पार्टनर गल्ला संभाले'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showPartnerHandoverDialog();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.badge_outlined, color: Colors.blueAccent),
+                  title: const Text('स्टाफ़ ID (वेटर व कुक)', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('नया स्टाफ़ जोड़ें या पिन बदलें'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _openStaffManagementDialog();
+                  },
+                ),
+                ListTile(
+                  leading: Icon(Icons.print, color: _isPrinterConnected ? Colors.green : Colors.grey),
+                  title: const Text('ब्लूटूथ प्रिंटर सेटअप', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text(_isPrinterConnected ? 'प्रिंटर कनेक्टेड है' : 'प्रिंटर पेयर व टेस्ट करें'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _openPrinterDialog();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.qr_code_2, color: Colors.teal),
+                  title: const Text('टेबल QR स्टैंडी जनरेटर', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('टेबल स्टैंडी PDF बनाएं व प्रिंट करें'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => QrTableGeneratorScreen(
+                          storeCode: widget.storeCode,
+                          hotelName: widget.hotelName,
+                          totalTables: widget.tables,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.inventory_2_outlined, color: Colors.lightGreen),
+                  title: const Text('स्मार्ट राशन व सप्लायर्स', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('मंडी, दूध, किराना खर्च व WhatsApp पर्ची'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => VendorRationScreen(storeCode: widget.storeCode)),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.emoji_events_outlined, color: Colors.amber),
+                  title: const Text('स्टार वेटर रैंकिंग', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('वेटर बिक्री व 1% इंसेंटिव ट्रैकिंग'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => StarWaiterScreen(storeCode: widget.storeCode)),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.handshake_outlined, color: Colors.cyan),
+                  title: const Text('पार्टनर लेज़र व लाभ बंटवारा', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('जेब खर्च, आहरण व 1-टैप सेटलमेंट'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => PartnerLedgerScreen(storeCode: widget.storeCode)),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.account_balance_wallet_outlined, color: Colors.purple),
+                  title: const Text('दैनिक खर्च (Daily Expenses)', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('गल्ले की रोकड़ से हुए खर्चे जोड़ें'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => DailyExpenseScreen(
+                          restaurantId: widget.storeCode,
+                          totalCashSalesToday: todayCashTotal,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.bar_chart_rounded, color: Colors.deepOrange),
+                  title: const Text('बिक्री रिपोर्ट्स (Sales Analytics)', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('तारीख-वाइज व डिश-वाइज बिक्री'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => CounterReportsScreen(storeCode: widget.storeCode)),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.settings_outlined, color: Colors.blueGrey),
+                  title: const Text('होटल सेटिंग्स', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('होटल नाम, पता, UPI ID व वेंडर लिस्ट'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => RestaurantSettingsScreen(
+                          storeCode: widget.storeCode,
+                          initialProfile: _restoProfile,
+                          onSave: (p) => setState(() => _restoProfile = p),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            tileColor: Colors.red.shade50,
+            leading: const Icon(Icons.logout, color: Colors.red),
+            title: const Text('लॉगआउट करें (Exit Store)',
+                style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 15)),
+            onTap: () {
+              Navigator.pop(context);
+              _confirmAndLogout();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final double netCashInRegister = todayCashTotal - todayExpensesTotal;
@@ -2124,18 +2345,15 @@ class _FullCounterAppState extends State<FullCounterApp> {
     return PopScope(
       canPop: false,
       child: Scaffold(
+        drawer: _buildAppDrawer(),
         appBar: AppBar(
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(widget.hotelName, style: const TextStyle(color: Colors.white, fontSize: 17)),
-              Row(
-                children: [
-                  const Icon(Icons.verified_user, color: Colors.greenAccent, size: 13),
-                  const SizedBox(width: 4),
-                  Text('प्रभारी: $_currentPartnerName',
-                      style: const TextStyle(color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold)),
-                ],
+              Text(widget.hotelName, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+              Text(
+                'गल्ला: $_currentPartnerName',
+                style: const TextStyle(color: Colors.greenAccent, fontSize: 11, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -2147,76 +2365,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
               onPressed: _showPartnerHandoverDialog,
             ),
             IconButton(
-              icon: const Icon(Icons.badge_outlined, color: Colors.cyanAccent),
-              tooltip: 'स्टाफ़ वेटर/कुक ID',
-              onPressed: _openStaffManagementDialog,
-            ),
-            IconButton(
-              icon: Icon(Icons.print, color: _isPrinterConnected ? Colors.greenAccent : Colors.white70),
-              tooltip: 'प्रिंटर कनेक्ट करें',
+              icon: Icon(Icons.print, color: _isPrinterConnected ? Colors.greenAccent : Colors.white60),
+              tooltip: 'प्रिंटर',
               onPressed: _openPrinterDialog,
             ),
-            IconButton(
-              icon: const Icon(Icons.qr_code_2, color: Colors.white),
-              tooltip: 'टेबल QR स्टैंडी',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => QrTableGeneratorScreen(
-                    storeCode: widget.storeCode,
-                    hotelName: widget.hotelName,
-                    totalTables: widget.tables,
-                  ),
-                ),
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.inventory_2_outlined, color: Colors.lightGreenAccent),
-              tooltip: 'स्मार्ट राशन',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => VendorRationScreen(storeCode: widget.storeCode)),
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.emoji_events_outlined, color: Colors.amberAccent),
-              tooltip: 'स्टार वेटर',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => StarWaiterScreen(storeCode: widget.storeCode)),
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.handshake_outlined, color: Colors.cyanAccent),
-              tooltip: 'पार्टनर लेज़र',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => PartnerLedgerScreen(storeCode: widget.storeCode)),
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.settings_outlined, color: Colors.white),
-              tooltip: 'होटल सेटिंग्स',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => RestaurantSettingsScreen(
-                    storeCode: widget.storeCode,
-                    initialProfile: _restoProfile,
-                    onSave: (p) => setState(() => _restoProfile = p),
-                  ),
-                ),
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.bar_chart_rounded, color: Colors.orangeAccent),
-              tooltip: 'रिपोर्ट्स',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => CounterReportsScreen(storeCode: widget.storeCode)),
-              ),
-            ),
-            IconButton(icon: const Icon(Icons.logout, color: Colors.redAccent), onPressed: _logout),
           ],
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(26),
@@ -2441,7 +2593,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     );
   }
 
-  // काउंटर डायरेक्ट क्विक POS (Fix: Sirf storeCode pass kiya hai)
+  // काउंटर डायरेक्ट क्विक सेल (Fix: Sirf storeCode pass kiya hai)
   Widget _buildQuickPosView() {
     return CounterSaleScreen(
       storeCode: widget.storeCode,
