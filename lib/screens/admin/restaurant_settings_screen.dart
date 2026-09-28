@@ -1,327 +1,319 @@
-// lib/screens/admin/partner_ledger_screen.dart
+// lib/screens/admin/restaurant_settings_screen.dart
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../models/restaurant_profile_model.dart';
 import '../../models/partner_model.dart';
+import '../../models/vendor_model.dart';
 
-class PartnerLedgerScreen extends StatefulWidget {
+class RestaurantSettingsScreen extends StatefulWidget {
+  final RestaurantProfileModel? initialProfile;
   final String storeCode;
+  final Function(RestaurantProfileModel)? onSave;
 
-  const PartnerLedgerScreen({Key? key, required this.storeCode}) : super(key: key);
+  const RestaurantSettingsScreen({
+    Key? key,
+    this.initialProfile,
+    required this.storeCode,
+    this.onSave,
+  }) : super(key: key);
 
   @override
-  State<PartnerLedgerScreen> createState() => _PartnerLedgerScreenState();
+  State<RestaurantSettingsScreen> createState() => _RestaurantSettingsScreenState();
 }
 
-class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
+class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
+    with SingleTickerProviderStateMixin {
   final SupabaseClient _supabase = Supabase.instance.client;
+  late TabController _tabController;
 
-  bool _isLoading = true;
+  bool _isLoading = false;
+
+  late TextEditingController _nameCtrl;
+  late TextEditingController _addressCtrl;
+  late TextEditingController _phoneCtrl;
+  late TextEditingController _upiCtrl;
+  late TextEditingController _gstCtrl;
+  late TextEditingController _fssaiCtrl;
+
   List<RestaurantPartnerModel> _partners = [];
-  List<PartnerLedgerModel> _ledgerHistory = [];
-
-  // त्वरित मासिक आँकड़े
-  double _monthlySales = 0.0;
-  double _monthlyExpenses = 0.0;
+  List<HotelVendorModel> _vendors = [];
 
   @override
   void initState() {
     super.initState();
-    _fetchPartnerData();
+    _tabController = TabController(length: 3, vsync: this);
+
+    _nameCtrl = TextEditingController(text: widget.initialProfile?.name ?? '');
+    _addressCtrl = TextEditingController(text: widget.initialProfile?.address ?? '');
+    _phoneCtrl = TextEditingController(text: widget.initialProfile?.phone ?? '');
+    _upiCtrl = TextEditingController(text: widget.initialProfile?.upiId ?? '');
+    _gstCtrl = TextEditingController(text: widget.initialProfile?.gstNumber ?? '');
+    _fssaiCtrl = TextEditingController(text: widget.initialProfile?.fssaiNumber ?? '');
+
+    _fetchPartnersAndVendors();
   }
 
-  Future<void> _fetchPartnerData() async {
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _nameCtrl.dispose();
+    _addressCtrl.dispose();
+    _phoneCtrl.dispose();
+    _upiCtrl.dispose();
+    _gstCtrl.dispose();
+    _fssaiCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchPartnersAndVendors() async {
     setState(() => _isLoading = true);
     try {
-      // 1. पार्टनर्स लोड करना
-      final partnersRes = await _supabase
+      final pRes = await _supabase
           .from('restaurant_partners')
           .select('*')
           .eq('store_code', widget.storeCode)
-          .eq('is_active', true);
+          .order('created_at', ascending: true);
 
-      final List<RestaurantPartnerModel> loadedPartners = (partnersRes as List)
-          .map((e) => RestaurantPartnerModel.fromMap(e))
-          .toList();
-
-      // 2. लेज़र इतिहास लोड करना
-      final ledgerRes = await _supabase
-          .from('partner_ledger')
+      final vRes = await _supabase
+          .from('hotel_vendors')
           .select('*')
           .eq('store_code', widget.storeCode)
-          .order('created_at', ascending: false)
-          .limit(100);
-
-      final List<PartnerLedgerModel> loadedLedger = (ledgerRes as List)
-          .map((e) => PartnerLedgerModel.fromMap(e))
-          .toList();
-
-      // 3. चालू माह की बिक्री और खर्चे का अनुमान
-      final now = DateTime.now();
-      final firstDayOfMonth = DateTime(now.year, now.month, 1).toIso8601String();
-
-      final expenseData = await _supabase
-          .from('daily_expenses')
-          .select('amount, type')
-          .eq('store_code', widget.storeCode)
-          .gte('created_at', firstDayOfMonth);
-
-      double salesSum = 0.0;
-      double expenseSum = 0.0;
-
-      for (var row in (expenseData as List)) {
-        final amt = (row['amount'] as num?)?.toDouble() ?? 0.0;
-        final type = (row['type'] ?? '').toString().toUpperCase();
-        if (type.contains('SALE') || type.contains('INCOME')) {
-          salesSum += amt;
-        } else {
-          expenseSum += amt;
-        }
-      }
+          .order('created_at', ascending: true);
 
       setState(() {
-        _partners = loadedPartners;
-        _ledgerHistory = loadedLedger;
-        _monthlySales = salesSum;
-        _monthlyExpenses = expenseSum;
+        _partners = (pRes as List).map((e) => RestaurantPartnerModel.fromMap(e)).toList();
+        _vendors = (vRes as List).map((e) => HotelVendorModel.fromMap(e)).toList();
         _isLoading = false;
       });
-    } catch (e) {
+    } catch (_) {
       setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _saveHotelProfile() async {
+    setState(() => _isLoading = true);
+    final updated = RestaurantProfileModel(
+      storeCode: widget.storeCode,
+      name: _nameCtrl.text.trim(),
+      phone: _phoneCtrl.text.trim(),
+      address: _addressCtrl.text.trim(),
+      upiId: _upiCtrl.text.trim(),
+      gstNumber: _gstCtrl.text.trim(),
+      fssaiNumber: _fssaiCtrl.text.trim(),
+    );
+
+    try {
+      await _supabase.from('restaurants').upsert(updated.toMap());
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('saved_hotel_name', updated.name);
+      await prefs.setString('saved_hotel_address', updated.address ?? '');
+      await prefs.setString('saved_hotel_phone', updated.phone ?? '');
+      await prefs.setString('saved_hotel_upi', updated.upiId ?? '');
+
+      if (widget.onSave != null) widget.onSave!(updated);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('डेटा लोड करने में त्रुटि: $e')),
+          const SnackBar(content: Text('होटल प्रोफ़ाइल सफलतापूर्वक सुरक्षित हुई!'), backgroundColor: Colors.green),
         );
       }
-    }
-  }
-
-  // पार्टनर द्वारा खर्च या गल्ला विड्रॉल दर्ज करना
-  void _openAddTransactionModal(String defaultType) {
-    if (_partners.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('कृपया पहले एडमिन से पार्टनर जोड़ें')),
-      );
-      return;
-    }
-
-    RestaurantPartnerModel selectedPartner = _partners.first;
-    String type = defaultType; // 'POCKET_EXPENSE' or 'DRAWING'
-    final amountController = TextEditingController();
-    final noteController = TextEditingController();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-                left: 20,
-                right: 20,
-                top: 24,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    type == 'POCKET_EXPENSE'
-                        ? 'पार्टनर ने जेब से खर्च किया (+ क्रेडिट)'
-                        : 'पार्टनर ने गल्ले से पैसा निकाला (- डेबिट)',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: type == 'POCKET_EXPENSE' ? Colors.green[800] : Colors.red[800],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<RestaurantPartnerModel>(
-                    value: selectedPartner,
-                    decoration: const InputDecoration(
-                      labelText: 'पार्टनर चुनें',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: _partners.map((p) {
-                      return DropdownMenuItem(
-                        value: p,
-                        child: Text('${p.partnerName} (${p.sharePercentage.toStringAsFixed(0)}%)'),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) setModalState(() => selectedPartner = val);
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: amountController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'रकम (₹)',
-                      border: OutlineInputBorder(),
-                      prefixText: '₹ ',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: noteController,
-                    decoration: const InputDecoration(
-                      labelText: 'विवरण (उदा. मंडी से टमाटर/व्यक्तिगत खर्च)',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: type == 'POCKET_EXPENSE' ? Colors.green[700] : Colors.red[700],
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      onPressed: () async {
-                        final amt = double.tryParse(amountController.text.trim()) ?? 0.0;
-                        if (amt <= 0) return;
-
-                        final newLedger = PartnerLedgerModel(
-                          id: '',
-                          storeCode: widget.storeCode,
-                          partnerId: selectedPartner.partnerId,
-                          partnerName: selectedPartner.partnerName,
-                          type: type,
-                          amount: amt,
-                          note: noteController.text.trim(),
-                          createdAt: DateTime.now(),
-                        );
-
-                        await _supabase.from('partner_ledger').insert(newLedger.toMap());
-                        Navigator.pop(ctx);
-                        _fetchPartnerData();
-                      },
-                      child: const Text('सुरक्षित करें (Save)', style: TextStyle(color: Colors.white, fontSize: 16)),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('सेव करने में त्रुटि: $e')),
         );
-      },
-    );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
-  // 1-क्लिक प्रॉफिट-स्प्लिट ऑडिट संवाद
-  void _showProfitSplitDialog() {
-    final double netProfit = (_monthlySales - _monthlyExpenses).clamp(0.0, double.infinity);
+  void _openPartnerDialog([RestaurantPartnerModel? partner]) {
+    final nameCtrl = TextEditingController(text: partner?.partnerName ?? '');
+    final phoneCtrl = TextEditingController(text: partner?.phone ?? '');
+    final pinCtrl = TextEditingController(text: partner?.loginPin ?? '');
+    final shareCtrl = TextEditingController(
+      text: partner != null ? partner.sharePercentage.toStringAsFixed(0) : '25',
+    );
 
     showDialog(
       context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text('📊 चालू माह का बंटवारा (Profit Split Audit)', style: TextStyle(fontWeight: FontWeight.bold)),
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: Text(partner == null ? '🤝 नया पार्टनर जोड़ें' : 'पार्टनर विवरण बदलें',
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(labelText: 'पार्टनर का नाम', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: phoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(labelText: 'मोबाइल नंबर', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: pinCtrl,
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                decoration: const InputDecoration(
+                  labelText: '4-अंकों का लॉगिन पिन',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.pin),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: shareCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'हिस्सेदारी प्रतिशत (Share %)',
+                  border: OutlineInputBorder(),
+                  suffixText: '%',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+            onPressed: () async {
+              final name = nameCtrl.text.trim();
+              final pin = pinCtrl.text.trim();
+              final share = double.tryParse(shareCtrl.text.trim()) ?? 0.0;
+
+              if (name.isEmpty || pin.length != 4 || share <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('कृपया सही नाम, 4-अंक पिन और शेयर दर्ज करें!')),
+                );
+                return;
+              }
+
+              Navigator.pop(ctx);
+              setState(() => _isLoading = true);
+
+              final partnerId = partner?.partnerId ?? 'P${_partners.length + 1}';
+              final partnerMap = {
+                'store_code': widget.storeCode,
+                'partner_id': partnerId,
+                'partner_name': name,
+                'phone': phoneCtrl.text.trim(),
+                'login_pin': pin,
+                'share_percentage': share,
+                'is_active': true,
+              };
+
+              try {
+                await _supabase.from('restaurant_partners').upsert(
+                  partnerMap,
+                  onConflict: 'store_code,partner_id',
+                );
+                _fetchPartnersAndVendors();
+              } catch (_) {
+                setState(() => _isLoading = false);
+              }
+            },
+            child: const Text('सेव करें', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openVendorDialog([HotelVendorModel? vendor]) {
+    final nameCtrl = TextEditingController(text: vendor?.vendorName ?? '');
+    final phoneCtrl = TextEditingController(text: vendor?.phone ?? '');
+    String category = vendor?.category ?? 'VEGETABLE';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: Text(vendor == null ? '🛒 नया वेंडर / सप्लायर जोड़ें' : 'वेंडर विवरण बदलें',
+              style: const TextStyle(fontWeight: FontWeight.bold)),
           content: SingleChildScrollView(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blueGrey[50],
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('कुल बिक्री (Sales):'),
-                          Text('₹${_monthlySales.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('कुल खर्चे (Expenses):'),
-                          Text('₹${_monthlyExpenses.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
-                        ],
-                      ),
-                      const Divider(),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('शुद्ध मुनाफा (Net Profit):', style: TextStyle(fontWeight: FontWeight.bold)),
-                          Text('₹${netProfit.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 16)),
-                        ],
-                      ),
-                    ],
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(labelText: 'वेंडर/दुकान का नाम', border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: category,
+                  decoration: const InputDecoration(labelText: 'श्रेणी (Category)', border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: 'VEGETABLE', child: Text('🥦 सब्जी मंडी')),
+                    DropdownMenuItem(value: 'DAIRY', child: Text('🥛 डेयरी (दूध, पनीर)')),
+                    DropdownMenuItem(value: 'GROCERY', child: Text('🌾 किराना व मसाले')),
+                    DropdownMenuItem(value: 'MEAT', child: Text('🍗 मीट / चिकन')),
+                    DropdownMenuItem(value: 'OTHER', child: Text('📦 अन्य सामग्री')),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) setDState(() => category = val);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: phoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'WhatsApp मोबाइल नंबर',
+                    hintText: '10 अंकों का नंबर',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.phone),
                   ),
                 ),
-                const SizedBox(height: 16),
-                const Text('पार्टनर-वाइज़ फाइनल पे-आउट:', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                ..._partners.map((p) {
-                  final double baseShare = (netProfit * p.sharePercentage) / 100.0;
-
-                  double pocketExp = 0.0;
-                  double drawings = 0.0;
-
-                  for (var row in _ledgerHistory) {
-                    if (row.partnerId == p.partnerId) {
-                      if (row.type == 'POCKET_EXPENSE') pocketExp += row.amount;
-                      if (row.type == 'DRAWING') drawings += row.amount;
-                    }
-                  }
-
-                  final double finalPayout = baseShare + pocketExp - drawings;
-
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey[300]!),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('${p.partnerName} (${p.sharePercentage.toStringAsFixed(0)}% शेयर)',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                        const SizedBox(height: 4),
-                        Text('• मुनाफे का हिस्सा: ₹${baseShare.toStringAsFixed(0)}'),
-                        Text('• जेब से किया खर्च: +₹${pocketExp.toStringAsFixed(0)}', style: const TextStyle(color: Colors.green)),
-                        Text('• गल्ले से निकाला एडवांस: -₹${drawings.toStringAsFixed(0)}', style: const TextStyle(color: Colors.red)),
-                        const Divider(),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text('अंतिम मिलने योग्य रकम:', style: TextStyle(fontWeight: FontWeight.bold)),
-                            Text('₹${finalPayout.toStringAsFixed(0)}',
-                                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo, fontSize: 15)),
-                          ],
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList(),
               ],
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('बंद करें'),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+              onPressed: () async {
+                final name = nameCtrl.text.trim();
+                if (name.isEmpty) return;
+
+                Navigator.pop(ctx);
+                setState(() => _isLoading = true);
+
+                final vendorData = {
+                  'store_code': widget.storeCode,
+                  'vendor_name': name,
+                  'vendor_category': category,
+                  'phone': phoneCtrl.text.trim(),
+                  'is_active': true,
+                };
+
+                try {
+                  if (vendor != null && vendor.id.isNotEmpty) {
+                    await _supabase.from('hotel_vendors').update(vendorData).eq('id', vendor.id);
+                  } else {
+                    await _supabase.from('hotel_vendors').insert(vendorData);
+                  }
+                  _fetchPartnersAndVendors();
+                } catch (_) {
+                  setState(() => _isLoading = false);
+                }
+              },
+              child: const Text('सेव करें', style: TextStyle(color: Colors.white)),
             ),
           ],
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -330,177 +322,179 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text('पार्टनर लेज़र व लाभ बंटवारा', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('होटल ERP सेटिंग्स', style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFF0F172A),
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.calculate_outlined),
-            tooltip: 'प्रॉफिट-स्प्लिट गणना',
-            onPressed: _showProfitSplitDialog,
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _fetchPartnerData,
-          ),
-        ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.amber,
+          labelColor: Colors.amber,
+          unselectedLabelColor: Colors.white70,
+          tabs: const [
+            Tab(icon: Icon(Icons.store), text: 'होटल प्रोफ़ाइल'),
+            Tab(icon: Icon(Icons.handshake), text: 'पार्टनर्स'),
+            Tab(icon: Icon(Icons.local_shipping), text: 'वेंडर्स'),
+          ],
+        ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _fetchPartnerData,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green[700],
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                            icon: const Icon(Icons.add_shopping_cart, color: Colors.white, size: 20),
-                            label: const Text('जेब से खर्च', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                            onPressed: () => _openAddTransactionModal('POCKET_EXPENSE'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red[700],
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                            icon: const Icon(Icons.account_balance_wallet_outlined, color: Colors.white, size: 20),
-                            label: const Text('गल्ले से निकासी', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                            onPressed: () => _openAddTransactionModal('DRAWING'),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-
-                    const Text('पार्टनर्स एवं हिस्सेदारी', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 10),
-                    if (_partners.isEmpty)
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.amber[50],
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.amber[300]!),
-                        ),
-                        child: const Text('कोई पार्टनर नहीं मिला। कृपया एडमिन से पार्टनर जोड़ें।'),
-                      )
-                    else
-                      GridView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          childAspectRatio: 1.4,
-                          crossAxisSpacing: 10,
-                          mainAxisSpacing: 10,
-                        ),
-                        itemCount: _partners.length,
-                        itemBuilder: (ctx, i) {
-                          final p = _partners[i];
-                          return Card(
-                            elevation: 2,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Row(
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 14,
-                                        backgroundColor: Colors.indigo[100],
-                                        child: Text(p.partnerName[0], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          p.partnerName,
-                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text('शेयर: ${p.sharePercentage.toStringAsFixed(0)}%', style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                                  const SizedBox(height: 4),
-                                  Text('पिन: ****', style: TextStyle(color: Colors.blueGrey[400], fontSize: 11)),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: _nameCtrl,
+                        decoration: const InputDecoration(labelText: 'होटल का नाम', border: OutlineInputBorder()),
                       ),
-                    const SizedBox(height: 24),
-
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('हाल के लेन-देन (Ledger Activity)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        TextButton(
-                          onPressed: _showProfitSplitDialog,
-                          child: const Text('पूर्ण रिपोर्ट >'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    if (_ledgerHistory.isEmpty)
-                      const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(20),
-                          child: Text('अभी तक कोई लेन-देन दर्ज नहीं है।', style: TextStyle(color: Colors.grey)),
-                        ),
-                      )
-                    else
-                      ListView.separated(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: _ledgerHistory.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
-                        itemBuilder: (ctx, i) {
-                          final entry = _ledgerHistory[i];
-                          final isPocket = entry.type == 'POCKET_EXPENSE';
-                          return ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: isPocket ? Colors.green[50] : Colors.red[50],
-                              child: Icon(
-                                isPocket ? Icons.arrow_upward : Icons.arrow_downward,
-                                color: isPocket ? Colors.green[700] : Colors.red[700],
-                                size: 18,
-                              ),
-                            ),
-                            title: Text(entry.partnerName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                            subtitle: Text(entry.note ?? (isPocket ? 'जेब खर्च' : 'गल्ला निकासी')),
-                            trailing: Text(
-                              '${isPocket ? "+" : "-"}₹${entry.amount.toStringAsFixed(0)}',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                                color: isPocket ? Colors.green[700] : Colors.red[700],
-                              ),
-                            ),
-                          );
-                        },
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _phoneCtrl,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(labelText: 'संपर्क नंबर', border: OutlineInputBorder()),
                       ),
-                  ],
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _addressCtrl,
+                        decoration: const InputDecoration(labelText: 'होटल का पता', border: OutlineInputBorder()),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _upiCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'UPI आईडी (बिल QR कोड हेतु)',
+                          hintText: 'उदा. hotel@okicici',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _gstCtrl,
+                        decoration: const InputDecoration(labelText: 'GSTIN (वैकल्पिक)', border: OutlineInputBorder()),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _fssaiCtrl,
+                        decoration: const InputDecoration(labelText: 'FSSAI नंबर (वैकल्पिक)', border: OutlineInputBorder()),
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
+                          icon: const Icon(Icons.save, color: Colors.white),
+                          label: const Text('प्रोफ़ाइल अपडेट करें', style: TextStyle(color: Colors.white, fontSize: 16)),
+                          onPressed: _saveHotelProfile,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+                Scaffold(
+                  backgroundColor: Colors.transparent,
+                  floatingActionButton: FloatingActionButton.extended(
+                    backgroundColor: const Color(0xFF0F172A),
+                    icon: const Icon(Icons.person_add, color: Colors.white),
+                    label: const Text('नया पार्टनर', style: TextStyle(color: Colors.white)),
+                    onPressed: () => _openPartnerDialog(),
+                  ),
+                  body: ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo[50],
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.indigo[100]!),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.info_outline, color: Colors.indigo),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'कुल शेयर: ${_partners.fold<double>(0.0, (sum, p) => sum + p.sharePercentage).toStringAsFixed(0)}% / 100%',
+                                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (_partners.isEmpty)
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(32),
+                            child: Text('कोई पार्टनर नहीं है। नीचे बटन दबाकर जोड़ें।', style: TextStyle(color: Colors.grey)),
+                          ),
+                        )
+                      else
+                        ..._partners.map((p) => Card(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: const Color(0xFF0F172A),
+                                  child: Text(p.partnerName[0], style: const TextStyle(color: Colors.white)),
+                                ),
+                                title: Text(p.partnerName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                subtitle: Text('शेयर: ${p.sharePercentage.toStringAsFixed(0)}%  •  पिन: ${p.loginPin}'),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.edit, color: Colors.blue),
+                                  onPressed: () => _openPartnerDialog(p),
+                                ),
+                              ),
+                            )),
+                    ],
+                  ),
+                ),
+                Scaffold(
+                  backgroundColor: Colors.transparent,
+                  floatingActionButton: FloatingActionButton.extended(
+                    backgroundColor: Colors.teal[800],
+                    icon: const Icon(Icons.add_business, color: Colors.white),
+                    label: const Text('नया वेंडर', style: TextStyle(color: Colors.white)),
+                    onPressed: () => _openVendorDialog(),
+                  ),
+                  body: _vendors.isEmpty
+                      ? const Center(
+                          child: Text('कोई वेंडर दर्ज नहीं है। नीचे बटन दबाकर जोड़ें।', style: TextStyle(color: Colors.grey)),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _vendors.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          itemBuilder: (ctx, idx) {
+                            final v = _vendors[idx];
+                            return Card(
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: Colors.teal[50],
+                                  child: Icon(
+                                    v.category == 'DAIRY'
+                                        ? Icons.local_drink
+                                        : v.category == 'VEGETABLE'
+                                            ? Icons.eco
+                                            : Icons.storefront,
+                                    color: Colors.teal[800],
+                                  ),
+                                ),
+                                title: Text(v.vendorName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                subtitle: Text('केटेगरी: ${v.category}  •  फ़ोन: ${v.phone ?? "N/A"}'),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.edit, color: Colors.blue),
+                                  onPressed: () => _openVendorDialog(v),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
             ),
     );
   }
