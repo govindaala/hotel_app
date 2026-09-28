@@ -122,114 +122,14 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('सेव करने में त्रुटि: $e')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('त्रुटि: $e')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _openPartnerDialog([RestaurantPartnerModel? partner]) {
-    final nameCtrl = TextEditingController(text: partner?.partnerName ?? '');
-    final phoneCtrl = TextEditingController(text: partner?.phone ?? '');
-    final pinCtrl = TextEditingController(text: partner?.loginPin ?? '');
-    final shareCtrl = TextEditingController(
-      text: partner != null ? partner.sharePercentage.toStringAsFixed(0) : '25',
-    );
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: Text(partner == null ? '🤝 नया पार्टनर जोड़ें' : 'पार्टनर विवरण बदलें',
-            style: const TextStyle(fontWeight: FontWeight.bold)),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(labelText: 'पार्टनर का नाम', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: phoneCtrl,
-                keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(labelText: 'मोबाइल नंबर', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: pinCtrl,
-                keyboardType: TextInputType.number,
-                maxLength: 4,
-                decoration: const InputDecoration(
-                  labelText: '4-अंकों का लॉगिन पिन',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.pin),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: shareCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'हिस्सेदारी प्रतिशत (Share %)',
-                  border: OutlineInputBorder(),
-                  suffixText: '%',
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
-            onPressed: () async {
-              final name = nameCtrl.text.trim();
-              final pin = pinCtrl.text.trim();
-              final share = double.tryParse(shareCtrl.text.trim()) ?? 0.0;
-
-              if (name.isEmpty || pin.length != 4 || share <= 0) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('कृपया सही नाम, 4-अंक पिन और शेयर दर्ज करें!')),
-                );
-                return;
-              }
-
-              Navigator.pop(ctx);
-              setState(() => _isLoading = true);
-
-              final partnerId = partner?.partnerId ?? 'P${_partners.length + 1}';
-              final partnerMap = {
-                'store_code': widget.storeCode,
-                'partner_id': partnerId,
-                'partner_name': name,
-                'phone': phoneCtrl.text.trim(),
-                'login_pin': pin,
-                'share_percentage': share,
-                'is_active': true,
-              };
-
-              try {
-                await _supabase.from('restaurant_partners').upsert(
-                  partnerMap,
-                  onConflict: 'store_code,partner_id',
-                );
-                _fetchPartnersAndVendors();
-              } catch (_) {
-                setState(() => _isLoading = false);
-              }
-            },
-            child: const Text('सेव करें', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
+  // वेंडर डायलॉग (काउंटर लोकल सप्लायर जोड़ सकता है)
   void _openVendorDialog([HotelVendorModel? vendor]) {
     final nameCtrl = TextEditingController(text: vendor?.vendorName ?? '');
     final phoneCtrl = TextEditingController(text: vendor?.phone ?? '');
@@ -322,7 +222,7 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text('होटल ERP सेटिंग्स', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('होटल सेटिंग्स', style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFF0F172A),
         foregroundColor: Colors.white,
         bottom: TabBar(
@@ -332,7 +232,7 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
           unselectedLabelColor: Colors.white70,
           tabs: const [
             Tab(icon: Icon(Icons.store), text: 'होटल प्रोफ़ाइल'),
-            Tab(icon: Icon(Icons.handshake), text: 'पार्टनर्स'),
+            Tab(icon: Icon(Icons.handshake), text: 'पार्टनर्स (View)'),
             Tab(icon: Icon(Icons.local_shipping), text: 'वेंडर्स'),
           ],
         ),
@@ -342,6 +242,7 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
           : TabBarView(
               controller: _tabController,
               children: [
+                // 1. HOTEL PROFILE TAB
                 SingleChildScrollView(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -365,7 +266,7 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
                       TextField(
                         controller: _upiCtrl,
                         decoration: const InputDecoration(
-                          labelText: 'UPI आईडी (बिल QR कोड हेतु)',
+                          labelText: 'UPI ID (बिल QR कोड हेतु)',
                           hintText: 'उदा. hotel@okicici',
                           border: OutlineInputBorder(),
                         ),
@@ -394,64 +295,56 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
                     ],
                   ),
                 ),
-                Scaffold(
-                  backgroundColor: Colors.transparent,
-                  floatingActionButton: FloatingActionButton.extended(
-                    backgroundColor: const Color(0xFF0F172A),
-                    icon: const Icon(Icons.person_add, color: Colors.white),
-                    label: const Text('नया पार्टनर', style: TextStyle(color: Colors.white)),
-                    onPressed: () => _openPartnerDialog(),
-                  ),
-                  body: ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.indigo[50],
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.indigo[100]!),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.info_outline, color: Colors.indigo),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'कुल शेयर: ${_partners.fold<double>(0.0, (sum, p) => sum + p.sharePercentage).toStringAsFixed(0)}% / 100%',
-                                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo),
-                              ),
-                            ),
-                          ],
-                        ),
+
+                // 2. READ-ONLY PARTNERS TAB (Super Admin Controlled)
+                ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.amber[50],
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.amber[200]!),
                       ),
-                      const SizedBox(height: 12),
-                      if (_partners.isEmpty)
-                        const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(32),
-                            child: Text('कोई पार्टनर नहीं है। नीचे बटन दबाकर जोड़ें।', style: TextStyle(color: Colors.grey)),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.shield_outlined, color: Colors.orange),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'सुरक्षा नियम: पार्टनर्स जोड़ना या उनका शेयर % बदलना केवल सुपर एडमिन पोर्टल से ही संभव है।',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.brown),
+                            ),
                           ),
-                        )
-                      else
-                        ..._partners.map((p) => Card(
-                              margin: const EdgeInsets.only(bottom: 10),
-                              child: ListTile(
-                                leading: CircleAvatar(
-                                  backgroundColor: const Color(0xFF0F172A),
-                                  child: Text(p.partnerName[0], style: const TextStyle(color: Colors.white)),
-                                ),
-                                title: Text(p.partnerName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                subtitle: Text('शेयर: ${p.sharePercentage.toStringAsFixed(0)}%  •  पिन: ${p.loginPin}'),
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.edit, color: Colors.blue),
-                                  onPressed: () => _openPartnerDialog(p),
-                                ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    if (_partners.isEmpty)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(32),
+                          child: Text('कोई पार्टनर पंजीकृत नहीं है। सुपर एडमिन पोर्टल से जोड़ें।', style: TextStyle(color: Colors.grey)),
+                        ),
+                      )
+                    else
+                      ..._partners.map((p) => Card(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            child: ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: const Color(0xFF0F172A),
+                                child: Text(p.partnerName[0], style: const TextStyle(color: Colors.white)),
                               ),
-                            )),
-                    ],
-                  ),
+                              title: Text(p.partnerName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                              subtitle: Text('शेयर: ${p.sharePercentage.toStringAsFixed(0)}%  •  पिन: ****  •  ID: ${p.partnerId}'),
+                              trailing: const Icon(Icons.verified, color: Colors.green, size: 20),
+                            ),
+                          )),
+                  ],
                 ),
+
+                // 3. VENDORS TAB
                 Scaffold(
                   backgroundColor: Colors.transparent,
                   floatingActionButton: FloatingActionButton.extended(
