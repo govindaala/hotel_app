@@ -17,7 +17,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:ota_update/ota_update.dart';
 
-// मॉडल्स व स्क्रीन फ़ाइलें
+// Models aur Screen Files
 import 'models/restaurant_profile_model.dart';
 import 'models/expense_model.dart';
 import 'screens/admin/counter_sale_screen.dart';
@@ -28,7 +28,7 @@ import 'screens/admin/counter_report_screen.dart';
 import 'Data/Menu_data_source.dart';
 import 'receipt_generator.dart';
 
-// एडवांस्ड ERP, QR व लर्निंग मॉड्यूल्स
+// Advanced ERP, QR aur Learning Modules
 import 'screens/admin/partner_ledger_screen.dart';
 import 'screens/admin/star_waiter_screen.dart';
 import 'screens/admin/vendor_ration_screen.dart';
@@ -43,7 +43,7 @@ const int tcpServerPort = 4040;
 const int udpDiscoveryPort = 4042;
 
 // =========================================================================
-// 1. नॉन-ब्लॉकिंग वॉयस सर्विस
+// 1. Non-Blocking Voice Service
 // =========================================================================
 class VoiceService {
   static final FlutterTts _tts = FlutterTts();
@@ -163,7 +163,7 @@ final List<Map<String, dynamic>> defaultHotelMenu = kRestaurantMenu
     .toList();
 
 // =========================================================================
-// 2. मुख्य मेन (main) - 1 सेकंड फ़ास्ट स्टार्टअप
+// 2. Main Entry Point - 1 Second Fast Startup
 // =========================================================================
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -211,7 +211,7 @@ void main() async {
 }
 
 // =========================================================================
-// 3. ऐप गेटवे
+// 3. App Gateway
 // =========================================================================
 class AppGateway extends StatefulWidget {
   const AppGateway({super.key});
@@ -275,7 +275,7 @@ class _AppGatewayState extends State<AppGateway> {
 }
 
 // =========================================================================
-// 4. स्टाफ़ ऑथेंटिकेशन (डबल लॉक लॉगिन)
+// 4. Staff Auth Screen (Double Lock Login)
 // =========================================================================
 class StaffAuthScreen extends StatefulWidget {
   final String role;
@@ -671,7 +671,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 }
 
 // =========================================================================
-// 5. काउंटर मास्टर ऐप (Drawer, Dynamic Incentive Toggle, Quick POS & Staff ID)
+// 5. Full Counter App (Permanent Supabase Menu Sync & Dynamic Incentive)
 // =========================================================================
 class FullCounterApp extends StatefulWidget {
   final String storeCode, hotelName;
@@ -693,7 +693,7 @@ class FullCounterApp extends StatefulWidget {
 }
 
 class _FullCounterAppState extends State<FullCounterApp> {
-  int _currentTab = 0; // 0: टेबल्स, 1: मेन्यू, 2: क्विक सेल (POS)
+  int _currentTab = 0; // 0: Tables, 1: Menu, 2: Quick POS
   String localIp = 'IP ढूँढ रहा है...';
   ServerSocket? server;
   final List<Socket> connectedClients = [];
@@ -701,7 +701,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
   late String _currentPartnerId;
   late String _currentPartnerName;
 
-  // डायनामिक इंसेंटिव ऑफर टॉगल
+  // Dynamic Incentive Switch
   bool _isIncentiveActive = false;
   double _incentivePct = 1.0;
 
@@ -736,7 +736,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     _currentPartnerId = widget.activePartnerId;
     _currentPartnerName = widget.activePartnerName;
 
-    _loadMenu();
+    _loadMenu(); // Permanent Supabase sync yahan automatic ho jayega
     _loadRestoProfile();
     _loadStaffCache();
     _startLocalSocketServer();
@@ -762,6 +762,71 @@ class _FullCounterAppState extends State<FullCounterApp> {
     _cloudSyncTimer?.cancel();
     server?.close();
     super.dispose();
+  }
+
+  // =========================================================================
+  // Permanent Supabase Cloud Menu Sync
+  // =========================================================================
+  Future<void> _syncMenuToCloud() async {
+    if (hotelMenu.isEmpty) return;
+    try {
+      final List<Map<String, dynamic>> rows = hotelMenu.map((m) {
+        return {
+          'store_code': widget.storeCode,
+          'item_id': m['id'].toString(),
+          'name': m['name'] ?? '',
+          'category': m['cat'] ?? m['category'] ?? 'General',
+          'price': (m['price'] as num?)?.toDouble() ?? 0.0,
+          'is_available': m['available'] != false,
+        };
+      }).toList();
+
+      await Supabase.instance.client
+          .from('menu_items')
+          .upsert(rows, onConflict: 'store_code,item_id');
+    } catch (_) {}
+  }
+
+  void _loadMenu() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString('saved_menu_${widget.storeCode}');
+    if (saved != null) {
+      setState(() => hotelMenu = List<Map<String, dynamic>>.from(jsonDecode(saved)));
+    } else {
+      setState(() => hotelMenu = List.from(defaultHotelMenu));
+      await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
+    }
+
+    // Cloud par check karein: Agar Supabase mein pehle se items hain toh fetch karein,
+    // warna local menu ko Supabase par permanently upload kar dein.
+    try {
+      final res = await Supabase.instance.client
+          .from('menu_items')
+          .select('*')
+          .eq('store_code', widget.storeCode);
+      if (res != null && res.isNotEmpty) {
+        final cloudMenu = res.map((m) => {
+          'id': m['item_id'] ?? m['id'].toString(),
+          'name': m['name'] ?? '',
+          'price': (m['price'] as num?)?.toDouble() ?? 0.0,
+          'cat': m['category'] ?? 'General',
+          'available': m['is_available'] ?? true,
+        }).toList();
+        setState(() => hotelMenu = List<Map<String, dynamic>>.from(cloudMenu));
+        await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
+      } else {
+        await _syncMenuToCloud();
+      }
+    } catch (_) {
+      await _syncMenuToCloud();
+    }
+  }
+
+  void _saveMenu() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
+    _broadcastLocal({'type': 'MENU_DATA', 'menu': hotelMenu});
+    await _syncMenuToCloud(); // Har bar save karte hi Supabase cloud par permanent update
   }
 
   void _toggleIncentiveOffer(bool isEnabled) {
@@ -1354,7 +1419,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
-  // ब्लूटूथ प्रिंटर पेयरिंग डायलॉग (d.macAdress single 'd' fix)
   void _openPrinterDialog() async {
     showDialog(
       context: context,
@@ -1390,7 +1454,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                       title: Text(d.name),
                       subtitle: Text(d.macAdress), // Single 'd' macAdress fix
                       onTap: () async {
-                        final bool connected = await PrintBluetoothThermal.connect(macPrinterAddress: d.macAdress); // Single 'd' fix
+                        final bool connected = await PrintBluetoothThermal.connect(macPrinterAddress: d.macAdress);
                         setState(() => _isPrinterConnected = connected);
                         Navigator.pop(ctx);
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -1494,7 +1558,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
                       'tables': widget.tables,
                     }) + "\n");
 
-                // वेटर को तुरंत वर्तमान इंसेंटिव स्टेटस भेजें
                 if (sRole == 'waiter') {
                   client.write(jsonEncode({
                         'type': 'INCENTIVE_UPDATE',
@@ -1533,7 +1596,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   VoiceService.speak("टेबल $tbl का बिल तैयार है");
                 }
               } else if (msg['type'] == 'ORDER_READY') {
-                _broadcastLocal(msg); // वेटर स्क्रीन्स को फॉरवर्ड करें
+                _broadcastLocal(msg);
               } else if (msg['type'] == 'RATION_DEMAND') {
                 _syncMasterData();
                 VoiceService.speak("रसोई से नई राशन मांग आई है");
@@ -1555,86 +1618,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
         connectedClients.remove(c);
       }
     }
-  }
-
-  void _loadMenu() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString('saved_menu_${widget.storeCode}');
-    if (saved != null) {
-      setState(() => hotelMenu = List<Map<String, dynamic>>.from(jsonDecode(saved)));
-    } else {
-      setState(() => hotelMenu = List.from(defaultHotelMenu));
-      await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
-    }
-  }
-
-  void _saveMenu() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
-    _broadcastLocal({'type': 'MENU_DATA', 'menu': hotelMenu});
-  }
-
-  void _syncMasterData() async {
-    try {
-      final tenDaysAgo = DateTime.now().subtract(const Duration(days: 10)).toIso8601String();
-      final res = await Supabase.instance.client
-          .from('ration_demands')
-          .select()
-          .eq('store_code', widget.storeCode)
-          .gte('created_at', tenDaysAgo)
-          .order('created_at', ascending: false);
-      if (res != null && mounted) {
-        setState(() => rationDemands = List<Map<String, dynamic>>.from(res));
-      }
-    } catch (_) {}
-
-    try {
-      final kots = await Supabase.instance.client
-          .from('hotel_kots')
-          .select()
-          .eq('store_code', widget.storeCode)
-          .neq('status', 'settled');
-
-      if (kots != null && mounted) {
-        for (var k in kots) {
-          int tbl = k['table_no'] ?? 0;
-          String st = k['status'] ?? 'pending';
-
-          if (k['waiter_id'] != null) {
-            tableWaiterMap[tbl] = k['waiter_id'].toString();
-          }
-
-          dynamic rawItems = k['items'];
-          List itemsList = (rawItems is List) ? rawItems : [];
-          if (rawItems is String) {
-            try { itemsList = jsonDecode(rawItems); } catch (_) {}
-          }
-
-          if (tbl >= 900) {
-            parcelOrders.putIfAbsent(tbl, () => []);
-            if (parcelOrders[tbl]!.isEmpty) {
-              parcelOrders[tbl] = List<Map<String, dynamic>>.from(itemsList);
-            }
-          } else if (tbl > 0) {
-            activeOrders.putIfAbsent(tbl, () => []);
-            if (activeOrders[tbl]!.isEmpty) {
-              activeOrders[tbl] = List<Map<String, dynamic>>.from(itemsList);
-            }
-            if (st == 'bill_ready') {
-              tableStateMap[tbl] = 'bill_ready';
-            } else if (!tableStateMap.containsKey(tbl)) {
-              tableStateMap[tbl] = 'running';
-            }
-
-            if (st == 'bill_ready' && !_spokenBillTables.contains(tbl)) {
-              _spokenBillTables.add(tbl);
-              VoiceService.speak("टेबल $tbl का बिल तैयार है");
-            }
-          }
-        }
-        setState(() {});
-      }
-    } catch (_) {}
   }
 
   void _shiftTable(int fromTable) {
@@ -2177,7 +2160,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
   }
 
   // =========================================================================
-  // साइड मेनू (Drawer) - सफेद आइकॉन व सभी विकल्प
+  // Side Drawer - White Menu Icon & All ERP Options
   // =========================================================================
   Widget _buildAppDrawer() {
     return Drawer(
@@ -2218,7 +2201,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                // 1. डायनामिक इंसेंटिव ऑफर टॉगल
                 SwitchListTile(
                   secondary: const Icon(Icons.bolt, color: Colors.deepOrange),
                   title: const Text('वेटर इंसेंटिव ऑफर', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -2384,7 +2366,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
       child: Scaffold(
         drawer: _buildAppDrawer(),
         appBar: AppBar(
-          iconTheme: const IconThemeData(color: Colors.white), // सफेद मेनू बटन (☰)
+          iconTheme: const IconThemeData(color: Colors.white), // Chamkila white menu icon
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2639,7 +2621,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 }
 
 // =========================================================================
-// 6. वेटर ऐप (Dynamic Incentive Banner & Food Ready Top Alert)
+// 6. Full Waiter App (Dynamic Incentive Banner & Food Ready Top Alert)
 // =========================================================================
 class FullWaiterApp extends StatefulWidget {
   final String storeCode, staffId;
@@ -2659,7 +2641,6 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
   final Set<String> _spokenReadyKots = {};
   Timer? _waiterSyncTimer;
 
-  // डायनामिक इंसेंटिव व फ़ूड रेडी स्टेट
   bool _incentiveActive = false;
   double _incentivePct = 1.0;
   final Set<int> _readyTablesAlert = {};
@@ -3184,7 +3165,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
         ),
         body: Column(
           children: [
-            // 1. तैयार भोजन अलर्ट बैनर (Food Ready to Serve)
+            // 1. Ready Food Alert Banner
             if (_readyTablesAlert.isNotEmpty)
               Container(
                 color: Colors.green.shade800,
@@ -3211,7 +3192,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                 ),
               ),
 
-            // 2. डायनामिक इंसेंटिव ऑफर बैनर (सिर्फ तब दिखेगा जब काउंटर ON करेगा)
+            // 2. Dynamic Incentive Offer Banner
             if (_incentiveActive)
               Container(
                 color: Colors.amber.shade100,
@@ -3234,10 +3215,11 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
               color: _socketConnected ? Colors.green.shade700 : Colors.blueGrey.shade800,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisAlignment: dynamic,
                 children: [
                   Text(_socketConnected ? '🟢 हॉटस्पॉट कनेक्टेड' : '⚪ वाई-फ़ाई स्कैन...',
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                  const Spacer(),
                   const Text('लोकल LAN', style: TextStyle(color: Colors.white70, fontSize: 11)),
                 ],
               ),
@@ -3279,7 +3261,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
 }
 
 // =========================================================================
-// 7. कुक KDS (Ration Demand, Cooking Delay Timer & Undo)
+// 7. Full Cook App (KDS - Live Cooking Timer, Ration Demand & Undo)
 // =========================================================================
 class FullCookApp extends StatefulWidget {
   final String storeCode;
@@ -3296,7 +3278,7 @@ class _FullCookAppState extends State<FullCookApp> {
   final Set<String> _spokenOrderKots = {};
   Timer? _cookSyncTimer;
 
-  // हाल ही में तैयार KOT (Undo Buffer)
+  // Undo Buffer
   Map<String, dynamic>? _lastReadyOrder;
 
   @override
@@ -3414,7 +3396,6 @@ class _FullCookAppState extends State<FullCookApp> {
     } catch (_) {}
   }
 
-  // कुक स्क्रीन से राशन मांग डायलॉग
   void _openRationDemandDialog() {
     final itemCtrl = TextEditingController();
     final qtyCtrl = TextEditingController();
@@ -3535,7 +3516,6 @@ class _FullCookAppState extends State<FullCookApp> {
       }
     }
 
-    // गलती से तैयार होने पर Undo स्नैकबार
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -3622,10 +3602,9 @@ class _FullCookAppState extends State<FullCookApp> {
                         final items = ord['items'] as List;
                         final bool isParcel = ord['table'] >= 900;
 
-                        // लाइव कुकिंग टाइमर व डिले अलर्ट गणना
                         final DateTime orderTime = DateTime.tryParse(ord['created_at']?.toString() ?? '') ?? DateTime.now();
                         final int minutesPassed = DateTime.now().difference(orderTime).inMinutes;
-                        final bool isDelayed = minutesPassed >= 15; // 15 मिनट से अधिक पर रेड अलर्ट
+                        final bool isDelayed = minutesPassed >= 15;
 
                         return Card(
                           elevation: isDelayed ? 4 : 2,
