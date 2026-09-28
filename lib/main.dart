@@ -16,9 +16,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:ota_update/ota_update.dart';
 
-// =========================================================================
-// 1. मॉड्यूल्स, स्क्रीन फ़ाइलें व नए ERP इंजन (Imports & Models)
-// =========================================================================
+// मॉडल्स व स्क्रीन फ़ाइलें
 import 'models/restaurant_profile_model.dart';
 import 'models/expense_model.dart';
 import 'screens/admin/counter_sale_screen.dart';
@@ -36,9 +34,6 @@ import 'screens/admin/vendor_ration_screen.dart';
 import 'screens/admin/qr_table_generator_screen.dart';
 import 'services/kitchen_learning_service.dart';
 
-// =========================================================================
-// 2. ग्लोबल कॉन्फ़िगरेशन व वर्शन (Global Constants)
-// =========================================================================
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
 
@@ -47,7 +42,7 @@ const int tcpServerPort = 4040;
 const int udpDiscoveryPort = 4042;
 
 // =========================================================================
-// 3. हिंदी वॉयस इंजन सर्विस (Non-Blocking Text-to-Speech)
+// 1. नॉन-ब्लॉकिंग वॉयस सर्विस (Instant Launch)
 // =========================================================================
 class VoiceService {
   static final FlutterTts _tts = FlutterTts();
@@ -72,9 +67,6 @@ class VoiceService {
   }
 }
 
-// =========================================================================
-// 4. बैकग्राउंड ऑटो-अपडेट चेकर (OTA Update)
-// =========================================================================
 Future<void> checkForAppUpdates(BuildContext context) async {
   try {
     final response = await http
@@ -108,8 +100,7 @@ Future<void> checkForAppUpdates(BuildContext context) async {
                     Icon(Icons.system_update, color: Colors.blueAccent),
                     SizedBox(width: 8),
                     Text('ऐप अपडेट उपलब्ध है',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold)),
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   ],
                 ),
                 content: Column(
@@ -128,38 +119,26 @@ Future<void> checkForAppUpdates(BuildContext context) async {
                 ),
                 actions: [
                   if (!isDownloading) ...[
-                    TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('बाद में')),
+                    TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('बाद में')),
                     ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
                       onPressed: () {
                         setDState(() => isDownloading = true);
                         try {
                           OtaUpdate()
                               .execute(apkUrl, destinationFilename: 'aala_pos.apk')
-                              .listen(
-                            (OtaEvent event) {
-                              if (event.status == OtaStatus.DOWNLOADING) {
-                                setDState(
-                                    () => downloadProgress = event.value ?? "0");
-                              } else if (event.status == OtaStatus.INSTALLING) {
-                                Navigator.pop(ctx);
-                              }
-                            },
-                            onError: (e) {
-                              setDState(() => isDownloading = false);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('डाउनलोड एरर: $e')));
-                            },
-                          );
-                        } catch (e) {
+                              .listen((OtaEvent event) {
+                            if (event.status == OtaStatus.DOWNLOADING) {
+                              setDState(() => downloadProgress = event.value ?? "0");
+                            } else if (event.status == OtaStatus.INSTALLING) {
+                              Navigator.pop(ctx);
+                            }
+                          }, onError: (_) => setDState(() => isDownloading = false));
+                        } catch (_) {
                           setDState(() => isDownloading = false);
                         }
                       },
-                      child: const Text('अपडेट करें',
-                          style: TextStyle(color: Colors.white)),
+                      child: const Text('अपडेट करें', style: TextStyle(color: Colors.white)),
                     ),
                   ],
                 ],
@@ -183,19 +162,17 @@ final List<Map<String, dynamic>> defaultHotelMenu = kRestaurantMenu
     .toList();
 
 // =========================================================================
-// 5. मुख्य मेन (main) फ़ंक्शन - सुपर-फास्ट 1 सेकंड स्टार्टअप
+// 2. मुख्य मेन (main) - 1 सेकंड इंस्टेंट स्टार्टअप
 // =========================================================================
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Supabase aur SharedPreferences ko parallel load karein (Zero Delay)
   final results = await Future.wait([
     Supabase.initialize(url: supabaseUrl, anonKey: supabaseKey)
         .catchError((_) => null as Supabase),
     SharedPreferences.getInstance(),
   ]);
 
-  // TTS ko background me chalu karein, main thread ko block na karein
   unawaited(VoiceService.init());
 
   final prefs = results[1] as SharedPreferences;
@@ -220,9 +197,7 @@ void main() async {
       );
     } else if (savedRole == 'waiter') {
       initialScreen = FullWaiterApp(
-          storeCode: savedStoreCode,
-          tables: savedTables,
-          staffId: savedStaffId);
+          storeCode: savedStoreCode, tables: savedTables, staffId: savedStaffId);
     } else if (savedRole == 'cook') {
       initialScreen = FullCookApp(storeCode: savedStoreCode);
     }
@@ -235,7 +210,7 @@ void main() async {
 }
 
 // =========================================================================
-// 6. ऐप गेटवे
+// 3. ऐप गेटवे
 // =========================================================================
 class AppGateway extends StatefulWidget {
   const AppGateway({super.key});
@@ -247,8 +222,7 @@ class _AppGatewayState extends State<AppGateway> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => checkForAppUpdates(context));
+    WidgetsBinding.instance.addPostFrameCallback((_) => checkForAppUpdates(context));
   }
 
   @override
@@ -267,21 +241,20 @@ class _AppGatewayState extends State<AppGateway> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             _roleCard(context, '🖥️ मास्टर / ओनर (डबल लॉक)',
-                'बिलिंग, मेन्यू, पार्टनर लेज़र व QR ऑर्डर', const Color(0xFF0F172A), 'counter'),
+                'बिलिंग, पार्टनर लेज़र, QR ऑर्डर व सेटिंग्स', const Color(0xFF0F172A), 'counter'),
             const SizedBox(height: 18),
             _roleCard(context, '📱 वेटर मोड',
                 'टेबल ऑर्डर, री-ऑर्डर व KOT', const Color(0xFFEA580C), 'waiter'),
             const SizedBox(height: 18),
             _roleCard(context, '👨‍🍳 कुक मोड (KDS)',
-                'लाइव KOT, राशन मांग व सेल्फ-लर्निंग', const Color(0xFF0D9488), 'cook'),
+                'किचन KOT, राशन मांग व सेल्फ-लर्निंग', const Color(0xFF0D9488), 'cook'),
           ],
         ),
       ),
     );
   }
 
-  Widget _roleCard(
-      BuildContext ctx, String title, String sub, Color col, String role) {
+  Widget _roleCard(BuildContext ctx, String title, String sub, Color col, String role) {
     return InkWell(
       onTap: () => Navigator.push(
           ctx, MaterialPageRoute(builder: (_) => StaffAuthScreen(role: role))),
@@ -289,17 +262,11 @@ class _AppGatewayState extends State<AppGateway> {
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(20),
-        decoration:
-            BoxDecoration(color: col, borderRadius: BorderRadius.circular(16)),
+        decoration: BoxDecoration(color: col, borderRadius: BorderRadius.circular(16)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold)),
+          Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
-          Text(sub,
-              style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          Text(sub, style: const TextStyle(color: Colors.white70, fontSize: 13)),
         ]),
       ),
     );
@@ -307,7 +274,7 @@ class _AppGatewayState extends State<AppGateway> {
 }
 
 // =========================================================================
-// 7. स्टाफ़ ऑथेंटिकेशन (डबल लॉक काउंटर व स्टाफ़ लॉगिन)
+// 4. स्टाफ़ ऑथेंटिकेशन (डबल लॉक काउंटर व स्टाफ़ लॉगिन)
 // =========================================================================
 class StaffAuthScreen extends StatefulWidget {
   final String role;
@@ -318,9 +285,9 @@ class StaffAuthScreen extends StatefulWidget {
 
 class _StaffAuthScreenState extends State<StaffAuthScreen> {
   final _codeCtrl = TextEditingController(text: '111');
-  final _storePinCtrl = TextEditingController();   // ताला 1: स्टोर साझा पिन
-  final _partnerPinCtrl = TextEditingController(); // ताला 2: पार्टनर व्यक्तिगत पिन
-  final _idCtrl = TextEditingController();         // वेटर/कुक ID
+  final _storePinCtrl = TextEditingController();
+  final _partnerPinCtrl = TextEditingController();
+  final _idCtrl = TextEditingController();
   bool _loading = false;
 
   RawDatagramSocket? _discoverySocket;
@@ -380,29 +347,23 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
     final prefs = await SharedPreferences.getInstance();
 
     if (code.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('कृपया स्टोर कोड दर्ज करें!')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('कृपया स्टोर कोड दर्ज करें!')));
       return;
     }
 
-    // =========================================================================
-    // A. काउंटर मास्टर लॉगिन (डबल लॉक: स्टोर पिन + पार्टनर पिन)
-    // =========================================================================
     if (widget.role == 'counter') {
       final storePin = _storePinCtrl.text.trim();
       final partnerPin = _partnerPinCtrl.text.trim();
 
       if (storePin.isEmpty || partnerPin.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('कृपया स्टोर पिन और पार्टनर पिन दोनों दर्ज करें!')),
-        );
+            const SnackBar(content: Text('कृपया स्टोर साझा पिन और अपना व्यक्तिगत पार्टनर पिन दोनों भरें!')));
         return;
       }
 
       setState(() => _loading = true);
 
       try {
-        // [ताला 1]: स्टोर मास्टर पिन सत्यापन
         final restoRes = await Supabase.instance.client
             .from('restaurants')
             .select('*')
@@ -416,12 +377,10 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 
         if (!isStorePinValid) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('❌ ताला 1 विफल: गलत स्टोर कोड या स्टोर मास्टर पिन!')),
-          );
+              const SnackBar(content: Text('❌ ताला 1 विफल: गलत स्टोर कोड या स्टोर मास्टर पिन!')));
           return;
         }
 
-        // [ताला 2]: पार्टनर व्यक्तिगत पिन सत्यापन
         final partnerRes = await Supabase.instance.client
             .from('restaurant_partners')
             .select('*')
@@ -441,8 +400,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
           activePartnerName = 'मास्टर एडमिन';
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('❌ ताला 2 विफल: अमान्य पार्टनर पिन! (सुपर एडमिन से संपर्क करें)')),
-          );
+              const SnackBar(content: Text('❌ ताला 2 विफल: अमान्य पार्टनर पिन! (सुपर एडमिन से संपर्क करें)')));
           return;
         }
 
@@ -474,24 +432,18 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
           );
         }
       } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('लॉगिन त्रुटि: $e')));
-        }
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('लॉगिन त्रुटि: $e')));
       } finally {
         if (mounted) setState(() => _loading = false);
       }
       return;
     }
 
-    // =========================================================================
-    // B. वेटर व कुक लॉगिन
-    // =========================================================================
     final staffId = _idCtrl.text.trim();
     final pin = _partnerPinCtrl.text.trim();
 
     if (staffId.isEmpty || pin.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('कृपया स्टाफ़ ID और पिन दोनों भरें!')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('कृपया स्टाफ़ ID और पिन दोनों भरें!')));
       return;
     }
 
@@ -544,10 +496,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
         if (!completer.isCompleted) completer.complete(false);
       });
 
-      authSuccess = await completer.future.timeout(
-        const Duration(seconds: 2),
-        onTimeout: () => false,
-      );
+      authSuccess = await completer.future.timeout(const Duration(seconds: 2), onTimeout: () => false);
       await socket.close();
     } catch (_) {
       authSuccess = false;
@@ -584,21 +533,18 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
           Navigator.pushAndRemoveUntil(
               context,
               MaterialPageRoute(
-                  builder: (_) => FullWaiterApp(
-                      storeCode: code, tables: tableCount, staffId: staffId)),
+                  builder: (_) => FullWaiterApp(storeCode: code, tables: tableCount, staffId: staffId)),
               (r) => false);
         } else {
           Navigator.pushAndRemoveUntil(
               context,
-              MaterialPageRoute(
-                  builder: (_) => FullCookApp(storeCode: code)),
+              MaterialPageRoute(builder: (_) => FullCookApp(storeCode: code)),
               (r) => false);
         }
       }
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('स्टाफ ID या पिन गलत है! (काउंटर से मिलान करें)')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('स्टाफ ID या पिन गलत है!')));
       }
     }
 
@@ -624,33 +570,22 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
                 margin: const EdgeInsets.only(bottom: 16),
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: _masterFound
-                      ? const Color(0xFFECFDF5)
-                      : const Color(0xFFF1F5F9),
+                  color: _masterFound ? const Color(0xFFECFDF5) : const Color(0xFFF1F5F9),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                      color: _masterFound ? Colors.green : Colors.grey.shade400),
+                  border: Border.all(color: _masterFound ? Colors.green : Colors.grey.shade400),
                 ),
                 child: Row(
                   children: [
-                    Icon(
-                      _masterFound ? Icons.wifi_tethering : Icons.wifi_off,
-                      color: _masterFound ? Colors.green : Colors.grey,
-                      size: 20,
-                    ),
+                    Icon(_masterFound ? Icons.wifi_tethering : Icons.wifi_off,
+                        color: _masterFound ? Colors.green : Colors.grey, size: 20),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        _masterFound
-                            ? '🟢 काउंटर कनेक्टेड: $_discoveredMasterIp'
-                            : '⚪ वाई-फ़ाई हॉटस्पॉट स्कैन हो रहा है...',
+                        _masterFound ? '🟢 काउंटर कनेक्टेड: $_discoveredMasterIp' : '⚪ वाई-फ़ाई हॉटस्पॉट स्कैन...',
                         style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: _masterFound
-                              ? Colors.green.shade900
-                              : Colors.grey.shade700,
-                        ),
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: _masterFound ? Colors.green.shade900 : Colors.grey.shade700),
                       ),
                     ),
                   ],
@@ -740,7 +675,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 }
 
 // =========================================================================
-// 8. काउंटर मास्टर ऐप (डैशबोर्ड, लाइव QR ऑर्डर्स व हैंडओवर)
+// 5. काउंटर मास्टर ऐप
 // =========================================================================
 class FullCounterApp extends StatefulWidget {
   final String storeCode, hotelName;
@@ -787,13 +722,12 @@ class _FullCounterAppState extends State<FullCounterApp> {
   RestaurantProfileModel? _restoProfile;
 
   Map<int, List<Map<String, dynamic>>> parcelOrders = {};
-  int _parcelSeq = 1; // पार्सल आईडी कोलिजन फिक्स
+  int _parcelSeq = 1;
 
   double todayCashTotal = 0.0;
   double todayBankTotal = 0.0;
   double todayExpensesTotal = 0.0;
 
-  // लाइव QR ऑर्डर्स
   List<Map<String, dynamic>> pendingQrOrders = [];
   RealtimeChannel? _qrOrderChannel;
 
@@ -818,8 +752,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
       _fetchDailyBalances();
     });
 
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => checkForAppUpdates(context));
+    WidgetsBinding.instance.addPostFrameCallback((_) => checkForAppUpdates(context));
   }
 
   @override
@@ -832,7 +765,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     super.dispose();
   }
 
-  // लाइव QR टेबल ऑर्डर्स की लिसनिंग
   void _listenToLiveQrOrders() {
     try {
       _qrOrderChannel = Supabase.instance.client
@@ -849,9 +781,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
             callback: (payload) {
               final newRecord = payload.newRecord;
               if (newRecord['status'] == 'PENDING_APPROVAL') {
-                setState(() {
-                  pendingQrOrders.insert(0, newRecord);
-                });
+                setState(() => pendingQrOrders.insert(0, newRecord));
                 final int tbl = newRecord['table_no'] ?? 0;
                 VoiceService.speak("टेबल $tbl से नया ऑनलाइन QR ऑर्डर आया है");
               }
@@ -873,9 +803,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
           .order('created_at', ascending: false);
 
       if (res != null && mounted) {
-        setState(() {
-          pendingQrOrders = List<Map<String, dynamic>>.from(res);
-        });
+        setState(() => pendingQrOrders = List<Map<String, dynamic>>.from(res));
       }
     } catch (_) {}
   }
@@ -927,9 +855,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
       VoiceService.speak("टेबल $tbl का QR ऑर्डर स्वीकार किया गया");
     } else {
-      setState(() {
-        pendingQrOrders.removeWhere((o) => o['id'] == orderId);
-      });
+      setState(() => pendingQrOrders.removeWhere((o) => o['id'] == orderId));
 
       try {
         await Supabase.instance.client
@@ -964,9 +890,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 ),
                 const Divider(),
                 if (pendingQrOrders.isEmpty)
-                  const Expanded(
-                    child: Center(child: Text('कोई पेंडिंग QR ऑर्डर नहीं है')),
-                  )
+                  const Expanded(child: Center(child: Text('कोई पेंडिंग QR ऑर्डर नहीं है')))
                 else
                   Expanded(
                     child: ListView.builder(
@@ -1100,8 +1024,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 VoiceService.speak("गल्ला हैंडओवर संपन्न। स्वागत है $newName");
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('❌ अमान्य पिन! यह किसी पार्टनर का पिन नहीं है।')),
-                );
+                    const SnackBar(content: Text('❌ अमान्य पिन! यह किसी पार्टनर का पिन नहीं है।')));
               }
             },
             child: const Text('हैंडओवर करें', style: TextStyle(color: Colors.white)),
@@ -1113,8 +1036,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
   void _startUdpBeacon() async {
     try {
-      _udpBeaconSocket =
-          await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      _udpBeaconSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       _udpBeaconSocket?.broadcastEnabled = true;
 
       _udpBeaconTimer = Timer.periodic(const Duration(seconds: 2), (_) {
@@ -1126,11 +1048,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
             'master_ip': localIp,
             'port': tcpServerPort,
           });
-          _udpBeaconSocket?.send(
-            utf8.encode(beacon),
-            InternetAddress('255.255.255.255'),
-            udpDiscoveryPort,
-          );
+          _udpBeaconSocket?.send(utf8.encode(beacon), InternetAddress('255.255.255.255'), udpDiscoveryPort);
         }
       });
     } catch (_) {}
@@ -1143,14 +1061,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
       _staffCache = List<Map<String, dynamic>>.from(jsonDecode(saved));
     }
     try {
-      final res = await Supabase.instance.client
-          .from('hotel_staff')
-          .select()
-          .eq('store_code', widget.storeCode);
+      final res = await Supabase.instance.client.from('hotel_staff').select().eq('store_code', widget.storeCode);
       if (res != null) {
         _staffCache = List<Map<String, dynamic>>.from(res);
-        await prefs.setString(
-            'saved_staff_cache_${widget.storeCode}', jsonEncode(_staffCache));
+        await prefs.setString('saved_staff_cache_${widget.storeCode}', jsonEncode(_staffCache));
       }
     } catch (_) {}
   }
@@ -1177,7 +1091,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     try {
       final res = await Supabase.instance.client
           .from('restaurants')
-          .select()
+          .select('*')
           .eq('store_code', widget.storeCode)
           .maybeSingle();
 
@@ -1236,7 +1150,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
   void _startLocalSocketServer() async {
     try {
-      // 1.5s timeout taaki app launch par freeze na ho
       final interfaces = await NetworkInterface.list()
           .timeout(const Duration(milliseconds: 1500), onTimeout: () => []);
 
@@ -1265,9 +1178,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 final sPin = msg['pin'] ?? '';
 
                 bool matched = _staffCache.any((s) =>
-                    s['staff_id'] == sId &&
-                    s['pin'] == sPin &&
-                    s['role'] == sRole);
+                    s['staff_id'] == sId && s['pin'] == sPin && s['role'] == sRole);
 
                 if (!matched && _staffCache.isEmpty) matched = true;
 
@@ -1277,10 +1188,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
                       'hotel_name': widget.hotelName,
                       'tables': widget.tables,
                     }) + "\n");
-              } else if (msg['type'] == 'VERIFY_MASTER_PIN') {
-                final String p = msg['pin'] ?? '';
-                final bool ok = (p == _restoProfile?.storeCode || p == '1234');
-                client.write(jsonEncode({'type': 'MASTER_PIN_RESULT', 'valid': ok}) + "\n");
               } else if (msg['type'] == 'GET_MENU') {
                 client.write(jsonEncode({'type': 'MENU_DATA', 'menu': hotelMenu}) + "\n");
               } else if (msg['type'] == 'NEW_KOT') {
@@ -1334,26 +1241,16 @@ class _FullCounterAppState extends State<FullCounterApp> {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('saved_menu_${widget.storeCode}');
     if (saved != null) {
-      setState(
-          () => hotelMenu = List<Map<String, dynamic>>.from(jsonDecode(saved)));
+      setState(() => hotelMenu = List<Map<String, dynamic>>.from(jsonDecode(saved)));
     } else {
       setState(() => hotelMenu = List.from(defaultHotelMenu));
-      await prefs.setString(
-          'saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
+      await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
     }
-  }
-
-  void _saveMenu() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-        'saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
-    _broadcastLocal({'type': 'MENU_DATA', 'menu': hotelMenu});
   }
 
   void _syncMasterData() async {
     try {
-      final tenDaysAgo =
-          DateTime.now().subtract(const Duration(days: 10)).toIso8601String();
+      final tenDaysAgo = DateTime.now().subtract(const Duration(days: 10)).toIso8601String();
       final res = await Supabase.instance.client
           .from('ration_demands')
           .select()
@@ -1382,10 +1279,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
           }
 
           dynamic rawItems = k['items'];
-          List itemsList = [];
-          if (rawItems is List) {
-            itemsList = rawItems;
-          } else if (rawItems is String) {
+          List itemsList = (rawItems is List) ? rawItems : [];
+          if (rawItems is String) {
             try { itemsList = jsonDecode(rawItems); } catch (_) {}
           }
 
@@ -1450,8 +1345,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('T-$fromTable का पूरा बिल किस खाली टेबल पर ट्रांसफर करना है?',
-                  style: const TextStyle(fontSize: 13)),
+              Text('T-$fromTable का पूरा बिल किस खाली टेबल पर ट्रांसफर करना है?', style: const TextStyle(fontSize: 13)),
               const SizedBox(height: 14),
               DropdownButtonFormField<int>(
                 value: targetTable,
@@ -1491,7 +1385,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   _spokenBillTables.remove(fromTable);
                 });
 
-                // कुक और वेटर दोनों को टेबल शिफ्ट ब्रॉडकास्ट
                 _broadcastLocal({
                   'type': 'TABLE_SHIFT',
                   'from_table': fromTable,
@@ -1554,7 +1447,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   .eq('table_no', tbl);
             } catch (_) {}
 
-            // पक्की इनवॉइस में पार्टनर की मुहर
             try {
               final invoiceRes = await Supabase.instance.client.from('invoices').insert({
                 'store_code': widget.storeCode,
@@ -1587,7 +1479,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
               }
             } catch (_) {}
 
-            // गल्ले की त्वरित रोकड़ में जोड़ना (ऑडिट के साथ)
             try {
               final source = isParcel ? 'PARCEL P-${tbl - 900}' : 'Table T-$tbl';
               await Supabase.instance.client.from('daily_expenses').insert({
@@ -1686,7 +1577,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
   }
 
   void _openParcelOrderSheet() {
-    final int parcelId = 900 + _parcelSeq; // पार्सल आईडी कोलिजन फिक्स
+    final int parcelId = 900 + _parcelSeq;
     _parcelSeq++;
 
     final Map<dynamic, int> cart = {};
@@ -1713,9 +1604,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 Expanded(
                   child: WaiterMenuOrderView(
                     onAddItem: (item) {
-                      setBState(() {
-                        cart[item.id] = (cart[item.id] ?? 0) + 1;
-                      });
+                      setBState(() => cart[item.id] = (cart[item.id] ?? 0) + 1);
                     },
                   ),
                 ),
@@ -1748,10 +1637,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                               });
                             } catch (_) {}
 
-                            setState(() {
-                              parcelOrders[parcelId] = newOrderItems;
-                            });
-
+                            setState(() => parcelOrders[parcelId] = newOrderItems);
                             if (mounted) Navigator.pop(context);
                           },
                     child: const Text('पार्सल KOT भेजें ➔',
@@ -1791,23 +1677,19 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 children: [
                   const Icon(Icons.verified_user, color: Colors.greenAccent, size: 13),
                   const SizedBox(width: 4),
-                  Text(
-                    'गल्ला प्रभारी: $_currentPartnerName',
-                    style: const TextStyle(color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold),
-                  ),
+                  Text('गल्ला प्रभारी: $_currentPartnerName',
+                      style: const TextStyle(color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold)),
                 ],
               ),
             ],
           ),
           backgroundColor: const Color(0xFF0F172A),
           actions: [
-            // हैंडओवर बटन
             TextButton.icon(
               icon: const Icon(Icons.swap_horiz, color: Colors.amberAccent, size: 18),
               label: const Text('हैंडओवर', style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 12)),
               onPressed: _showPartnerHandoverDialog,
             ),
-            // QR कोड जनरेटर बटन
             IconButton(
               icon: const Icon(Icons.qr_code_2, color: Colors.white),
               tooltip: 'टेबल QR स्टैंडी',
@@ -1824,7 +1706,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
             ),
             IconButton(
               icon: const Icon(Icons.inventory_2_outlined, color: Colors.lightGreenAccent),
-              tooltip: 'स्मार्ट राशन व वेंडर्स',
+              tooltip: 'स्मार्ट राशन',
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => VendorRationScreen(storeCode: widget.storeCode)),
@@ -1832,7 +1714,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
             ),
             IconButton(
               icon: const Icon(Icons.emoji_events_outlined, color: Colors.amberAccent),
-              tooltip: 'स्टार वेटर लीडरबोर्ड',
+              tooltip: 'स्टार वेटर',
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => StarWaiterScreen(storeCode: widget.storeCode)),
@@ -1840,7 +1722,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
             ),
             IconButton(
               icon: const Icon(Icons.handshake_outlined, color: Colors.cyanAccent),
-              tooltip: 'पार्टनर लेज़र व बंटवारा',
+              tooltip: 'पार्टनर लेज़र',
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => PartnerLedgerScreen(storeCode: widget.storeCode)),
@@ -1874,15 +1756,13 @@ class _FullCounterAppState extends State<FullCounterApp> {
             child: Container(
               color: const Color(0xFF1E293B),
               child: Center(
-                  child: Text(
-                      'हॉटस्पॉट सर्वर IP: $localIp (ऑटो-डिस्कवरी सक्रिय)',
+                  child: Text('हॉटस्पॉट सर्वर IP: $localIp (ऑटो-डिस्कवरी सक्रिय)',
                       style: const TextStyle(color: Colors.yellowAccent, fontSize: 13))),
             ),
           ),
         ),
         body: Column(
           children: [
-            // पेंडिंग ऑनलाइन QR ऑर्डर अलर्ट बैनर
             if (pendingQrOrders.isNotEmpty)
               Container(
                 color: Colors.amber.shade100,
@@ -1892,10 +1772,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     const Icon(Icons.notifications_active, color: Colors.deepOrange),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        '🔔 ${pendingQrOrders.length} नए QR टेबल ऑर्डर मंज़ूरी हेतु पेंडिंग हैं!',
-                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange),
-                      ),
+                      child: Text('🔔 ${pendingQrOrders.length} नए QR टेबल ऑर्डर मंज़ूरी हेतु पेंडिंग हैं!',
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
                     ),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
@@ -2003,9 +1881,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   Color c = st == 'bill_ready'
                       ? Colors.purple
                       : (st == 'running' ? Colors.red : Colors.green);
-                  String label = st == 'bill_ready'
-                      ? 'बिल तैयार 🔔'
-                      : (st == 'running' ? 'ऑर्डर चालू' : 'खाली');
+                  String label = st == 'bill_ready' ? 'बिल तैयार 🔔' : (st == 'running' ? 'ऑर्डर चालू' : 'खाली');
 
                   return InkWell(
                     onTap: st != 'empty' ? () => _settleBill(tbl) : null,
@@ -2028,7 +1904,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 }
 
 // =========================================================================
-// 9. वेटर ऐप (Battery Saver - 25s Polling & Security Bypass Fixed)
+// 6. वेटर ऐप (25s Polling & Security Bypass Fixed)
 // =========================================================================
 class FullWaiterApp extends StatefulWidget {
   final String storeCode, staffId;
@@ -2054,7 +1930,6 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
     _loadMenu();
     _initNetworkAndSync();
 
-    // 25 second optimized timer: agar socket chalu hai toh cloud sync pause rahega
     _waiterSyncTimer = Timer.periodic(const Duration(seconds: 25), (_) {
       if (!_socketConnected) {
         _connectToSocket();
@@ -2062,8 +1937,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
       }
     });
 
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => checkForAppUpdates(context));
+    WidgetsBinding.instance.addPostFrameCallback((_) => checkForAppUpdates(context));
   }
 
   @override
@@ -2082,8 +1956,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
 
   void _connectToSocket() async {
     try {
-      _waiterSocket = await Socket.connect(_counterIp, tcpServerPort,
-          timeout: const Duration(seconds: 2));
+      _waiterSocket = await Socket.connect(_counterIp, tcpServerPort, timeout: const Duration(seconds: 2));
       if (mounted) setState(() => _socketConnected = true);
       _waiterSocket!.write(jsonEncode({'type': 'GET_MENU'}) + "\n");
 
@@ -2105,9 +1978,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
           onDone: () => setState(() => _socketConnected = false),
           onError: (_) => setState(() => _socketConnected = false));
     } catch (_) {
-      if (mounted && _socketConnected) {
-        setState(() => _socketConnected = false);
-      }
+      if (mounted && _socketConnected) setState(() => _socketConnected = false);
     }
   }
 
@@ -2207,7 +2078,6 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                 final prefs = await SharedPreferences.getInstance();
                 final savedMasterPin = prefs.getString('cached_master_pin_${widget.storeCode}');
 
-                // Security Bypass Fix: null bypass hataya gaya hai
                 bool isAuthorized = (savedMasterPin != null && enteredPin == savedMasterPin);
 
                 if (!isAuthorized) {
@@ -2265,7 +2135,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                   );
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('❌ गलत काउंटर पिन! छूट की अनुमति नहीं है।'), backgroundColor: Colors.red),
+                    const SnackBar(content: Text('❌ गलत काउंटर पिन!'), backgroundColor: Colors.red),
                   );
                 }
               },
@@ -2302,8 +2172,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('टेबल T-$tableNum ऑर्डर व री-ऑर्डर',
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text('टेबल T-$tableNum ऑर्डर व री-ऑर्डर', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
                   ],
                 ),
@@ -2326,9 +2195,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                   child: WaiterMenuOrderView(
                     cart: cart,
                     onAddItem: (item) {
-                      setBState(() {
-                        cart[item.id] = (cart[item.id] ?? 0) + 1;
-                      });
+                      setBState(() => cart[item.id] = (cart[item.id] ?? 0) + 1);
                     },
                     onRemoveItem: (item) {
                       setBState(() {
@@ -2454,8 +2321,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
     if (mounted) {
-      Navigator.pushAndRemoveUntil(
-          context, MaterialPageRoute(builder: (_) => const AppGateway()), (r) => false);
+      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const AppGateway()), (r) => false);
     }
   }
 
@@ -2521,7 +2387,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
 }
 
 // =========================================================================
-// 10. कुक KDS (Battery Saver & Table Shift Fixed)
+// 7. कुक KDS (किचन डिस्प्ले सिस्टम)
 // =========================================================================
 class FullCookApp extends StatefulWidget {
   final String storeCode;
@@ -2543,7 +2409,6 @@ class _FullCookAppState extends State<FullCookApp> {
     super.initState();
     _initNetworkAndSync();
 
-    // 25s Battery Saver Timer
     _cookSyncTimer = Timer.periodic(const Duration(seconds: 25), (_) {
       if (!_socketConnected) {
         _connectToSocket();
@@ -2551,8 +2416,7 @@ class _FullCookAppState extends State<FullCookApp> {
       }
     });
 
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => checkForAppUpdates(context));
+    WidgetsBinding.instance.addPostFrameCallback((_) => checkForAppUpdates(context));
   }
 
   @override
@@ -2571,8 +2435,7 @@ class _FullCookAppState extends State<FullCookApp> {
 
   void _connectToSocket() async {
     try {
-      _cookSocket = await Socket.connect(_counterIp, tcpServerPort,
-          timeout: const Duration(seconds: 2));
+      _cookSocket = await Socket.connect(_counterIp, tcpServerPort, timeout: const Duration(seconds: 2));
       if (mounted) setState(() => _socketConnected = true);
 
       _cookSocket!.listen((data) {
@@ -2593,7 +2456,6 @@ class _FullCookAppState extends State<FullCookApp> {
                 VoiceService.speak("टेबल $tbl पर नया ऑर्डर आया है");
               }
             } else if (msg['type'] == 'TABLE_SHIFT' && mounted) {
-              // Table Shift Fix: Cook screen par table no badalna
               int fromTbl = msg['from_table'];
               int toTbl = msg['to_table'];
               setState(() {
@@ -2611,9 +2473,7 @@ class _FullCookAppState extends State<FullCookApp> {
           onDone: () => setState(() => _socketConnected = false),
           onError: (_) => setState(() => _socketConnected = false));
     } catch (_) {
-      if (mounted && _socketConnected) {
-        setState(() => _socketConnected = false);
-      }
+      if (mounted && _socketConnected) setState(() => _socketConnected = false);
     }
   }
 
@@ -2693,8 +2553,7 @@ class _FullCookAppState extends State<FullCookApp> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
     if (mounted) {
-      Navigator.pushAndRemoveUntil(
-          context, MaterialPageRoute(builder: (_) => const AppGateway()), (r) => false);
+      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const AppGateway()), (r) => false);
     }
   }
 
@@ -2745,9 +2604,7 @@ class _FullCookAppState extends State<FullCookApp> {
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
-                                      isParcel
-                                          ? '📦 पार्सल: P-${ord['table'] - 900}'
-                                          : 'टेबल: T-${ord['table']}',
+                                      isParcel ? '📦 पार्सल: P-${ord['table'] - 900}' : 'टेबल: T-${ord['table']}',
                                       style: TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.bold,
