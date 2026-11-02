@@ -1869,58 +1869,98 @@ class _FullCounterAppState extends State<FullCounterApp> {
             Navigator.pop(context);
 
             final String currentWaiterId = tableWaiterMap[tbl] ?? 'SELF_COUNTER';
-            final String generatedBillNo = 'BILL-${DateTime.now().millisecondsSinceEpoch % 100000}';
+            final String generatedBillNo = 'BILL-${DateTime.now().millisecondsSinceEpoch}';
+            final String source = isParcel ? 'PARCEL P-${tbl - 900}' : 'Table T-$tbl';
+            late final String newInvoiceId;
 
+            // Invoice और उसके सभी items सेव हुए बिना टेबल/पार्सल ऑर्डर हटाएँ नहीं।
+            try {
+              final invoiceRes = await Supabase.instance.client
+                  .from('invoices')
+                  .insert({
+                    'store_code': widget.storeCode,
+                    'bill_no': generatedBillNo,
+                    'table_no': tbl,
+                    'waiter_id': isParcel ? 'PARCEL' : currentWaiterId,
+                    'cashier_partner_id': _currentPartnerId,
+                    'cashier_partner_name': _currentPartnerName,
+                    'subtotal': subTotal,
+                    'discount_pct': enteredPct,
+                    'discount_amt': discountAmt,
+                    'final_amount': finalPayable,
+                    'payment_mode': mode,
+                    'created_at': DateTime.now().toIso8601String(),
+                  })
+                  .select('id')
+                  .single();
+
+              newInvoiceId = invoiceRes['id'].toString();
+              final List<Map<String, dynamic>> itemsToInsert = items.map((it) {
+                final double price = (it['price'] as num?)?.toDouble() ?? 0.0;
+                final int quantity = (it['qty'] as num?)?.toInt() ?? 1;
+                return {
+                  if (it['id'] != null) 'item_id': it['id'].toString(),
+                  'invoice_id': newInvoiceId,
+                  'item_name': it['name'] ?? '',
+                  'category': it['category'] ?? it['cat'] ?? 'General',
+                  'price': price,
+                  'qty': quantity,
+                  'total_price': price * quantity,
+                };
+              }).toList();
+
+              try {
+                await Supabase.instance.client
+                    .from('invoice_items')
+                    .insert(itemsToInsert);
+              } catch (error) {
+                await Supabase.instance.client
+                    .from('invoices')
+                    .delete()
+                    .eq('id', newInvoiceId);
+                rethrow;
+              }
+            } catch (error) {
+              if (mounted) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(content: Text('बिल डेटाबेस में सेव नहीं हुआ; ऑर्डर सुरक्षित रखा गया: $error')),
+                );
+              }
+              return;
+            }
+
+            // अब बिल सुरक्षित है; KOT को settled करें।
             try {
               await Supabase.instance.client
                   .from('hotel_kots')
                   .update({'status': 'settled'})
                   .eq('store_code', widget.storeCode)
                   .eq('table_no', tbl);
-            } catch (_) {}
-
-            try {
-              final invoiceRes = await Supabase.instance.client.from('invoices').insert({
-                'store_code': widget.storeCode,
-                'bill_no': generatedBillNo,
-                'table_no': tbl,
-                'waiter_id': isParcel ? 'PARCEL' : currentWaiterId,
-                'cashier_partner_id': _currentPartnerId,
-                'subtotal': subTotal,
-                'discount_amt': discountAmt,
-                'final_amount': finalPayable,
-                'payment_mode': mode,
-                'created_at': DateTime.now().toIso8601String(),
-              }).select('id').maybeSingle();
-
-              if (invoiceRes != null && invoiceRes['id'] != null) {
-                final String newInvoiceId = invoiceRes['id'].toString();
-                final List<Map<String, dynamic>> itemsToInsert = items.map((it) {
-                  final double p = (it['price'] as num?)?.toDouble() ?? 0.0;
-                  final int q = (it['qty'] as num?)?.toInt() ?? 1;
-                  return {
-                    'invoice_id': newInvoiceId,
-                    'item_name': it['name'] ?? '',
-                    'category': it['category'] ?? it['cat'] ?? 'General',
-                    'price': p,
-                    'qty': q,
-                    'total_price': p * q,
-                  };
-                }).toList();
-                await Supabase.instance.client.from('invoice_items').insert(itemsToInsert);
+            } catch (error) {
+              if (mounted) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(content: Text('बिल सेव है, लेकिन KOT स्थिति अपडेट नहीं हुई: $error')),
+                );
               }
-            } catch (_) {}
+            }
 
+            // Cash ledger में UPI और नकद बिक्री का माध्यम स्पष्ट रखें।
             try {
-              final source = isParcel ? 'PARCEL P-${tbl - 900}' : 'Table T-$tbl';
               await Supabase.instance.client.from('daily_expenses').insert({
                 'restaurant_id': widget.storeCode,
+                'store_code': widget.storeCode,
                 'title': '$source Sale ($mode) [प्रभारी: $_currentPartnerName]',
                 'amount': finalPayable,
                 'type': 'CASH_IN',
                 'created_at': DateTime.now().toIso8601String(),
               });
-            } catch (_) {}
+            } catch (error) {
+              if (mounted) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(content: Text('बिल सेव है, लेकिन कैश/UPI लेजर सिंक नहीं हुआ: $error')),
+                );
+              }
+            }
 
             if (isParcel) {
               setState(() => parcelOrders.remove(tbl));
@@ -1935,6 +1975,66 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
             _fetchDailyBalances();
             VoiceService.speak("बिल ₹${finalPayable.toInt()} $mode से प्राप्त हुआ");
+
+            // Hindi PDF में वास्तविक UPI राशि और Google Review QR शामिल करें।
+            try {
+              final profile = _restoProfile;
+              final receipt = await buildThermalReceiptPdf(
+                hotelName: profile?.name ?? widget.hotelName,
+                address: profile?.address,
+                phone: profile?.phone,
+                fssai: profile?.fssaiNumber,
+                gstin: profile?.gstNumber,
+                tbl: tbl,
+                billNo: generatedBillNo,
+                paymentMode: mode,
+                cashierName: _currentPartnerName,
+                items: items,
+                subTotal: subTotal,
+                discount: discountAmt,
+                discountPct: enteredPct,
+                upiId: profile?.upiId,
+                reviewUrl: profile?.googleReviewLink,
+                paperWidthMm: 58,
+              );
+              final directory = await getTemporaryDirectory();
+              final pdfFile = File('${directory.path}/$generatedBillNo.pdf');
+              await pdfFile.writeAsBytes(await receipt.save(), flush: true);
+
+              if (mounted) {
+                final shouldShare = await showDialog<bool>(
+                  context: this.context,
+                  builder: (shareContext) => AlertDialog(
+                    title: const Text('बिल तैयार है'),
+                    content: const Text('क्या इस बिल को WhatsApp या किसी अन्य ऐप पर भेजना है?'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(shareContext, false),
+                        child: const Text('बाद में'),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () => Navigator.pop(shareContext, true),
+                        icon: const Icon(Icons.share),
+                        label: const Text('बिल शेयर करें'),
+                      ),
+                    ],
+                  ),
+                );
+
+                if (shouldShare == true) {
+                  await Share.shareXFiles(
+                    [XFile(pdfFile.path)],
+                    text: '${profile?.name ?? widget.hotelName} का बिल $generatedBillNo',
+                  );
+                }
+              }
+            } catch (error) {
+              if (mounted) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(content: Text('बिल सेव हो गया, लेकिन PDF/शेयर तैयार नहीं हुआ: $error')),
+                );
+              }
+            }
           }
 
           return AlertDialog(
