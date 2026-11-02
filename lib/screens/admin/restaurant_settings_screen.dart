@@ -98,6 +98,100 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
     }
   }
 
+  Future<void> _settleVendorBalance(HotelVendorModel vendor) async {
+    if (vendor.currentBalance <= 0) return;
+    final amountCtrl = TextEditingController();
+    String paymentMode = 'DRAWER_CASH';
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('वेंडर भुगतान: ${vendor.vendorName}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('कुल बकाया: ₹${vendor.currentBalance.toStringAsFixed(2)}'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: amountCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'भुगतान राशि',
+                  prefixText: '₹ ',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: paymentMode,
+                decoration: const InputDecoration(labelText: 'भुगतान माध्यम', border: OutlineInputBorder()),
+                items: const [
+                  DropdownMenuItem(value: 'DRAWER_CASH', child: Text('कैश गल्ला')),
+                  DropdownMenuItem(value: 'UPI', child: Text('UPI / बैंक')),
+                ],
+                onChanged: (value) {
+                  if (value != null) setDialogState(() => paymentMode = value);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('रद्द करें'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final amount = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
+                if (amount <= 0 || amount > vendor.currentBalance) {
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    const SnackBar(content: Text('राशि शून्य से अधिक और बकाया से कम/बराबर होनी चाहिए।')),
+                  );
+                  return;
+                }
+
+                String? expenseId;
+                try {
+                  final expense = await _supabase.from('daily_expenses').insert({
+                    'restaurant_id': widget.storeCode,
+                    'store_code': widget.storeCode,
+                    'title': 'वेंडर भुगतान: ${vendor.vendorName}',
+                    'amount': amount,
+                    'type': paymentMode == 'UPI' ? 'VENDOR_PAYMENT_UPI' : 'VENDOR_PAYMENT_CASH',
+                    'created_at': DateTime.now().toIso8601String(),
+                  }).select('id').single();
+                  expenseId = expense['id'].toString();
+
+                  await _supabase.from('hotel_vendors').update({
+                    'current_balance': vendor.currentBalance - amount,
+                  }).eq('id', vendor.id);
+
+                  if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                } catch (error) {
+                  if (expenseId != null) {
+                    try {
+                      await _supabase.from('daily_expenses').delete().eq('id', expenseId);
+                    } catch (_) {}
+                  }
+                  if (mounted) {
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(content: Text('वेंडर भुगतान सेव नहीं हुआ: $error')),
+                    );
+                  }
+                }
+              },
+              child: const Text('भुगतान सेव करें'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    amountCtrl.dispose();
+    if (saved == true) await _fetchPartnersAndVendors();
+  }
+
   Future<void> _saveHotelProfile() async {
     setState(() => _isLoading = true);
     final updated = RestaurantProfileModel(
@@ -405,10 +499,21 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
                                   ),
                                 ),
                                 title: Text(v.vendorName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                subtitle: Text('केटेगरी: ${v.category}  •  फ़ोन: ${v.phone ?? "N/A"}'),
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.edit, color: Colors.blue),
-                                  onPressed: () => _openVendorDialog(v),
+                                subtitle: Text('केटेगरी: ${v.category}  •  फ़ोन: ${v.phone ?? "N/A"}  •  बकाया: ₹${v.currentBalance.toStringAsFixed(0)}'),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (v.currentBalance > 0)
+                                      IconButton(
+                                        tooltip: 'बकाया भुगतान',
+                                        icon: const Icon(Icons.payments, color: Colors.green),
+                                        onPressed: () => _settleVendorBalance(v),
+                                      ),
+                                    IconButton(
+                                      icon: const Icon(Icons.edit, color: Colors.blue),
+                                      onPressed: () => _openVendorDialog(v),
+                                    ),
+                                  ],
                                 ),
                               ),
                             );
