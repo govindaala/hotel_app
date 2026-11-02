@@ -885,20 +885,32 @@ class _FullCounterAppState extends State<FullCounterApp> {
           if (entity == 'hotel_kots') {
             await Supabase.instance.client
                 .from('hotel_kots')
-                .upsert(payload, onConflict: 'id');
+                .upsert(payload, onConflict: 'id')
+                .select('id')
+                .single();
             await OfflineDatabase.instance.markSynced(operation['id'].toString());
           } else if (entity == 'hotel_kots_update') {
-            await Supabase.instance.client
+            final updatedRows = await Supabase.instance.client
                 .from('hotel_kots')
                 .update({'status': payload['status']})
-                .eq('id', payload['id']);
+                .eq('id', payload['id'])
+                .select('id');
+            if ((updatedRows as List).isEmpty) {
+              throw StateError('KOT ${payload['id']} नहीं मिला; ऑफलाइन अपडेट कतार में रखा गया।');
+            }
             await OfflineDatabase.instance.markSynced(operation['id'].toString());
           } else if (entity == 'counter_inventory_update') {
-            await Supabase.instance.client
+            final updatedRows = await Supabase.instance.client
                 .from('counter_inventory')
                 .update({'stock_qty': payload['stock_qty']})
-                .eq('id', payload['id']);
+                .eq('id', payload['id'])
+                .select('id');
+            if ((updatedRows as List).isEmpty) {
+              throw StateError('काउंटर स्टॉक आइटम ${payload['id']} नहीं मिला; अपडेट कतार में रखा गया।');
+            }
             await OfflineDatabase.instance.markSynced(operation['id'].toString());
+          } else {
+            throw StateError('अज्ञात ऑफलाइन ऑपरेशन: $entity; रिकॉर्ड कतार में सुरक्षित रखा गया।');
           }
         } catch (error) {
           await OfflineDatabase.instance.recordFailure(operation['id'].toString(), error);
