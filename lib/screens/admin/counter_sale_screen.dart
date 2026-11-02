@@ -251,7 +251,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     }
   }
 
-  Future<void> _processCheckout(String mode, {bool shouldPrint = false}) async {
+  Future<void> _processCheckout(String mode) async {
     if (cart.isEmpty) return;
 
     final double total = grandTotal;
@@ -351,8 +351,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         });
       }
 
-      if (shouldPrint && selectedTable == 'काउंटर सेल (डायरेक्ट)') {
-        await _printReceipt(mode, total, billNo: directSaleBillNo);
+      if (selectedTable == 'काउंटर सेल (डायरेक्ट)') {
+        await _printReceipt(mode == 'PAID_PRINT' ? 'CASH' : mode, total, billNo: directSaleBillNo);
       }
 
       if (mounted) {
@@ -808,8 +808,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                                   child: ElevatedButton.icon(
                                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A), padding: const EdgeInsets.symmetric(vertical: 12)),
                                     icon: const Icon(Icons.print, color: Colors.white, size: 18),
-                                    label: const Text('प्रिंट', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                    onPressed: cart.isEmpty ? null : () => _processCheckout('PAID_PRINT', shouldPrint: true),
+                                    label: const Text('नकद + प्रिंट', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                    onPressed: cart.isEmpty ? null : () => _processCheckout('PAID_PRINT'),
                                   ),
                                 ),
                               ],
