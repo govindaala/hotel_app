@@ -1433,6 +1433,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
     final savedAddr = prefs.getString('saved_hotel_address') ?? '';
     final savedPhone = prefs.getString('saved_hotel_phone') ?? '';
     final savedUpi = prefs.getString('saved_hotel_upi') ?? '';
+    final savedReview = prefs.getString('saved_hotel_review') ?? '';
+    final savedFooter = prefs.getString('saved_hotel_footer') ?? '';
 
     if (mounted) {
       setState(() {
@@ -1442,6 +1444,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
           'phone': savedPhone,
           'address': savedAddr,
           'upi_id': savedUpi,
+          'google_review_link': savedReview,
+          'footer_message': savedFooter,
         });
       });
     }
