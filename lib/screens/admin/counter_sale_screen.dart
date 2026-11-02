@@ -297,7 +297,35 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   Future<void> _processCheckout(String mode) async {
     if (cart.isEmpty) return;
 
-    // Recheck stock at checkout because the cart may have stayed open while inventory changed.
+    // Refresh stock from the server before checkout when online; keep cached stock as offline fallback.
+    final itemIds = cart.values
+        .map((item) => item['id'])
+        .where((id) => id != null)
+        .toSet()
+        .toList();
+    if (itemIds.isNotEmpty) {
+      try {
+        final latestRows = await supabase
+            .from('counter_inventory')
+            .select('id, stock_qty')
+            .inFilter('id', itemIds);
+        final stockById = <String, int>{
+          for (final row in latestRows)
+            row['id'].toString(): ((row['stock_qty'] as num?)?.toInt() ?? 0),
+        };
+        for (final item in cart.values) {
+          final id = item['id'];
+          if (id != null && stockById.containsKey(id.toString())) {
+            item['stock'] = stockById[id.toString()];
+          }
+        }
+      } catch (error) {
+        // Keep the locally cached stock for LAN/offline sales if the cloud cannot be reached.
+        debugPrint('Could not refresh inventory before checkout; using cached stock: $error');
+      }
+    }
+
+    // Recheck available stock after refreshing the cart snapshot.
     for (final item in cart.values) {
       if (item['id'] == null) continue;
       final int currentStock = (item['stock'] as num?)?.toInt() ?? 0;
