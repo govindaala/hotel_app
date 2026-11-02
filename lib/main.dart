@@ -1413,15 +1413,22 @@ class _FullCounterAppState extends State<FullCounterApp> {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('saved_staff_cache_${widget.storeCode}');
     if (saved != null) {
-      _staffCache = List<Map<String, dynamic>>.from(jsonDecode(saved));
+      _staffCache = List<Map<String, dynamic>>.from(jsonDecode(saved))
+          .where((staff) => staff['is_active'] != false)
+          .toList();
     }
     try {
-      final res = await Supabase.instance.client.from('hotel_staff').select().eq('store_code', widget.storeCode);
-      if (res != null) {
-        _staffCache = List<Map<String, dynamic>>.from(res);
-        await prefs.setString('saved_staff_cache_${widget.storeCode}', jsonEncode(_staffCache));
-      }
-    } catch (_) {}
+      final res = await Supabase.instance.client
+          .from('hotel_staff')
+          .select()
+          .eq('store_code', widget.storeCode);
+      _staffCache = List<Map<String, dynamic>>.from(res)
+          .where((staff) => staff['is_active'] != false)
+          .toList();
+      await prefs.setString('saved_staff_cache_${widget.storeCode}', jsonEncode(_staffCache));
+    } catch (error) {
+      debugPrint('Staff cache cloud refresh failed; using saved staff: $error');
+    }
   }
 
   void _loadRestoProfile() async {
