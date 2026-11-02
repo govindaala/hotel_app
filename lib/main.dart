@@ -3665,14 +3665,15 @@ class _FullCookAppState extends State<FullCookApp> {
               final newKotMap = Map<String, dynamic>.from(msg);
               newKotMap['created_at'] = msg['created_at'] ?? DateTime.now().toIso8601String();
               final kotId = newKotMap['id']?.toString();
-              if (kotId == null || _seenKotIds.add(kotId)) {
+              final isNewKot = kotId == null || _seenKotIds.add(kotId);
+              if (isNewKot) {
+                if (kotId != null) _spokenOrderKots.add(kotId);
                 setState(() => kitchenOrders.insert(0, newKotMap));
-              }
-
-              if (tbl >= 900) {
-                VoiceService.speak("नया पार्सल ऑर्डर आया है");
-              } else {
-                VoiceService.speak("टेबल $tbl पर नया ऑर्डर आया है");
+                if (tbl >= 900) {
+                  VoiceService.speak("नया पार्सल ऑर्डर आया है");
+                } else {
+                  VoiceService.speak("टेबल $tbl पर नया ऑर्डर आया है");
+                }
               }
             } else if (msg['type'] == 'TABLE_SHIFT' && mounted) {
               int fromTbl = msg['from_table'];
@@ -3689,8 +3690,12 @@ class _FullCookAppState extends State<FullCookApp> {
           } catch (_) {}
         }
       },
-          onDone: () => setState(() => _socketConnected = false),
-          onError: (_) => setState(() => _socketConnected = false));
+          onDone: () {
+            if (mounted) setState(() => _socketConnected = false);
+          },
+          onError: (_) {
+            if (mounted) setState(() => _socketConnected = false);
+          });
     } catch (_) {
       if (mounted && _socketConnected) setState(() => _socketConnected = false);
     }
