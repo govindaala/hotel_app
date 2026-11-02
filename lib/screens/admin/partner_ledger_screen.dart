@@ -67,7 +67,7 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
       final expenseData = await _supabase
           .from('daily_expenses')
           .select('amount, type')
-          .eq('restaurant_id', widget.storeCode)
+          .or('restaurant_id.eq.${widget.storeCode},store_code.eq.${widget.storeCode}')
           .gte('created_at', firstDayOfMonth)
           .lt('created_at', nextMonth);
 
