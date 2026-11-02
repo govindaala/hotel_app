@@ -61,9 +61,10 @@ jobs:
       - name: Upload APK Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AALA-POS-${{ github.ref_name }}-${{ github.run_number }}
+          name: AALA-POS-${{ github.run_number }}
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
+          if-no-files-found: error
 
       - name: Publish Direct APK Release (No Zip)
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
