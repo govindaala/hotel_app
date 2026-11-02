@@ -293,7 +293,6 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 
   RawDatagramSocket? _discoverySocket;
   String _discoveredMasterIp = '';
-  String _discoveredStoreCode = '';
   bool _masterFound = false;
 
   @override
@@ -329,8 +328,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
                 final String mIp = data['master_ip'] ?? '';
                 setState(() {
                   _discoveredMasterIp = mIp;
-                  _discoveredStoreCode = sCode;
-                  _masterFound = true;
+                            _masterFound = true;
                   if (_codeCtrl.text.isEmpty || _codeCtrl.text == '111') {
                     _codeCtrl.text = sCode;
                   }
@@ -455,7 +453,6 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
         : (prefs.getString('saved_counter_ip') ?? '192.168.43.1');
 
     bool authSuccess = false;
-    String hotelName = 'होटल';
     int tableCount = 10;
 
     try {
@@ -480,7 +477,6 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
             final msg = jsonDecode(l);
             if (msg['type'] == 'AUTH_RESULT') {
               if (msg['success'] == true) {
-                hotelName = msg['hotel_name'] ?? 'होटल';
                 tableCount = msg['tables'] ?? 10;
                 if (!completer.isCompleted) completer.complete(true);
               } else {
