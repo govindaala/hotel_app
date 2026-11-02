@@ -60,15 +60,88 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
 
   Future<void> _loadOpeningCash() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _openingCash = prefs.getDouble(_todayKey) ?? 0.0;
-    });
+    var openingCash = prefs.getDouble(_todayKey) ?? 0.0;
+    final dayStart = DateTime(_now.year, _now.month, _now.day);
+    final nextDay = dayStart.add(const Duration(days: 1));
+
+    try {
+      final rows = await supabase
+          .from('daily_expenses')
+          .select('amount')
+          .eq('restaurant_id', widget.restaurantId)
+          .eq('type', 'OPENING_CASH')
+          .gte('created_at', dayStart.toIso8601String())
+          .lt('created_at', nextDay.toIso8601String())
+          .order('created_at', ascending: false)
+          .limit(1);
+      if (rows.isNotEmpty) {
+        openingCash = (rows.first['amount'] as num?)?.toDouble() ?? openingCash;
+        await prefs.setDouble(_todayKey, openingCash);
+      }
+    } catch (_) {}
+
+    if (mounted) setState(() => _openingCash = openingCash);
   }
 
   Future<void> _saveOpeningCash(double amount) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_todayKey, amount);
-    setState(() => _openingCash = amount);
+    final now = DateTime.now();
+    final dayStart = DateTime(now.year, now.month, now.day);
+    final nextDay = dayStart.add(const Duration(days: 1));
+
+    try {
+      final existing = await supabase
+          .from('daily_expenses')
+          .select('id')
+          .eq('restaurant_id', widget.restaurantId)
+          .eq('type', 'OPENING_CASH')
+          .gte('created_at', dayStart.toIso8601String())
+          .lt('created_at', nextDay.toIso8601String())
+          .order('created_at', ascending: false)
+          .limit(1);
+
+      if (existing.isNotEmpty) {
+        await supabase.from('daily_expenses').update({
+          'title': 'दिन की शुरुआती रोकड़',
+          'amount': amount,
+          'created_at': now.toIso8601String(),
+        }).eq('id', existing.first['id']);
+      } else {
+        await supabase.from('daily_expenses').insert({
+          'restaurant_id': widget.restaurantId,
+          'store_code': widget.restaurantId,
+          'title': 'दिन की शुरुआती रोकड़',
+          'amount': amount,
+          'type': 'OPENING_CASH',
+          'created_at': now.toIso8601String(),
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ओपनिंग गल्ला डिवाइस पर सेव हुआ, क्लाउड सिंक नहीं हुआ: $error')),
+        );
+      }
+    }
+
+    if (mounted) setState(() => _openingCash = amount);
+  }
+
+  Future<void> _saveClosingAudit({
+    required double expectedCash,
+    required double actualCash,
+  }) async {
+    final difference = actualCash - expectedCash;
+    await supabase.from('daily_expenses').insert({
+      'restaurant_id': widget.restaurantId,
+      'store_code': widget.restaurantId,
+      'title': 'क्लोजिंग ऑडिट | सिस्टम ₹${expectedCash.toStringAsFixed(2)} | वास्तविक ₹${actualCash.toStringAsFixed(2)} | अंतर ₹${difference.toStringAsFixed(2)}',
+      'amount': actualCash,
+      'type': 'CASH_CLOSING',
+      'created_at': DateTime.now().toIso8601String(),
+    });
+    await _fetchRecords();
   }
 
   DateTimeRange _calculateRange() {
@@ -309,6 +382,26 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('बंद करें')),
+              ElevatedButton(
+                onPressed: hasEntered
+                    ? () async {
+                        try {
+                          await _saveClosingAudit(
+                            expectedCash: expectedCash,
+                            actualCash: actualCash,
+                          );
+                          if (mounted) Navigator.pop(ctx);
+                        } catch (error) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('क्लोजिंग ऑडिट सेव नहीं हुआ: $error')),
+                            );
+                          }
+                        }
+                      }
+                    : null,
+                child: const Text('क्लोजिंग सेव करें'),
+              ),
             ],
           );
         },
@@ -400,19 +493,31 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
 
   @override
   Widget build(BuildContext context) {
-    double totalIn = 0;
-    double totalOut = 0;
+    double cashIn = 0;
+    double bankIn = 0;
+    double cashOut = 0;
+    double bankOut = 0;
 
-    for (var r in _records) {
-      final amt = (r['amount'] as num?)?.toDouble() ?? 0.0;
-      if (r['type'] == 'CASH_IN') {
-        totalIn += amt;
-      } else {
-        totalOut += amt;
+    for (final record in _records) {
+      final amount = (record['amount'] as num?)?.toDouble() ?? 0.0;
+      final type = (record['type'] ?? '').toString().toUpperCase();
+      final title = (record['title'] ?? '').toString();
+
+      if (type == 'CASH_IN') {
+        if (title.contains('(UPI)') || title.contains('बैंक')) {
+          bankIn += amount;
+        } else {
+          cashIn += amount;
+        }
+      } else if (type == 'EXPENSE_UPI' || type == 'BANK_OUT') {
+        bankOut += amount;
+      } else if (type == 'EXPENSE' || type == 'EXPENSE_CASH' || type == 'CASH_OUT') {
+        cashOut += amount;
       }
     }
 
-    final double expectedDrawerCash = _openingCash + totalIn - totalOut;
+    final double expectedDrawerCash = _openingCash + cashIn - cashOut;
+    final double expectedBankBalance = bankIn - bankOut;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -502,15 +607,25 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
                   children: [
                     _buildSummaryBox('शुरुआती गल्ला', '₹${_openingCash.toStringAsFixed(0)}', Colors.orange, Icons.wb_sunny_outlined),
                     const SizedBox(width: 8),
-                    _buildSummaryBox('कुल जमा (+)', '₹${totalIn.toStringAsFixed(0)}', Colors.green, Icons.arrow_downward),
+                    _buildSummaryBox('कैश जमा (+)', '₹${cashIn.toStringAsFixed(0)}', Colors.green, Icons.arrow_downward),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    _buildSummaryBox('कुल खर्च (-)', '₹${totalOut.toStringAsFixed(0)}', Colors.redAccent, Icons.arrow_upward),
+                    _buildSummaryBox('कैश खर्च (-)', '₹${cashOut.toStringAsFixed(0)}', Colors.redAccent, Icons.arrow_upward),
                     const SizedBox(width: 8),
                     _buildSummaryBox('हाथ में गल्ला रोकड़', '₹${expectedDrawerCash.toStringAsFixed(0)}', const Color(0xFF0F172A), Icons.account_balance_wallet),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _buildSummaryBox('UPI जमा', '₹${bankIn.toStringAsFixed(0)}', Colors.blue, Icons.account_balance),
+                    const SizedBox(width: 8),
+                    _buildSummaryBox('UPI खर्च', '₹${bankOut.toStringAsFixed(0)}', Colors.deepOrange, Icons.account_balance_wallet),
+                    const SizedBox(width: 8),
+                    _buildSummaryBox('बैंक शेष', '₹${expectedBankBalance.toStringAsFixed(0)}', const Color(0xFF0F172A), Icons.savings),
                   ],
                 ),
               ],
@@ -533,7 +648,9 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
                         itemCount: _records.length,
                         itemBuilder: (ctx, i) {
                           final r = _records[i];
-                          final isIncome = r['type'] == 'CASH_IN';
+                          final recordType = (r['type'] ?? '').toString().toUpperCase();
+                          final isIncome = recordType == 'CASH_IN';
+                          final isAudit = recordType == 'OPENING_CASH' || recordType == 'CASH_CLOSING';
                           final date = DateTime.tryParse(r['created_at'] ?? '') ?? DateTime.now();
 
                           return Card(
@@ -546,10 +663,10 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
                             ),
                             child: ListTile(
                               leading: CircleAvatar(
-                                backgroundColor: isIncome ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
+                                backgroundColor: isAudit ? const Color(0xFFEFF6FF) : (isIncome ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2)),
                                 child: Icon(
-                                  isIncome ? Icons.arrow_downward : Icons.arrow_upward,
-                                  color: isIncome ? const Color(0xFF059669) : Colors.redAccent,
+                                  isAudit ? Icons.verified_outlined : (isIncome ? Icons.arrow_downward : Icons.arrow_upward),
+                                  color: isAudit ? Colors.blueGrey : (isIncome ? const Color(0xFF059669) : Colors.redAccent),
                                   size: 20,
                                 ),
                               ),
@@ -562,9 +679,9 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
                                 style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
                               ),
                               trailing: Text(
-                                '${isIncome ? "+" : "-"}₹${r['amount']}',
+                                '${isAudit ? "" : (isIncome ? "+" : "-")}₹${r['amount']}',
                                 style: TextStyle(
-                                  color: isIncome ? const Color(0xFF059669) : Colors.redAccent,
+                                  color: isAudit ? Colors.blueGrey : (isIncome ? const Color(0xFF059669) : Colors.redAccent),
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                 ),
