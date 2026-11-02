@@ -244,6 +244,7 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
 
   void _showProfitSplitDialog() {
     final double netProfit = (_monthlySales - _monthlyExpenses).clamp(0.0, double.infinity);
+    final now = DateTime.now();
 
     showDialog(
       context: context,
