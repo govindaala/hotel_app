@@ -887,6 +887,12 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 .from('hotel_kots')
                 .upsert(payload, onConflict: 'id');
             await OfflineDatabase.instance.markSynced(operation['id'].toString());
+          } else if (entity == 'hotel_kots_update') {
+            await Supabase.instance.client
+                .from('hotel_kots')
+                .update({'status': payload['status']})
+                .eq('id', payload['id']);
+            await OfflineDatabase.instance.markSynced(operation['id'].toString());
           }
         } catch (error) {
           await OfflineDatabase.instance.recordFailure(operation['id'].toString(), error);
@@ -4035,6 +4041,15 @@ class _FullCookAppState extends State<FullCookApp> {
     );
   }
 
+  Future<void> _queueOfflineKotStatus(String kotId, String status) async {
+    await OfflineDatabase.instance.enqueue(
+      id: '$kotId-status-$status',
+      storeCode: widget.storeCode,
+      entity: 'hotel_kots_update',
+      payload: {'id': kotId, 'status': status},
+    );
+  }
+
   void _markOrderReady(int index) async {
     final order = kitchenOrders[index];
     setState(() {
@@ -4049,21 +4064,24 @@ class _FullCookAppState extends State<FullCookApp> {
     }
 
     if (order['id'] != null) {
+      final kotId = order['id'].toString();
+      final createdAt = DateTime.tryParse(order['created_at']?.toString() ?? '') ?? DateTime.now();
       try {
-        final kotId = order['id'].toString();
-        final createdAt = DateTime.tryParse(order['created_at']?.toString() ?? '') ?? DateTime.now();
-
         await KitchenLearningService.recordKotCompletionAndLearn(
           storeCode: widget.storeCode,
           kotId: kotId,
           createdAt: createdAt,
         );
-      } catch (_) {
-        try {
-          await Supabase.instance.client
-              .from('hotel_kots')
-              .update({'status': 'ready'}).eq('id', order['id']);
-        } catch (_) {}
+      } catch (error) {
+        debugPrint('Kitchen learning update deferred: $error');
+      }
+      try {
+        await Supabase.instance.client
+            .from('hotel_kots')
+            .update({'status': 'ready'}).eq('id', kotId);
+      } catch (error) {
+        await _queueOfflineKotStatus(kotId, 'ready');
+        debugPrint('KOT ready status queued for cloud sync: $error');
       }
     }
 
@@ -4090,11 +4108,15 @@ class _FullCookAppState extends State<FullCookApp> {
     });
 
     if (order['id'] != null) {
+      final kotId = order['id'].toString();
       try {
         await Supabase.instance.client
             .from('hotel_kots')
-            .update({'status': 'pending'}).eq('id', order['id']);
-      } catch (_) {}
+            .update({'status': 'pending'}).eq('id', kotId);
+      } catch (error) {
+        await _queueOfflineKotStatus(kotId, 'pending');
+        debugPrint('KOT undo status queued for cloud sync: $error');
+      }
     }
   }
 
