@@ -1,7 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
+import '../../receipt_generator.dart';
+import '../../services/usb_printer_service.dart';
 
 class CounterSaleScreen extends StatefulWidget {
   final String storeCode;
@@ -22,6 +26,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   bool isLoading = true;
   String? fetchErrorMessage;
 
+  Map<String, dynamic> _hotelProfile = {};
   Map<String, List<Map<String, dynamic>>> inventoryGroups = {};
   String? selectedCategory;
   final Map<String, Map<String, dynamic>> cart = {};
@@ -46,12 +51,15 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     try {
       final hotelRes = await supabase
           .from('restaurants')
-          .select('total_tables')
+          .select('total_tables, name, address, phone, upi_id, gst_number, fssai_number, google_review_link')
           .eq('store_code', widget.storeCode)
           .maybeSingle();
 
-      if (hotelRes != null && hotelRes['total_tables'] != null) {
-        count = int.tryParse(hotelRes['total_tables'].toString()) ?? 10;
+      if (hotelRes != null) {
+        _hotelProfile = Map<String, dynamic>.from(hotelRes);
+        if (hotelRes['total_tables'] != null) {
+          count = int.tryParse(hotelRes['total_tables'].toString()) ?? 10;
+        }
       }
     } catch (_) {
       count = 10;
@@ -170,35 +178,77 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     return sum;
   }
 
-  Future<void> _printReceipt(String mode, double total) async {
+  Future<void> _printReceipt(String mode, double total, {String? billNo}) async {
     try {
-      bool isConnected = await PrintBluetoothThermal.connectionStatus;
-      if (!isConnected) return;
+      final receiptItems = cart.values.map((item) => {
+        'name': '${item['name']} ${item['variant']}',
+        'qty': item['qty'],
+        'price': item['price'],
+      }).toList();
+      final invoiceNo = billNo ?? 'POS-${DateTime.now().millisecondsSinceEpoch}';
+      bool printed = false;
 
-      String billText = """
-       काउंटर बिक्री पर्ची       
-================================
-तारीख: ${DateTime.now().toString().substring(0, 16)}
-मोड: $mode  | टेबल: $selectedTable
---------------------------------
-सामान              मात्रा   रकम
---------------------------------
-""";
-      for (var item in cart.values) {
-        String name = "${item['name']} ${item['variant']}";
-        if (name.length > 16) name = name.substring(0, 16);
-        billText += "${name.padRight(16)} ${item['qty'].toString().padRight(4)} ₹${(item['price'] * item['qty']).toInt()}\n";
+      final receipt = await buildThermalReceiptPdf(
+        hotelName: (_hotelProfile['name'] ?? 'AALA').toString(),
+        address: _hotelProfile['address']?.toString(),
+        phone: _hotelProfile['phone']?.toString(),
+        fssai: _hotelProfile['fssai_number']?.toString(),
+        gstin: _hotelProfile['gst_number']?.toString(),
+        tbl: 0,
+        billNo: invoiceNo,
+        paymentMode: mode,
+        cashierName: 'Counter',
+        items: receiptItems,
+        subTotal: total,
+        discount: 0,
+        discountPct: 0,
+        upiId: _hotelProfile['upi_id']?.toString(),
+        reviewUrl: _hotelProfile['google_review_link']?.toString(),
+        paperWidthMm: 58,
+        onImageGenerated: (imageBytes) async {
+          printed = await UsbThermalPrinterManager.instance
+              .printPngImage(imageBytes, paperWidthMm: 58);
+        },
+      );
+
+      final directory = await getTemporaryDirectory();
+      final pdfFile = File('${directory.path}/$invoiceNo.pdf');
+      await pdfFile.writeAsBytes(await receipt.save(), flush: true);
+
+      if (!mounted) return;
+      final shouldShare = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('काउंटर बिल तैयार है'),
+          content: Text(printed
+              ? 'बिल थर्मल प्रिंटर पर प्रिंट हो गया। क्या PDF भी शेयर करनी है?'
+              : 'थर्मल प्रिंटर कनेक्ट नहीं है। क्या PDF WhatsApp पर भेजनी है?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('बाद में'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.share),
+              label: const Text('शेयर करें'),
+            ),
+          ],
+        ),
+      );
+      if (shouldShare == true) {
+        await Share.shareXFiles(
+          [XFile(pdfFile.path)],
+          text: '${_hotelProfile['name'] ?? 'AALA'} का काउंटर बिल $invoiceNo',
+        );
       }
-
-      billText += """
---------------------------------
-कुल देय राशि:         ₹${total.toStringAsFixed(2)}
-================================
-        धन्यवाद! फिर पधारें        
-\n\n\n
-""";
-      await PrintBluetoothThermal.writeBytes(billText.codeUnits);
-    } catch (_) {}
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('बिल PDF/प्रिंट में समस्या: $error')),
+        );
+      }
+    }
   }
 
   Future<void> _processCheckout(String mode, {bool shouldPrint = false}) async {
@@ -214,6 +264,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       List<Map<String, dynamic>>? tableOrderItems;
       String? tableOrderId;
       String? tableOrderCreatedAt;
+      String? directSaleBillNo;
 
       if (selectedTable != 'काउंटर सेल (डायरेक्ट)') {
         final int tblNum = int.tryParse(selectedTable.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
@@ -243,6 +294,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       } else {
         final paymentMode = mode == 'UPI' ? 'UPI' : 'CASH';
         final billNo = 'POS-${DateTime.now().millisecondsSinceEpoch}';
+        directSaleBillNo = billNo;
         final invoice = await supabase.from('invoices').insert({
           'store_code': widget.storeCode,
           'bill_no': billNo,
@@ -299,8 +351,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         });
       }
 
-      if (shouldPrint) {
-        await _printReceipt(mode, total);
+      if (shouldPrint && selectedTable == 'काउंटर सेल (डायरेक्ट)') {
+        await _printReceipt(mode, total, billNo: directSaleBillNo);
       }
 
       if (mounted) {
