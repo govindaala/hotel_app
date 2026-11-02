@@ -15,6 +15,9 @@ Future<pw.Document> buildThermalReceiptPdf({
   required String? fssai,
   required String? gstin,
   required int tbl,
+  String? billNo,
+  String? paymentMode,
+  String? cashierName,
   required List<Map<String, dynamic>> items,
   required double subTotal,
   required double discount,
@@ -82,6 +85,21 @@ Future<pw.Document> buildThermalReceiptPdf({
                 Text(dateStr, style: TextStyle(fontSize: smallSize, color: Colors.black87)),
               ],
             ),
+            if (billNo != null && billNo.isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('बिल नंबर: $billNo', style: TextStyle(fontSize: smallSize, color: Colors.black87)),
+              ),
+            if (paymentMode != null && paymentMode.isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('भुगतान: $paymentMode', style: TextStyle(fontSize: smallSize, color: Colors.black87)),
+              ),
+            if (cashierName != null && cashierName.isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('कैशियर: $cashierName', style: TextStyle(fontSize: smallSize, color: Colors.black87)),
+              ),
             const Divider(color: Colors.black54, thickness: 0.6),
 
             Row(
