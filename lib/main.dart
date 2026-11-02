@@ -2030,6 +2030,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 billNo: generatedBillNo,
                 paymentMode: mode,
                 cashierName: _currentPartnerName,
+                footerMessage: profile?.footerMessage,
                 items: items,
                 subTotal: subTotal,
                 discount: discountAmt,
