@@ -125,7 +125,10 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
       }
     }
 
-    if (mounted) setState(() => _openingCash = amount);
+    if (mounted) {
+      setState(() => _openingCash = amount);
+      await _fetchRecords();
+    }
   }
 
   Future<void> _saveClosingAudit({
