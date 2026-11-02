@@ -2872,7 +2872,9 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
     _waiterSyncTimer?.cancel();
     _waiterSocket?.destroy();
     if (_qrOrderChannel != null) {
-      unawaited(Supabase.instance.client.removeChannel(_qrOrderChannel!));
+      try {
+        unawaited(Supabase.instance.client.removeChannel(_qrOrderChannel!));
+      } catch (_) {}
     }
     super.dispose();
   }
