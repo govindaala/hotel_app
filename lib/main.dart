@@ -893,6 +893,12 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 .update({'status': payload['status']})
                 .eq('id', payload['id']);
             await OfflineDatabase.instance.markSynced(operation['id'].toString());
+          } else if (entity == 'counter_inventory_update') {
+            await Supabase.instance.client
+                .from('counter_inventory')
+                .update({'stock_qty': payload['stock_qty']})
+                .eq('id', payload['id']);
+            await OfflineDatabase.instance.markSynced(operation['id'].toString());
           }
         } catch (error) {
           await OfflineDatabase.instance.recordFailure(operation['id'].toString(), error);
