@@ -146,7 +146,13 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
 
   DateTimeRange _calculateRange() {
     if (_selectedFilter == 'कस्टम' && _customDateRange != null) {
-      return _customDateRange!;
+      final selected = _customDateRange!;
+      final endExclusive = DateTime(
+        selected.end.year,
+        selected.end.month,
+        selected.end.day,
+      ).add(const Duration(days: 1));
+      return DateTimeRange(start: selected.start, end: endExclusive);
     }
     final today = DateTime(_now.year, _now.month, _now.day);
     if (_selectedFilter == 'साप्ताहिक') {
@@ -633,7 +639,7 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
                     const SizedBox(width: 8),
                     _buildSummaryBox('UPI खर्च', '₹${bankOut.toStringAsFixed(0)}', Colors.deepOrange, Icons.account_balance_wallet),
                     const SizedBox(width: 8),
-                    _buildSummaryBox('बैंक शेष', '₹${expectedBankBalance.toStringAsFixed(0)}', const Color(0xFF0F172A), Icons.savings),
+                    _buildSummaryBox('UPI शुद्ध', '₹${expectedBankBalance.toStringAsFixed(0)}', const Color(0xFF0F172A), Icons.savings),
                   ],
                 ),
               ],
