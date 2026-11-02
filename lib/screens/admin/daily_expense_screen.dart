@@ -537,7 +537,15 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
           ),
           IconButton(
             tooltip: 'गल्ला क्लोजिंग ऑडिट',
-            onPressed: () => _showClosingAuditDialog(expectedDrawerCash),
+            onPressed: () {
+              if (_selectedFilter != 'आज') {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('क्लोजिंग ऑडिट केवल आज के रिकॉर्ड पर किया जा सकता है।')),
+                );
+                return;
+              }
+              _showClosingAuditDialog(expectedDrawerCash);
+            },
             icon: const Icon(Icons.verified_outlined, color: Colors.teal),
           ),
           IconButton(
