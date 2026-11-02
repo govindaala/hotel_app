@@ -36,7 +36,7 @@ class KitchenLearningService {
           final name = (it['name'] ?? '').toString().toLowerCase();
           final cat = (it['category'] ?? it['cat'] ?? '').toString().toLowerCase();
 
-          if (cat.contains('main course') || name.contains('paneer') || name.contains('पनीर') || name.contains('thali')) {
+          if (cat.contains('main course') || name.contains('paneer') || name.contains('पनीर') || name.contains('पनीर') || name.contains('thali')) {
             hasHeavyMainCourse = true;
             hasOnlyBeverages = false;
           } else if (!cat.contains('beverage') && !cat.contains('tea') && !cat.contains('coffee')) {
@@ -160,10 +160,10 @@ class KitchenLearningService {
         if (name.contains('paneer')) {
           paneerDishesCount += qty;
         }
-        if (name.contains('curry') || name.contains('masala') || name.contains('dal') || name.contains('करी') || name.contains('मसाला') || name.contains('दाल')) {
+        if (name.contains('curry') || name.contains('masala') || name.contains('dal') || name.contains('करी') || name.contains('मसाला') || name.contains('दाल') || name.contains('करी') || name.contains('मसाला') || name.contains('दाल')) {
           gravyDishesCount += qty;
         }
-        if (name.contains('tea') || name.contains('chai') || name.contains('coffee') || name.contains('चाय') || name.contains('कॉफी')) {
+        if (name.contains('tea') || name.contains('chai') || name.contains('coffee') || name.contains('चाय') || name.contains('कॉफी') || name.contains('चाय') || name.contains('कॉफी')) {
           teaCoffeeCount += qty;
         }
       }
