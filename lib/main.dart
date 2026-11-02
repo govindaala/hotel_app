@@ -1982,19 +1982,42 @@ class _FullCounterAppState extends State<FullCounterApp> {
           final double discountAmt = (subTotal * enteredPct) / 100;
           final double finalPayable = (subTotal - discountAmt) < 0 ? 0.0 : (subTotal - discountAmt);
 
+          bool isSubmitting = false;
+
           void completeSettlement(String mode) async {
-            Navigator.pop(context);
+            if (isSubmitting) return;
+            if (items.isEmpty) {
+              ScaffoldMessenger.of(this.context).showSnackBar(
+                const SnackBar(content: Text('खाली ऑर्डर का बिल नहीं बनाया जा सकता।')),
+              );
+              return;
+            }
+            setDState(() => isSubmitting = true);
 
             final String currentWaiterId = tableWaiterMap[tbl] ?? 'SELF_COUNTER';
             final String generatedBillNo = 'BILL-${DateTime.now().millisecondsSinceEpoch}';
             final String source = isParcel ? 'PARCEL P-${tbl - 900}' : 'Table T-$tbl';
-            late final String newInvoiceId;
+            final List<Map<String, dynamic>> itemsToInsert = items.map((it) {
+              final double price = (it['price'] as num?)?.toDouble() ?? 0.0;
+              final int quantity = (it['qty'] as num?)?.toInt() ?? 1;
+              if (price < 0 || quantity <= 0) {
+                throw StateError('ऑर्डर में कीमत या मात्रा अमान्य है।');
+              }
+              return {
+                if (it['id'] != null) 'item_id': it['id'].toString(),
+                'item_name': it['name'] ?? '',
+                'category': it['category'] ?? it['cat'] ?? 'General',
+                'price': price,
+                'qty': quantity,
+                'total_price': price * quantity,
+              };
+            }).toList();
 
-            // Invoice और उसके सभी items सेव हुए बिना टेबल/पार्सल ऑर्डर हटाएँ नहीं।
             try {
-              final invoiceRes = await Supabase.instance.client
-                  .from('invoices')
-                  .insert({
+              final result = await Supabase.instance.client.rpc(
+                'settle_hotel_order',
+                params: {
+                  'p_invoice': {
                     'store_code': widget.storeCode,
                     'bill_no': generatedBillNo,
                     'table_no': tbl,
@@ -2007,76 +2030,28 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     'final_amount': finalPayable,
                     'payment_mode': mode,
                     'created_at': DateTime.now().toIso8601String(),
-                  })
-                  .select('id')
-                  .single();
+                  },
+                  'p_items': itemsToInsert,
+                  'p_source': source,
+                  'p_partner_name': _currentPartnerName,
+                  'p_partner_id': _currentPartnerId,
+                },
+              );
 
-              newInvoiceId = invoiceRes['id'].toString();
-              final List<Map<String, dynamic>> itemsToInsert = items.map((it) {
-                final double price = (it['price'] as num?)?.toDouble() ?? 0.0;
-                final int quantity = (it['qty'] as num?)?.toInt() ?? 1;
-                return {
-                  if (it['id'] != null) 'item_id': it['id'].toString(),
-                  'invoice_id': newInvoiceId,
-                  'item_name': it['name'] ?? '',
-                  'category': it['category'] ?? it['cat'] ?? 'General',
-                  'price': price,
-                  'qty': quantity,
-                  'total_price': price * quantity,
-                };
-              }).toList();
-
-              try {
-                await Supabase.instance.client
-                    .from('invoice_items')
-                    .insert(itemsToInsert);
-              } catch (error) {
-                await Supabase.instance.client
-                    .from('invoices')
-                    .delete()
-                    .eq('id', newInvoiceId);
-                rethrow;
+              if (result == null || result['invoice_id'] == null) {
+                throw StateError('सर्वर ने बिल की पुष्टि नहीं की।');
               }
+
+              if (mounted) Navigator.pop(ctx);
+
             } catch (error) {
               if (mounted) {
                 ScaffoldMessenger.of(this.context).showSnackBar(
-                  SnackBar(content: Text('बिल डेटाबेस में सेव नहीं हुआ; ऑर्डर सुरक्षित रखा गया: $error')),
+                  SnackBar(content: Text('बिल पूरा सेव नहीं हुआ; ऑर्डर सुरक्षित रखा गया। दोबारा जाँचें: $error')),
                 );
               }
+              if (ctx.mounted) setDState(() => isSubmitting = false);
               return;
-            }
-
-            // अब बिल सुरक्षित है; KOT को settled करें।
-            try {
-              await Supabase.instance.client
-                  .from('hotel_kots')
-                  .update({'status': 'settled'})
-                  .eq('store_code', widget.storeCode)
-                  .eq('table_no', tbl);
-            } catch (error) {
-              if (mounted) {
-                ScaffoldMessenger.of(this.context).showSnackBar(
-                  SnackBar(content: Text('बिल सेव है, लेकिन KOT स्थिति अपडेट नहीं हुई: $error')),
-                );
-              }
-            }
-
-            // Cash ledger में UPI और नकद बिक्री का माध्यम स्पष्ट रखें।
-            try {
-              await Supabase.instance.client.from('daily_expenses').insert({
-                'restaurant_id': widget.storeCode,
-                'store_code': widget.storeCode,
-                'title': '$source Sale ($mode) [प्रभारी: $_currentPartnerName]',
-                'amount': finalPayable,
-                'type': 'CASH_IN',
-                'created_at': DateTime.now().toIso8601String(),
-              });
-            } catch (error) {
-              if (mounted) {
-                ScaffoldMessenger.of(this.context).showSnackBar(
-                  SnackBar(content: Text('बिल सेव है, लेकिन कैश/UPI लेजर सिंक नहीं हुआ: $error')),
-                );
-              }
             }
 
             if (isParcel) {
@@ -2232,13 +2207,13 @@ class _FullCounterAppState extends State<FullCounterApp> {
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                onPressed: () => completeSettlement('CASH'),
-                child: const Text('💵 कैश मिला', style: TextStyle(color: Colors.white)),
+                onPressed: isSubmitting ? null : () => completeSettlement('CASH'),
+                child: Text(isSubmitting ? 'सेव हो रहा है…' : '💵 कैश मिला', style: const TextStyle(color: Colors.white)),
               ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                onPressed: () => completeSettlement('UPI'),
-                child: const Text('📱 UPI मिला', style: TextStyle(color: Colors.white)),
+                onPressed: isSubmitting ? null : () => completeSettlement('UPI'),
+                child: Text(isSubmitting ? 'सेव हो रहा है…' : '📱 UPI मिला', style: const TextStyle(color: Colors.white)),
               ),
             ],
           );
