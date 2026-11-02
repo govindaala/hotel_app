@@ -7,10 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
-import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
-import 'package:screenshot/screenshot.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -19,7 +15,6 @@ import 'package:ota_update/ota_update.dart';
 
 // Models aur Screen Files
 import 'models/restaurant_profile_model.dart';
-import 'models/expense_model.dart';
 import 'screens/admin/counter_sale_screen.dart';
 import 'screens/admin/restaurant_settings_screen.dart';
 import 'screens/admin/daily_expense_screen.dart';
