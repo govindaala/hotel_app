@@ -34,6 +34,7 @@ import 'screens/admin/star_waiter_screen.dart';
 import 'screens/admin/vendor_ration_screen.dart';
 import 'screens/admin/qr_table_generator_screen.dart';
 import 'services/kitchen_learning_service.dart';
+import 'services/usb_printer_service.dart';
 
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
@@ -1979,6 +1980,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
             // Hindi PDF में वास्तविक UPI राशि और Google Review QR शामिल करें।
             try {
               final profile = _restoProfile;
+              bool thermalPrinted = false;
               final receipt = await buildThermalReceiptPdf(
                 hotelName: profile?.name ?? widget.hotelName,
                 address: profile?.address,
@@ -1996,6 +1998,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 upiId: profile?.upiId,
                 reviewUrl: profile?.googleReviewLink,
                 paperWidthMm: 58,
+                onImageGenerated: (imageBytes) async {
+                  thermalPrinted = await UsbThermalPrinterManager.instance
+                      .printPngImage(imageBytes, paperWidthMm: 58);
+                },
               );
               final directory = await getTemporaryDirectory();
               final pdfFile = File('${directory.path}/$generatedBillNo.pdf');
@@ -2006,7 +2012,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   context: this.context,
                   builder: (shareContext) => AlertDialog(
                     title: const Text('बिल तैयार है'),
-                    content: const Text('क्या इस बिल को WhatsApp या किसी अन्य ऐप पर भेजना है?'),
+                    content: Text(thermalPrinted
+                        ? 'बिल थर्मल प्रिंटर पर प्रिंट हो गया। क्या PDF भी WhatsApp या किसी अन्य ऐप पर भेजना है?'
+                        : 'क्या इस बिल की PDF WhatsApp या किसी अन्य ऐप पर भेजनी है?'),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(shareContext, false),
