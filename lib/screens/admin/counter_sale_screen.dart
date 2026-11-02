@@ -6,6 +6,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../receipt_generator.dart';
 import '../../services/usb_printer_service.dart';
+import '../../services/offline_database.dart';
 
 class CounterSaleScreen extends StatefulWidget {
   final String storeCode;
@@ -277,17 +278,51 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           'total': v['price'] * v['qty'],
         }).toList();
 
-        final createdKot = await supabase.from('hotel_kots').insert({
-          'store_code': widget.storeCode,
-          'restaurant_id': widget.storeCode,
-          'table_no': tblNum,
-          'table_name': selectedTable,
-          'items': jsonEncode(formattedItems),
-          'status': 'pending',
-          'source': 'COUNTER_POS',
-          'waiter_id': 'COUNTER',
-          'created_at': DateTime.now().toIso8601String(),
-        }).select('id, created_at').single();
+        Map<String, dynamic> createdKot;
+        try {
+          final cloudKot = await supabase.from('hotel_kots').insert({
+            'store_code': widget.storeCode,
+            'restaurant_id': widget.storeCode,
+            'table_no': tblNum,
+            'table_name': selectedTable,
+            'items': jsonEncode(formattedItems),
+            'status': 'pending',
+            'source': 'COUNTER_POS',
+            'waiter_id': 'COUNTER',
+            'created_at': DateTime.now().toIso8601String(),
+          }).select('id, created_at').single();
+          createdKot = Map<String, dynamic>.from(cloudKot);
+        } catch (cloudError) {
+          final localId = OfflineDatabase.instance.createId();
+          final localCreatedAt = DateTime.now().toIso8601String();
+          await OfflineDatabase.instance.enqueue(
+            id: localId,
+            storeCode: widget.storeCode,
+            entity: 'hotel_kots',
+            payload: {
+              'id': localId,
+              'store_code': widget.storeCode,
+              'restaurant_id': widget.storeCode,
+              'table_no': tblNum,
+              'table_name': selectedTable,
+              'items': jsonEncode(formattedItems),
+              'status': 'pending',
+              'source': 'COUNTER_POS_OFFLINE',
+              'waiter_id': 'COUNTER',
+              'created_at': localCreatedAt,
+            },
+          );
+          createdKot = {'id': localId, 'created_at': localCreatedAt};
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('इंटरनेट उपलब्ध नहीं है। KOT इस डिवाइस में सुरक्षित है और नेटवर्क आने पर Sync होगा।'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          debugPrint('Counter KOT queued for offline sync: $cloudError');
+        }
         tableOrderNumber = tblNum;
         tableOrderItems = formattedItems;
         tableOrderId = createdKot['id'].toString();
