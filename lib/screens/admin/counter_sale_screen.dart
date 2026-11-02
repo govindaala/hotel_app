@@ -426,7 +426,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         if (item['id'] == null) continue;
         final int currentStock = (item['stock'] as num?)?.toInt() ?? 0;
         final int quantity = (item['qty'] as num?)?.toInt() ?? 0;
-        final int remaining = (currentStock - quantity).clamp(0, 1 << 31);
+        final int remaining = (currentStock - quantity).clamp(0, 1 << 31).toInt();
         for (final group in inventoryGroups.values) {
           for (final row in group) {
             if (row['id'].toString() == item['id'].toString()) {
