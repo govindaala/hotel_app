@@ -80,7 +80,7 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
       for (final row in (expenseData as List)) {
         final amount = (row['amount'] as num?)?.toDouble() ?? 0.0;
         final type = (row['type'] ?? '').toString().toUpperCase();
-        if (type == 'EXPENSE' || type == 'EXPENSE_CASH' || type == 'EXPENSE_UPI') {
+        if (type == 'EXPENSE' || type == 'EXPENSE_CASH' || type == 'EXPENSE_UPI' || type == 'EXPENSE_PARTNER' || type == 'EXPENSE_CREDIT') {
           expenseSum += amount;
         }
       }
