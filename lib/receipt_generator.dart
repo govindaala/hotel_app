@@ -18,6 +18,7 @@ Future<pw.Document> buildThermalReceiptPdf({
   String? billNo,
   String? paymentMode,
   String? cashierName,
+  Future<void> Function(Uint8List imageBytes)? onImageGenerated,
   required List<Map<String, dynamic>> items,
   required double subTotal,
   required double discount,
@@ -28,7 +29,7 @@ Future<pw.Document> buildThermalReceiptPdf({
 }) async {
   final double finalTotal = (subTotal - discount) < 0 ? 0.0 : (subTotal - discount);
   final bool isParcel = tbl >= 900;
-  final String receiptTitle = isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl";
+  final String receiptTitle = tbl == 0 ? 'काउंटर सेल' : (isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl");
   final String dateStr = "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year} ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}";
 
   // पेपर विड्थ के अनुसार विड्थ और फॉन्ट साइज़
@@ -165,7 +166,7 @@ Future<pw.Document> buildThermalReceiptPdf({
                             width: qrSize,
                             height: qrSize,
                             child: QrImageView(
-                              data: "upi://pay?pa=$upiId&pn=$hotelName&am=$finalTotal&cu=INR",
+                              data: "upi://pay?pa=$upiId&pn=${Uri.encodeComponent(hotelName)}&am=$finalTotal&cu=INR",
                               version: QrVersions.auto,
                               size: qrSize,
                               backgroundColor: Colors.white,
@@ -206,6 +207,10 @@ Future<pw.Document> buildThermalReceiptPdf({
     pixelRatio: 3.0, // 300+ DPI HD वेक्टर शार्पनेस
     delay: const Duration(milliseconds: 30),
   );
+
+  if (onImageGenerated != null) {
+    await onImageGenerated(receiptImage);
+  }
 
   final pdf = pw.Document();
   final double widthPoints = paperWidthMm == 58 ? 164.0 : 226.0;
