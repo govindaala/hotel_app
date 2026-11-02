@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/vendor_model.dart';
+import '../../models/partner_model.dart';
 import '../../services/kitchen_learning_service.dart';
 
 class VendorRationScreen extends StatefulWidget {
@@ -21,6 +22,7 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
   bool _isLoading = true;
   List<AdvancedRationDemandModel> _demands = [];
   List<HotelVendorModel> _vendors = [];
+  List<RestaurantPartnerModel> _partners = [];
   List<Map<String, dynamic>> _aiPredictions = [];
 
   String _selectedCategory = 'ALL'; // 'ALL', 'DAIRY', 'VEGETABLE', 'GROCERY'
@@ -42,6 +44,16 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
 
       final loadedVendors = (vendorRes as List)
           .map((v) => HotelVendorModel.fromMap(v))
+          .where((vendor) => vendor.isActive)
+          .toList();
+
+      final partnerRes = await _supabase
+          .from('restaurant_partners')
+          .select('*')
+          .eq('store_code', widget.storeCode)
+          .order('created_at', ascending: true);
+      final loadedPartners = (partnerRes as List)
+          .map((row) => RestaurantPartnerModel.fromMap(row))
           .toList();
 
       // 2. राशन डिमांड्स लोड करना
@@ -63,6 +75,7 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
 
       setState(() {
         _vendors = loadedVendors;
+        _partners = loadedPartners;
         _demands = loadedDemands;
         _aiPredictions = predictions;
         _isLoading = false;
