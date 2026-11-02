@@ -51,7 +51,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     try {
       final hotelRes = await supabase
           .from('restaurants')
-          .select('total_tables, name, address, phone, upi_id, gst_number, fssai_number, google_review_link')
+          .select('total_tables, name, address, phone, upi_id, gst_number, fssai_number, google_review_link, footer_message')
           .eq('store_code', widget.storeCode)
           .maybeSingle();
 
@@ -198,6 +198,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         billNo: invoiceNo,
         paymentMode: mode,
         cashierName: 'Counter',
+        footerMessage: _hotelProfile['footer_message']?.toString(),
         items: receiptItems,
         subTotal: total,
         discount: 0,
