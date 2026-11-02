@@ -36,6 +36,8 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
   late TextEditingController _upiCtrl;
   late TextEditingController _gstCtrl;
   late TextEditingController _fssaiCtrl;
+  late TextEditingController _reviewCtrl;
+  late TextEditingController _footerCtrl;
 
   List<RestaurantPartnerModel> _partners = [];
   List<HotelVendorModel> _vendors = [];
@@ -51,6 +53,8 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
     _upiCtrl = TextEditingController(text: widget.initialProfile?.upiId ?? '');
     _gstCtrl = TextEditingController(text: widget.initialProfile?.gstNumber ?? '');
     _fssaiCtrl = TextEditingController(text: widget.initialProfile?.fssaiNumber ?? '');
+    _reviewCtrl = TextEditingController(text: widget.initialProfile?.googleReviewLink ?? '');
+    _footerCtrl = TextEditingController(text: widget.initialProfile?.footerMessage ?? '');
 
     _fetchPartnersAndVendors();
   }
@@ -64,6 +68,8 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
     _upiCtrl.dispose();
     _gstCtrl.dispose();
     _fssaiCtrl.dispose();
+    _reviewCtrl.dispose();
+    _footerCtrl.dispose();
     super.dispose();
   }
 
@@ -82,13 +88,13 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
           .eq('store_code', widget.storeCode)
           .order('created_at', ascending: true);
 
-      setState(() {
+      if (mounted) setState(() {
         _partners = (pRes as List).map((e) => RestaurantPartnerModel.fromMap(e)).toList();
         _vendors = (vRes as List).map((e) => HotelVendorModel.fromMap(e)).toList();
         _isLoading = false;
       });
     } catch (_) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -102,6 +108,8 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
       upiId: _upiCtrl.text.trim(),
       gstNumber: _gstCtrl.text.trim(),
       fssaiNumber: _fssaiCtrl.text.trim(),
+      googleReviewLink: _reviewCtrl.text.trim(),
+      footerMessage: _footerCtrl.text.trim(),
     );
 
     try {
@@ -112,6 +120,8 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
       await prefs.setString('saved_hotel_address', updated.address ?? '');
       await prefs.setString('saved_hotel_phone', updated.phone ?? '');
       await prefs.setString('saved_hotel_upi', updated.upiId ?? '');
+      await prefs.setString('saved_hotel_review', updated.googleReviewLink ?? '');
+      await prefs.setString('saved_hotel_footer', updated.footerMessage ?? '');
 
       if (widget.onSave != null) widget.onSave!(updated);
 
@@ -281,6 +291,24 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
                         controller: _fssaiCtrl,
                         decoration: const InputDecoration(labelText: 'FSSAI नंबर (वैकल्पिक)', border: OutlineInputBorder()),
                       ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _reviewCtrl,
+                        keyboardType: TextInputType.url,
+                        decoration: const InputDecoration(
+                          labelText: 'Google Review लिंक (वैकल्पिक)',
+                          hintText: 'https://g.page/r/...',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _footerCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'बिल के नीचे संदेश (वैकल्पिक)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
                       const SizedBox(height: 20),
                       SizedBox(
                         width: double.infinity,
@@ -334,7 +362,7 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
                             child: ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: const Color(0xFF0F172A),
-                                child: Text(p.partnerName[0], style: const TextStyle(color: Colors.white)),
+                                child: Text(p.partnerName.isNotEmpty ? p.partnerName[0].toUpperCase() : '?', style: const TextStyle(color: Colors.white)),
                               ),
                               title: Text(p.partnerName, style: const TextStyle(fontWeight: FontWeight.bold)),
                               subtitle: Text('शेयर: ${p.sharePercentage.toStringAsFixed(0)}%  •  पिन: ****  •  ID: ${p.partnerId}'),
