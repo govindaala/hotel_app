@@ -506,6 +506,8 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
     double bankIn = 0;
     double cashOut = 0;
     double bankOut = 0;
+    double partnerOut = 0;
+    double creditOut = 0;
 
     for (final record in _records) {
       final amount = (record['amount'] as num?)?.toDouble() ?? 0.0;
@@ -520,6 +522,10 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
         }
       } else if (type == 'EXPENSE_UPI' || type == 'BANK_OUT') {
         bankOut += amount;
+      } else if (type == 'EXPENSE_PARTNER') {
+        partnerOut += amount;
+      } else if (type == 'EXPENSE_CREDIT') {
+        creditOut += amount;
       } else if (type == 'EXPENSE' || type == 'EXPENSE_CASH' || type == 'CASH_OUT') {
         cashOut += amount;
       }
@@ -643,6 +649,14 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
                     _buildSummaryBox('UPI खर्च', '₹${bankOut.toStringAsFixed(0)}', Colors.deepOrange, Icons.account_balance_wallet),
                     const SizedBox(width: 8),
                     _buildSummaryBox('UPI शुद्ध', '₹${expectedBankBalance.toStringAsFixed(0)}', const Color(0xFF0F172A), Icons.savings),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _buildSummaryBox('पार्टनर खर्च', '₹${partnerOut.toStringAsFixed(0)}', Colors.deepPurple, Icons.person),
+                    const SizedBox(width: 8),
+                    _buildSummaryBox('उधारी खरीद', '₹${creditOut.toStringAsFixed(0)}', Colors.brown, Icons.receipt_long),
                   ],
                 ),
               ],
