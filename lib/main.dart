@@ -770,22 +770,32 @@ class _FullCounterAppState extends State<FullCounterApp> {
   // Supabase Cloud Menu Sync
   Future<void> _syncMenuToCloud() async {
     if (hotelMenu.isEmpty) return;
-    try {
-      final List<Map<String, dynamic>> rows = hotelMenu.map((m) {
-        return {
-          'store_code': widget.storeCode,
-          'item_id': m['id'].toString(),
-          'name': m['name'] ?? '',
-          'category': m['cat'] ?? m['category'] ?? 'General',
-          'price': (m['price'] as num?)?.toDouble() ?? 0.0,
-          'is_available': m['available'] != false,
-        };
-      }).toList();
 
+    // menu_items एक read-only joined view है। Store-specific बदलाव
+    // store_menu_custom में UUID master-menu item IDs से सेव होते हैं.
+    final uuidPattern = RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+    );
+    final rows = hotelMenu.where((item) {
+      return uuidPattern.hasMatch(item['id']?.toString() ?? '');
+    }).map((item) {
+      return {
+        'store_code': widget.storeCode,
+        'item_id': item['id'].toString(),
+        'custom_name': item['name'] ?? '',
+        'custom_price': (item['price'] as num?)?.toDouble() ?? 0.0,
+        'is_available': item['available'] != false,
+      };
+    }).toList();
+
+    if (rows.isEmpty) return;
+    try {
       await Supabase.instance.client
-          .from('menu_items')
+          .from('store_menu_custom')
           .upsert(rows, onConflict: 'store_code,item_id');
-    } catch (_) {}
+    } catch (error) {
+      debugPrint('Store menu cloud sync failed: $error');
+    }
   }
 
   void _loadMenu() async {
