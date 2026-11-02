@@ -1580,7 +1580,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
       final res = await Supabase.instance.client
           .from('daily_expenses')
           .select()
-          .eq('restaurant_id', widget.storeCode)
+          .or('restaurant_id.eq.${widget.storeCode},store_code.eq.${widget.storeCode}')
           .gte('created_at', todayStart);
 
       if (mounted) {
