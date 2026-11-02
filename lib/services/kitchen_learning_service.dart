@@ -177,26 +177,32 @@ class KitchenLearningService {
       // प्रति 10 कप चाय ≈ 1.2 लीटर दूध
       final double estimatedMilkLtr = ((teaCoffeeCount / 3) * 0.12).clamp(0.0, 40.0);
 
-      predictions.add({
-        'item_name': 'पनीर (Paneer)',
-        'quantity': '${estimatedPaneerKg.toStringAsFixed(1)} KG',
-        'reason': 'पिछले 3 वीकेंड्स में औसतन ${(paneerDishesCount / 3).round()} पनीर डिशेज़ बिकीं',
-      });
-      predictions.add({
-        'item_name': 'प्याज (Onion)',
-        'quantity': '${estimatedOnionKg.toStringAsFixed(1)} KG',
-        'reason': 'मुख्य ग्रेवी डिशेज़ की औसत खपत के आधार पर',
-      });
-      predictions.add({
-        'item_name': 'टमाटर (Tomato)',
-        'quantity': '${estimatedTomatoKg.toStringAsFixed(1)} KG',
-        'reason': 'सूप, सलाद व मसाला ग्रेवी हेतु',
-      });
-      predictions.add({
-        'item_name': 'दूध (Fresh Milk)',
-        'quantity': '${estimatedMilkLtr.toStringAsFixed(1)} Ltr',
-        'reason': 'हॉट बेवरेजेस व शेक की औसत वीकेंड मांग',
-      });
+      if (paneerDishesCount > 0) {
+        predictions.add({
+          'item_name': 'पनीर (Paneer)',
+          'quantity': '${estimatedPaneerKg.toStringAsFixed(1)} KG',
+          'reason': 'पिछले 3 वीकेंड्स की पनीर डिश बिक्री के आधार पर',
+        });
+      }
+      if (gravyDishesCount > 0) {
+        predictions.add({
+          'item_name': 'प्याज (Onion)',
+          'quantity': '${estimatedOnionKg.toStringAsFixed(1)} KG',
+          'reason': 'पिछले 3 वीकेंड्स की ग्रेवी डिश बिक्री के आधार पर',
+        });
+        predictions.add({
+          'item_name': 'टमाटर (Tomato)',
+          'quantity': '${estimatedTomatoKg.toStringAsFixed(1)} KG',
+          'reason': 'पिछले 3 वीकेंड्स की ग्रेवी डिश बिक्री के आधार पर',
+        });
+      }
+      if (teaCoffeeCount > 0) {
+        predictions.add({
+          'item_name': 'दूध (Fresh Milk)',
+          'quantity': '${estimatedMilkLtr.toStringAsFixed(1)} Ltr',
+          'reason': 'पिछले 3 वीकेंड्स की चाय/कॉफी बिक्री के आधार पर',
+        });
+      }
     } catch (_) {}
 
     return predictions;
