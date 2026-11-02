@@ -318,25 +318,50 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           'qty': item['qty'],
           'total_price': (item['price'] as num) * (item['qty'] as num),
         }).toList();
-        await supabase.from('invoice_items').insert(invoiceItems);
+        try {
+          await supabase.from('invoice_items').insert(invoiceItems);
+        } catch (error) {
+          await supabase.from('invoices').delete().eq('id', invoice['id']);
+          rethrow;
+        }
 
-        await supabase.from('daily_expenses').insert({
-          'restaurant_id': widget.storeCode,
-          'store_code': widget.storeCode,
-          'title': 'काउंटर सेल: ${details.join(", ")} ($paymentMode)',
-          'amount': total,
-          'type': 'CASH_IN',
-          'created_at': DateTime.now().toIso8601String(),
-        });
+        // Invoice मुख्य बिक्री रिकॉर्ड है; cash-ledger sync failure से sale retry न हो।
+        try {
+          await supabase.from('daily_expenses').insert({
+            'restaurant_id': widget.storeCode,
+            'store_code': widget.storeCode,
+            'title': 'काउंटर सेल: ${details.join(", ")} ($paymentMode)',
+            'amount': total,
+            'type': 'CASH_IN',
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        } catch (error) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('बिक्री सेव है, लेकिन कैश लेजर सिंक नहीं हुआ: $error')),
+            );
+          }
+        }
       }
 
-      // स्टॉक घटाना
-      for (var item in cart.values) {
-        if (item['id'] != null) {
-          final int remaining = ((item['stock'] ?? 0) as int) - (item['qty'] as int);
-          await supabase.from('counter_inventory').update({
-            'stock_qty': remaining < 0 ? 0 : remaining,
-          }).eq('id', item['id']);
+      // स्टॉक अपडेट अलग से करें; बिक्री/KOT सेव होने के बाद इसकी विफलता पर
+      // पूरा checkout दोबारा चलाकर duplicate invoice/KOT नहीं बनना चाहिए।
+      try {
+        for (final item in cart.values) {
+          if (item['id'] != null) {
+            final int currentStock = (item['stock'] as num?)?.toInt() ?? 0;
+            final int quantity = (item['qty'] as num?)?.toInt() ?? 0;
+            final int remaining = currentStock - quantity;
+            await supabase.from('counter_inventory').update({
+              'stock_qty': remaining < 0 ? 0 : remaining,
+            }).eq('id', item['id']);
+          }
+        }
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('ऑर्डर सेव है, लेकिन स्टॉक अपडेट नहीं हुआ: $error')),
+          );
         }
       }
 
@@ -368,8 +393,10 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
 
       }
 
-      setState(() => cart.clear());
-      _initScreenData();
+      if (mounted) {
+        setState(() => cart.clear());
+        _initScreenData();
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
