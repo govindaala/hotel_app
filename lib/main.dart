@@ -168,15 +168,19 @@ final List<Map<String, dynamic>> defaultHotelMenu = kRestaurantMenu
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final results = await Future.wait([
+  final prefsFuture = SharedPreferences.getInstance();
+  await Future.wait<void>([
     Supabase.initialize(url: supabaseUrl, anonKey: supabaseKey)
-        .catchError((_) => null as Supabase),
-    SharedPreferences.getInstance(),
+        .then<void>((_) {})
+        .catchError((Object error) {
+          debugPrint('Supabase initialization unavailable; continuing in local mode: $error');
+        }),
+    prefsFuture.then<void>((_) {}),
   ]);
 
   unawaited(VoiceService.init());
 
-  final prefs = results[1] as SharedPreferences;
+  final prefs = await prefsFuture;
   final bool isLoggedIn = prefs.getBool('is_logged_in') ?? false;
   final String savedRole = prefs.getString('saved_role') ?? '';
   final String savedStoreCode = prefs.getString('saved_store_code') ?? '111';
@@ -1608,8 +1612,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 bool matched = _staffCache.any((s) =>
                     s['staff_id'] == sId && s['pin'] == sPin && s['role'] == sRole);
 
-                if (!matched && _staffCache.isEmpty) matched = true;
-
                 client.write(jsonEncode({
                       'type': 'AUTH_RESULT',
                       'success': matched,
@@ -1806,6 +1808,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 const Divider(),
                 Expanded(
                   child: WaiterMenuOrderView(
+                    menuList: hotelMenu.map((item) => MenuItemModel.fromMap(item)).toList(),
                     cart: cart,
                     onAddItem: (item) {
                       setBState(() => cart[item.id] = (cart[item.id] ?? 0) + 1);
@@ -1834,7 +1837,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
                             List<Map<String, dynamic>> newOrderItems = [];
                             cart.forEach((id, qty) {
                               if (qty > 0) {
-                                final it = kRestaurantMenu.firstWhere((e) => e.id == id);
+                                final itemMap = hotelMenu.firstWhere((item) => item['id'].toString() == id.toString(), orElse: () => {'id': id, 'name': 'Item', 'price': 0, 'cat': 'अन्य'});
+                                final it = MenuItemModel.fromMap(itemMap);
                                 newOrderItems.add({'name': it.name, 'price': it.price, 'qty': qty});
                               }
                             });
@@ -2082,6 +2086,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 const Divider(),
                 Expanded(
                   child: WaiterMenuOrderView(
+                    menuList: hotelMenu.map((item) => MenuItemModel.fromMap(item)).toList(),
                     onAddItem: (item) {
                       setBState(() => cart[item.id] = (cart[item.id] ?? 0) + 1);
                     },
@@ -2098,7 +2103,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
                             List<Map<String, dynamic>> newOrderItems = [];
                             cart.forEach((id, qty) {
                               if (qty > 0) {
-                                final it = kRestaurantMenu.firstWhere((e) => e.id == id);
+                                final itemMap = hotelMenu.firstWhere((item) => item['id'].toString() == id.toString(), orElse: () => {'id': id, 'name': 'Item', 'price': 0, 'cat': 'अन्य'});
+                                final it = MenuItemModel.fromMap(itemMap);
                                 newOrderItems.add({'name': it.name, 'price': it.price, 'qty': qty});
                               }
                             });
@@ -2942,8 +2948,11 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
           double draftTotal = 0.0;
           cart.forEach((id, qty) {
             if (qty > 0) {
-              final it = kRestaurantMenu.firstWhere((e) => e.id == id,
-                  orElse: () => MenuItemModel(id: id.toString(), name: 'Item', price: 0, category: 'अन्य'));
+              final itemMap = menu.firstWhere(
+                  (item) => item['id'].toString() == id.toString(),
+                  orElse: () => {'id': id, 'name': 'Item', 'price': 0, 'category': 'अन्य'},
+                );
+              final it = MenuItemModel.fromMap(itemMap);
               draftItems.add({'id': id, 'name': it.name, 'price': it.price, 'qty': qty});
               draftTotal += (it.price * qty);
             }
@@ -2980,6 +2989,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                 ],
                 Expanded(
                   child: WaiterMenuOrderView(
+                    menuList: menu.map((item) => MenuItemModel.fromMap(item)).toList(),
                     cart: cart,
                     onAddItem: (item) {
                       setBState(() => cart[item.id] = (cart[item.id] ?? 0) + 1);
@@ -3061,7 +3071,8 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                                 List<Map<String, dynamic>> newOrderItems = [];
                                 cart.forEach((id, qty) {
                                   if (qty > 0) {
-                                    final it = kRestaurantMenu.firstWhere((e) => e.id == id);
+                                    final itemMap = menu.firstWhere((item) => item['id'].toString() == id.toString(), orElse: () => {'id': id, 'name': 'Item', 'price': 0, 'category': 'अन्य'});
+                                    final it = MenuItemModel.fromMap(itemMap);
                                     newOrderItems.add({'name': it.name, 'price': it.price, 'qty': qty});
                                   }
                                 });
@@ -3128,6 +3139,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                 const Divider(),
                 Expanded(
                   child: WaiterMenuOrderView(
+                    menuList: menu.map((item) => MenuItemModel.fromMap(item)).toList(),
                     cart: cart,
                     onAddItem: (item) {
                       setBState(() => cart[item.id] = (cart[item.id] ?? 0) + 1);
@@ -3146,7 +3158,8 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                             List<Map<String, dynamic>> newOrderItems = [];
                             cart.forEach((id, qty) {
                               if (qty > 0) {
-                                final it = kRestaurantMenu.firstWhere((e) => e.id == id);
+                                final itemMap = menu.firstWhere((item) => item['id'].toString() == id.toString(), orElse: () => {'id': id, 'name': 'Item', 'price': 0, 'category': 'अन्य'});
+                                final it = MenuItemModel.fromMap(itemMap);
                                 newOrderItems.add({'name': it.name, 'price': it.price, 'qty': qty});
                               }
                             });
