@@ -5,7 +5,7 @@ import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 
 class CounterSaleScreen extends StatefulWidget {
   final String storeCode;
-  final void Function(int tableNumber, List<Map<String, dynamic>> items)? onTableOrderAdded;
+  final void Function(Map<String, dynamic> kot)? onTableOrderAdded;
 
   const CounterSaleScreen({
     Key? key,
@@ -212,6 +212,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     try {
       int? tableOrderNumber;
       List<Map<String, dynamic>>? tableOrderItems;
+      String? tableOrderId;
+      String? tableOrderCreatedAt;
 
       if (selectedTable != 'काउंटर सेल (डायरेक्ट)') {
         final int tblNum = int.tryParse(selectedTable.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
@@ -223,7 +225,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           'total': v['price'] * v['qty'],
         }).toList();
 
-        await supabase.from('hotel_kots').insert({
+        final createdKot = await supabase.from('hotel_kots').insert({
           'store_code': widget.storeCode,
           'restaurant_id': widget.storeCode,
           'table_no': tblNum,
@@ -231,10 +233,13 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           'items': jsonEncode(formattedItems),
           'status': 'pending',
           'source': 'COUNTER_POS',
+          'waiter_id': 'COUNTER',
           'created_at': DateTime.now().toIso8601String(),
-        });
+        }).select('id, created_at').single();
         tableOrderNumber = tblNum;
         tableOrderItems = formattedItems;
+        tableOrderId = createdKot['id'].toString();
+        tableOrderCreatedAt = createdKot['created_at'].toString();
       } else {
         final paymentMode = mode == 'UPI' ? 'UPI' : 'CASH';
         final billNo = 'POS-${DateTime.now().millisecondsSinceEpoch}';
@@ -284,7 +289,14 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       }
 
       if (tableOrderNumber != null && tableOrderItems != null) {
-        widget.onTableOrderAdded?.call(tableOrderNumber, tableOrderItems);
+        widget.onTableOrderAdded?.call({
+          'type': 'NEW_KOT',
+          'table': tableOrderNumber,
+          'waiter_id': 'COUNTER',
+          'items': tableOrderItems,
+          'id': tableOrderId,
+          'created_at': tableOrderCreatedAt,
+        });
       }
 
       if (shouldPrint) {
