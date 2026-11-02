@@ -115,6 +115,8 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
     final amountController = TextEditingController();
     final noteController = TextEditingController();
 
+    bool isSaving = false;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -190,47 +192,63 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
                         backgroundColor: type == 'POCKET_EXPENSE' ? Colors.green[700] : Colors.red[700],
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
-                      onPressed: () async {
+                      onPressed: isSaving ? null : () async {
                         final amt = double.tryParse(amountController.text.trim()) ?? 0.0;
-                        if (amt <= 0) return;
-
-                        final newLedger = PartnerLedgerModel(
-                          id: '',
-                          storeCode: widget.storeCode,
-                          partnerId: selectedPartner.partnerId,
-                          partnerName: selectedPartner.partnerName,
-                          type: type,
-                          amount: amt,
-                          note: noteController.text.trim(),
-                          createdAt: DateTime.now(),
-                        );
-
-                        final savedLedger = await _supabase
-                            .from('partner_ledger')
-                            .insert(newLedger.toMap())
-                            .select('id')
-                            .single();
-
-                        if (type == 'POCKET_EXPENSE') {
-                          try {
-                            await _supabase.from('daily_expenses').insert({
-                              'restaurant_id': widget.storeCode,
-                              'store_code': widget.storeCode,
-                              'title': 'पार्टनर जेब खर्च: ${selectedPartner.partnerName} | ${noteController.text.trim()}',
-                              'amount': amt,
-                              'type': 'EXPENSE_PARTNER',
-                              'created_at': DateTime.now().toIso8601String(),
-                            });
-                          } catch (error) {
-                            await _supabase.from('partner_ledger').delete().eq('id', savedLedger['id']);
-                            rethrow;
-                          }
+                        if (amt <= 0) {
+                          ScaffoldMessenger.of(this.context).showSnackBar(
+                            const SnackBar(content: Text('रकम शून्य से अधिक सही संख्या में दर्ज करें।')),
+                          );
+                          return;
                         }
 
-                        if (ctx.mounted) Navigator.pop(ctx);
-                        await _fetchPartnerData();
+                        setModalState(() => isSaving = true);
+                        try {
+                          final newLedger = PartnerLedgerModel(
+                            id: '',
+                            storeCode: widget.storeCode,
+                            partnerId: selectedPartner.partnerId,
+                            partnerName: selectedPartner.partnerName,
+                            type: type,
+                            amount: amt,
+                            note: noteController.text.trim(),
+                            createdAt: DateTime.now(),
+                          );
+
+                          final savedLedger = await _supabase
+                              .from('partner_ledger')
+                              .insert(newLedger.toMap())
+                              .select('id')
+                              .single();
+
+                          if (type == 'POCKET_EXPENSE') {
+                            try {
+                              await _supabase.from('daily_expenses').insert({
+                                'restaurant_id': widget.storeCode,
+                                'store_code': widget.storeCode,
+                                'title': 'पार्टनर जेब खर्च: ${selectedPartner.partnerName} | ${noteController.text.trim()}',
+                                'amount': amt,
+                                'type': 'EXPENSE_PARTNER',
+                                'created_at': DateTime.now().toIso8601String(),
+                              });
+                            } catch (error) {
+                              await _supabase.from('partner_ledger').delete().eq('id', savedLedger['id']);
+                              rethrow;
+                            }
+                          }
+
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          await _fetchPartnerData();
+                        } catch (error) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(this.context).showSnackBar(
+                              SnackBar(content: Text('पार्टनर लेजर सेव नहीं हुआ; दोबारा जाँचें: $error')),
+                            );
+                          }
+                        } finally {
+                          if (ctx.mounted) setModalState(() => isSaving = false);
+                        }
                       },
-                      child: const Text('सुरक्षित करें (Save)', style: TextStyle(color: Colors.white, fontSize: 16)),
+                      child: Text(isSaving ? 'सेव हो रहा है…' : 'सुरक्षित करें (Save)', style: const TextStyle(color: Colors.white, fontSize: 16)),
                     ),
                   ),
                 ],
