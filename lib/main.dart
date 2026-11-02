@@ -770,12 +770,19 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
   // Supabase Cloud Menu Sync
   Future<void> _syncMenuToCloud() async {
-    if (hotelMenu.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final pendingKey = 'menu_sync_pending_${widget.storeCode}';
+    if (hotelMenu.isEmpty) {
+      await prefs.setBool(pendingKey, false);
+      return;
+    }
 
-    // menu_items एक read-only joined view है। Store-specific बदलाव
-    // store_menu_custom में UUID master-menu item IDs से सेव होते हैं.
+    // menu_items joined view है; बदलाव store_menu_custom में सेव करें।
     final uuidPattern = RegExp(
       r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+    );
+    final hasLocalOnlyItems = hotelMenu.any(
+      (item) => !uuidPattern.hasMatch(item['id']?.toString() ?? ''),
     );
     final rows = hotelMenu.where((item) {
       return uuidPattern.hasMatch(item['id']?.toString() ?? '');
@@ -789,13 +796,18 @@ class _FullCounterAppState extends State<FullCounterApp> {
       };
     }).toList();
 
-    if (rows.isEmpty) return;
+    if (rows.isEmpty) {
+      await prefs.setBool(pendingKey, hasLocalOnlyItems);
+      return;
+    }
     try {
       await Supabase.instance.client
           .from('store_menu_custom')
           .upsert(rows, onConflict: 'store_code,item_id');
+      await prefs.setBool(pendingKey, hasLocalOnlyItems);
     } catch (error) {
-      debugPrint('Store menu cloud sync failed: $error');
+      await prefs.setBool(pendingKey, true);
+      debugPrint('Store menu cloud sync failed; local copy retained: $error');
     }
   }
 
@@ -808,27 +820,52 @@ class _FullCounterAppState extends State<FullCounterApp> {
       setState(() => hotelMenu = List.from(defaultHotelMenu));
       await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
     }
+    final localMenu = List<Map<String, dynamic>>.from(hotelMenu);
+    final pendingKey = 'menu_sync_pending_${widget.storeCode}';
+    final hasPendingLocalChanges = prefs.getBool(pendingKey) ?? false;
 
     try {
       final res = await Supabase.instance.client
           .from('menu_items')
           .select('*')
           .eq('store_code', widget.storeCode);
-      if (res != null && res.isNotEmpty) {
-        final cloudMenu = res.map((m) => {
-          'id': m['item_id'] ?? m['id'].toString(),
-          'name': m['name'] ?? '',
-          'price': (m['price'] as num?)?.toDouble() ?? 0.0,
-          'cat': m['category'] ?? 'General',
-          'available': m['is_available'] ?? true,
+      if (res.isNotEmpty) {
+        final cloudMenu = res.map((item) => {
+          'id': item['item_id'] ?? item['id'].toString(),
+          'name': item['name'] ?? '',
+          'price': (item['price'] as num?)?.toDouble() ?? 0.0,
+          'cat': item['category'] ?? 'General',
+          'available': item['is_available'] ?? true,
         }).toList();
-        setState(() => hotelMenu = List<Map<String, dynamic>>.from(cloudMenu));
-        await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
+
+        if (hasPendingLocalChanges) {
+          final localById = {
+            for (final item in localMenu) item['id'].toString(): item,
+          };
+          final cloudIds = cloudMenu.map((item) => item['id'].toString()).toSet();
+          final mergedMenu = cloudMenu.map((cloudItem) {
+            final localItem = localById[cloudItem['id'].toString()];
+            return localItem == null ? cloudItem : {...cloudItem, ...localItem};
+          }).toList();
+
+          for (final localItem in localMenu) {
+            if (!cloudIds.contains(localItem['id'].toString())) {
+              mergedMenu.add(localItem);
+            }
+          }
+          setState(() => hotelMenu = List<Map<String, dynamic>>.from(mergedMenu));
+          await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
+          await _syncMenuToCloud();
+        } else {
+          setState(() => hotelMenu = List<Map<String, dynamic>>.from(cloudMenu));
+          await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
+        }
       } else {
         await _syncMenuToCloud();
       }
-    } catch (_) {
-      await _syncMenuToCloud();
+    } catch (error) {
+      await prefs.setBool(pendingKey, true);
+      debugPrint('Cloud menu unavailable; using saved local menu: $error');
     }
   }
 
