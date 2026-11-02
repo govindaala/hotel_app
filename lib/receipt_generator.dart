@@ -15,6 +15,7 @@ Future<pw.Document> buildThermalReceiptPdf({
   String? billNo,
   String? paymentMode,
   String? cashierName,
+  String? footerMessage,
   Future<void> Function(Uint8List imageBytes)? onImageGenerated,
   required List<Map<String, dynamic>> items,
   required double subTotal,
@@ -196,7 +197,11 @@ Future<pw.Document> buildThermalReceiptPdf({
 
             const SizedBox(height: 6),
             const Divider(color: Colors.black26),
-            Text("धन्यवाद! फिर पधारें 🙏", style: TextStyle(fontSize: bodySize, fontWeight: FontWeight.bold, color: Colors.black87)),
+            Text(
+              (footerMessage?.trim().isNotEmpty ?? false) ? footerMessage!.trim() : "धन्यवाद! फिर पधारें 🙏",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: bodySize, fontWeight: FontWeight.bold, color: Colors.black87),
+            ),
           ],
         ),
       ),
