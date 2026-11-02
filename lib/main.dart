@@ -887,6 +887,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
             }
             if (st == 'bill_ready') {
               tableStateMap[tbl] = 'bill_ready';
+            } else if (st == 'ready') {
+              tableStateMap[tbl] = 'ready';
             } else if (!tableStateMap.containsKey(tbl)) {
               tableStateMap[tbl] = 'running';
             }
@@ -1604,7 +1606,12 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   VoiceService.speak("टेबल $tbl का बिल तैयार है");
                 }
               } else if (msg['type'] == 'ORDER_READY') {
+                final int tbl = msg['table'];
+                if (tbl < 900) {
+                  setState(() => tableStateMap[tbl] = 'ready');
+                }
                 _broadcastLocal(msg);
+                VoiceService.speak("टेबल $tbl का खाना तैयार है");
               } else if (msg['type'] == 'RATION_DEMAND') {
                 _syncMasterData();
                 VoiceService.speak("रसोई से नई राशन मांग आई है");
@@ -2576,8 +2583,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
               String st = tableStateMap[tbl] ?? 'empty';
               Color c = st == 'bill_ready'
                   ? Colors.purple
-                  : (st == 'running' ? Colors.red : Colors.green);
-              String label = st == 'bill_ready' ? 'बिल तैयार 🔔' : (st == 'running' ? 'ऑर्डर चालू' : 'खाली (टैप करें)');
+                  : (st == 'ready' ? Colors.teal : (st == 'running' ? Colors.red : Colors.green));
+              String label = st == 'bill_ready'
+                  ? 'बिल तैयार 🔔'
+                  : (st == 'ready' ? 'खाना तैयार ✓' : (st == 'running' ? 'ऑर्डर चालू' : 'खाली (टैप करें)'));
 
               return InkWell(
                 onTap: () {
