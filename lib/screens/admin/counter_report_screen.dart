@@ -53,21 +53,23 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
     try {
       final now = DateTime.now();
       DateTime startDate;
+      final DateTime today = DateTime(now.year, now.month, now.day);
+      final DateTime endDate = today.add(const Duration(days: 1));
 
       if (selectedFilter == 'Today') {
-        startDate = DateTime(now.year, now.month, now.day);
+        startDate = today;
       } else if (selectedFilter == 'This Week') {
-        startDate = now.subtract(Duration(days: now.weekday - 1));
-        startDate = DateTime(startDate.year, startDate.month, startDate.day);
+        startDate = today.subtract(Duration(days: now.weekday - 1));
       } else {
         startDate = DateTime(now.year, now.month, 1);
       }
 
       final response = await supabase
-          .from('daily_expenses')
-          .select('*')
-          .eq('restaurant_id', widget.storeCode)
+          .from('invoices')
+          .select('final_amount, payment_mode, table_no, created_at')
+          .eq('store_code', widget.storeCode)
           .gte('created_at', startDate.toIso8601String())
+          .lt('created_at', endDate.toIso8601String())
           .order('created_at', ascending: true);
 
       final List<dynamic> salesList = response as List<dynamic>;
@@ -82,24 +84,15 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
       upiAmount = 0.0;
       chartDataBuckets.clear();
 
-      for (var sale in salesList) {
-        final String title = (sale['title'] ?? '').toString().toUpperCase();
-        final String type = (sale['type'] ?? '').toString().toUpperCase();
-
-        // केवल बिक्री / जमा रिकॉर्ड लें
-        if (type == 'EXPENSE') continue;
-        if (!type.contains('CASH_IN') && !title.contains('SALE') && !title.contains('सेल')) {
-          continue;
-        }
-
-        final double amount = ((sale['amount'] ?? 0.0) as num).toDouble();
+      for (final sale in salesList) {
+        final double amount = (sale['final_amount'] as num?)?.toDouble() ?? 0.0;
         if (amount <= 0) continue;
 
         totalOrders++;
         totalSales += amount;
 
-        // मोड वर्गीकरण
-        if (title.contains('PARCEL') || title.contains('पार्सल') || title.contains('PICKUP')) {
+        final int tableNo = (sale['table_no'] as num?)?.toInt() ?? 0;
+        if (tableNo == 0 || tableNo >= 900) {
           pickupOrders++;
           pickupAmount += amount;
         } else {
@@ -107,14 +100,13 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
           tableAmount += amount;
         }
 
-        // भुगतान माध्यम
-        if (title.contains('UPI') || title.contains('ONLINE') || title.contains('बैंक')) {
+        final String paymentMode = (sale['payment_mode'] ?? 'CASH').toString().toUpperCase();
+        if (paymentMode == 'UPI' || paymentMode == 'ONLINE') {
           upiAmount += amount;
         } else {
           cashAmount += amount;
         }
 
-        // टाइम बकेटिंग
         final DateTime dt = DateTime.tryParse(sale['created_at'].toString()) ?? now;
         if (selectedFilter == 'Today') {
           // घंटों के अनुसार (0-23)
