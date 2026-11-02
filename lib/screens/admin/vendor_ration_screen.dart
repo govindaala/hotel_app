@@ -34,7 +34,8 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
   }
 
   Future<void> _loadAllData() async {
-    if (mounted) setState(() => _isLoading = true);
+    if (!mounted) return;
+    setState(() => _isLoading = true);
     try {
       // 1. वेंडर्स लोड करना
       final vendorRes = await _supabase
@@ -162,6 +163,7 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
         ? item.vendorId
         : (availableVendors.isNotEmpty ? availableVendors.first.id : null);
     String? selectedPartnerId = _partners.isNotEmpty ? _partners.first.partnerId : null;
+    bool isSaving = false;
 
     showDialog(
       context: context,
@@ -253,7 +255,7 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
-              onPressed: () async {
+              onPressed: isSaving ? null : () async {
                 final cost = double.tryParse(costController.text.trim()) ?? 0.0;
                 if (cost <= 0) {
                   ScaffoldMessenger.of(this.context).showSnackBar(
@@ -278,6 +280,14 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
                 final selectedVendor = matchingVendor.isEmpty ? null : matchingVendor.first;
                 final matchingPartner = _partners.where((p) => p.partnerId == selectedPartnerId);
                 final selectedPartner = matchingPartner.isEmpty ? null : matchingPartner.first;
+                if (paidBy == 'PARTNER_POCKET' && selectedPartner == null) {
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    const SnackBar(content: Text('चुना गया पार्टनर उपलब्ध नहीं है; सूची रीफ्रेश करें।')),
+                  );
+                  return;
+                }
+                setDialogState(() => isSaving = true);
+
                 final expenseType = switch (paidBy) {
                   'UPI' => 'EXPENSE_UPI',
                   'PARTNER_POCKET' => 'EXPENSE_PARTNER',
@@ -320,14 +330,18 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
                     vendorBalanceUpdated = true;
                   }
 
-                  await _supabase.from('ration_demands').update({
+                  final receivedRows = await _supabase.from('ration_demands').update({
                     'is_received': true,
                     'purchase_cost': cost,
                     'paid_by': paidBy,
                     'vendor_id': selectedVendorId,
                     'vendor_category': selectedVendor?.category ?? item.vendorCategory,
                     'partner_name': selectedPartner?.partnerName,
-                  }).eq('id', item.id);
+                  }).eq('id', item.id).select('id');
+
+                  if ((receivedRows as List).isEmpty) {
+                    throw StateError('राशन डिमांड रिकॉर्ड नहीं मिला; रिसीव स्थिति अपडेट नहीं हुई।');
+                  }
 
                   if (mounted) Navigator.pop(dialogContext);
                   await _loadAllData();
@@ -354,9 +368,11 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
                       SnackBar(content: Text('रिसीव/लेजर अपडेट नहीं हुआ; कृपया दोबारा जाँचें: $error')),
                     );
                   }
+                } finally {
+                  if (dialogContext.mounted) setDialogState(() => isSaving = false);
                 }
               },
-              child: const Text('कन्फर्म रिसीव', style: TextStyle(color: Colors.white)),
+              child: Text(isSaving ? 'सेव हो रहा है…' : 'कन्फर्म रिसीव', style: const TextStyle(color: Colors.white)),
             ),
           ],
         ),
@@ -379,13 +395,19 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
                 : 'GROCERY',
         'created_at': DateTime.now().toIso8601String(),
       });
-      _loadAllData();
+      await _loadAllData();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${p['item_name']} राशन लिस्ट में जुड़ गया')),
         );
       }
-    } catch (_) {}
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('राशन लिस्ट में आइटम नहीं जुड़ा: $error')),
+        );
+      }
+    }
   }
 
   @override
