@@ -78,7 +78,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         await prefs.setString('saved_hotel_footer', (_hotelProfile['footer_message'] ?? '').toString());
       }
     } catch (_) {
-      count = int.tryParse(prefs.getString('saved_tables') ?? '') ?? 10;
+      count = prefs.getInt('saved_tables') ?? 10;
     }
 
     if (!mounted) return;
