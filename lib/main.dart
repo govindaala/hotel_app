@@ -30,6 +30,7 @@ import 'screens/admin/vendor_ration_screen.dart';
 import 'screens/admin/qr_table_generator_screen.dart';
 import 'services/kitchen_learning_service.dart';
 import 'services/usb_printer_service.dart';
+import 'services/offline_database.dart';
 
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
@@ -163,6 +164,11 @@ final List<Map<String, dynamic>> defaultHotelMenu = kRestaurantMenu
 // =========================================================================
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await OfflineDatabase.instance.database;
+  } catch (error) {
+    debugPrint('Local transaction database unavailable: $error');
+  }
 
   final prefsFuture = SharedPreferences.getInstance();
   await Future.wait<void>([
@@ -867,8 +873,34 @@ class _FullCounterAppState extends State<FullCounterApp> {
     await _syncMenuToCloud();
   }
 
+  Future<void> _syncPendingOfflineOperations() async {
+    try {
+      final pending = await OfflineDatabase.instance.pending(widget.storeCode);
+      for (final operation in pending) {
+        try {
+          final entity = operation['entity']?.toString();
+          final payload = Map<String, dynamic>.from(
+            jsonDecode(operation['payload'].toString()) as Map,
+          );
+          if (entity == 'hotel_kots') {
+            await Supabase.instance.client
+                .from('hotel_kots')
+                .upsert(payload, onConflict: 'id');
+            await OfflineDatabase.instance.markSynced(operation['id'].toString());
+          }
+        } catch (error) {
+          await OfflineDatabase.instance.recordFailure(operation['id'].toString(), error);
+          debugPrint('Offline operation sync deferred: $error');
+        }
+      }
+    } catch (error) {
+      debugPrint('Offline queue read failed: $error');
+    }
+  }
+
   // Master Data Sync Method (KOTs aur Ration Demands Sync)
   void _syncMasterData() async {
+    await _syncPendingOfflineOperations();
     try {
       final tenDaysAgo = DateTime.now().subtract(const Duration(days: 10)).toIso8601String();
       final res = await Supabase.instance.client
@@ -1624,6 +1656,27 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     }) + "\n");
               } else if (msg['type'] == 'NEW_KOT') {
                 int tbl = msg['table'];
+                final kotId = (msg['id']?.toString().isNotEmpty ?? false)
+                    ? msg['id'].toString()
+                    : OfflineDatabase.instance.createId();
+                final createdAt = msg['created_at']?.toString() ?? DateTime.now().toIso8601String();
+                msg['id'] = kotId;
+                msg['created_at'] = createdAt;
+                unawaited(OfflineDatabase.instance.enqueue(
+                  id: kotId,
+                  storeCode: widget.storeCode,
+                  entity: 'hotel_kots',
+                  payload: {
+                    'id': kotId,
+                    'store_code': widget.storeCode,
+                    'table_no': tbl,
+                    'waiter_id': msg['waiter_id']?.toString(),
+                    'items': jsonEncode(msg['items'] ?? []),
+                    'status': 'pending',
+                    'source': 'LAN_LOCAL',
+                    'created_at': createdAt,
+                  },
+                ));
                 if (msg['waiter_id'] != null) {
                   tableWaiterMap[tbl] = msg['waiter_id'].toString();
                 }
