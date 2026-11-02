@@ -520,13 +520,13 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
         } else {
           cashIn += amount;
         }
-      } else if (type == 'EXPENSE_UPI' || type == 'BANK_OUT') {
+      } else if (type == 'EXPENSE_UPI' || type == 'BANK_OUT' || type == 'VENDOR_PAYMENT_UPI') {
         bankOut += amount;
       } else if (type == 'EXPENSE_PARTNER') {
         partnerOut += amount;
       } else if (type == 'EXPENSE_CREDIT') {
         creditOut += amount;
-      } else if (type == 'EXPENSE' || type == 'EXPENSE_CASH' || type == 'CASH_OUT') {
+      } else if (type == 'EXPENSE' || type == 'EXPENSE_CASH' || type == 'CASH_OUT' || type == 'VENDOR_PAYMENT_CASH') {
         cashOut += amount;
       }
     }
