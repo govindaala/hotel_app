@@ -2000,9 +2000,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
             final List<Map<String, dynamic>> itemsToInsert = items.map((it) {
               final double price = (it['price'] as num?)?.toDouble() ?? 0.0;
               final int quantity = (it['qty'] as num?)?.toInt() ?? 1;
-              if (price < 0 || quantity <= 0) {
-                throw StateError('ऑर्डर में कीमत या मात्रा अमान्य है।');
-              }
               return {
                 if (it['id'] != null) 'item_id': it['id'].toString(),
                 'item_name': it['name'] ?? '',
