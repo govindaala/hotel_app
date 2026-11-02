@@ -1849,15 +1849,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
                               tableWaiterMap[tbl] = 'COUNTER';
                             });
 
-                            _broadcastLocal({
-                              'type': 'NEW_KOT',
-                              'table': tbl,
-                              'waiter_id': 'COUNTER',
-                              'items': newOrderItems,
-                            });
-
                             try {
-                              await Supabase.instance.client.from('hotel_kots').insert({
+                              final createdKot = await Supabase.instance.client.from('hotel_kots').insert({
                                 'store_code': widget.storeCode,
                                 'table_no': tbl,
                                 'waiter_id': 'COUNTER',
@@ -1865,8 +1858,24 @@ class _FullCounterAppState extends State<FullCounterApp> {
                                 'status': 'pending',
                                 'source': 'COUNTER',
                                 'created_at': DateTime.now().toIso8601String(),
+                              }).select('id, created_at').single();
+
+                              _broadcastLocal({
+                                'type': 'NEW_KOT',
+                                'table': tbl,
+                                'waiter_id': 'COUNTER',
+                                'items': newOrderItems,
+                                'id': createdKot['id'],
+                                'created_at': createdKot['created_at'],
                               });
-                            } catch (_) {}
+                            } catch (error) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('KOT सेव नहीं हुआ: $error')),
+                                );
+                              }
+                              return;
+                            }
 
                             if (mounted) Navigator.pop(context);
                             VoiceService.speak("टेबल $tbl का KOT किचन भेज दिया गया");
@@ -2109,18 +2118,33 @@ class _FullCounterAppState extends State<FullCounterApp> {
                               }
                             });
 
-                            _broadcastLocal({'type': 'NEW_KOT', 'table': parcelId, 'items': newOrderItems});
-
                             try {
-                              await Supabase.instance.client.from('hotel_kots').insert({
+                              final createdKot = await Supabase.instance.client.from('hotel_kots').insert({
                                 'store_code': widget.storeCode,
                                 'table_no': parcelId,
+                                'waiter_id': 'COUNTER',
                                 'items': jsonEncode(newOrderItems),
                                 'status': 'pending',
                                 'source': 'PARCEL',
                                 'created_at': DateTime.now().toIso8601String(),
+                              }).select('id, created_at').single();
+
+                              _broadcastLocal({
+                                'type': 'NEW_KOT',
+                                'table': parcelId,
+                                'waiter_id': 'COUNTER',
+                                'items': newOrderItems,
+                                'id': createdKot['id'],
+                                'created_at': createdKot['created_at'],
                               });
-                            } catch (_) {}
+                            } catch (error) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('पार्सल KOT सेव नहीं हुआ: $error')),
+                                );
+                              }
+                              return;
+                            }
 
                             setState(() => parcelOrders[parcelId] = newOrderItems);
                             if (mounted) Navigator.pop(context);
@@ -3088,19 +3112,8 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                                   }
                                 });
 
-                                if (_socketConnected && _waiterSocket != null) {
-                                  try {
-                                    _waiterSocket!.write(jsonEncode({
-                                          'type': 'NEW_KOT',
-                                          'table': tableNum,
-                                          'waiter_id': widget.staffId,
-                                          'items': newOrderItems,
-                                        }) + "\n");
-                                  } catch (_) {}
-                                }
-
                                 try {
-                                  await Supabase.instance.client.from('hotel_kots').insert({
+                                  final createdKot = await Supabase.instance.client.from('hotel_kots').insert({
                                     'store_code': widget.storeCode,
                                     'table_no': tableNum,
                                     'waiter_id': widget.staffId,
@@ -3108,8 +3121,26 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                                     'status': 'pending',
                                     'source': 'WAITER',
                                     'created_at': DateTime.now().toIso8601String(),
-                                  });
-                                } catch (_) {}
+                                  }).select('id, created_at').single();
+
+                                  if (_socketConnected && _waiterSocket != null) {
+                                    _waiterSocket!.write(jsonEncode({
+                                      'type': 'NEW_KOT',
+                                      'table': tableNum,
+                                      'waiter_id': widget.staffId,
+                                      'items': newOrderItems,
+                                      'id': createdKot['id'],
+                                      'created_at': createdKot['created_at'],
+                                    }) + "\n");
+                                  }
+                                } catch (error) {
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('KOT सेव नहीं हुआ: $error')),
+                                    );
+                                  }
+                                  return;
+                                }
 
                                 if (mounted) Navigator.pop(context);
                                 _syncFromCloud();
@@ -3175,19 +3206,8 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                               }
                             });
 
-                            if (_socketConnected && _waiterSocket != null) {
-                              try {
-                                _waiterSocket!.write(jsonEncode({
-                                      'type': 'NEW_KOT',
-                                      'table': parcelId,
-                                      'waiter_id': widget.staffId,
-                                      'items': newOrderItems,
-                                    }) + "\n");
-                              } catch (_) {}
-                            }
-
                             try {
-                              await Supabase.instance.client.from('hotel_kots').insert({
+                              final createdKot = await Supabase.instance.client.from('hotel_kots').insert({
                                 'store_code': widget.storeCode,
                                 'table_no': parcelId,
                                 'waiter_id': widget.staffId,
@@ -3195,8 +3215,26 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                                 'status': 'pending',
                                 'source': 'PARCEL',
                                 'created_at': DateTime.now().toIso8601String(),
-                              });
-                            } catch (_) {}
+                              }).select('id, created_at').single();
+
+                              if (_socketConnected && _waiterSocket != null) {
+                                _waiterSocket!.write(jsonEncode({
+                                  'type': 'NEW_KOT',
+                                  'table': parcelId,
+                                  'waiter_id': widget.staffId,
+                                  'items': newOrderItems,
+                                  'id': createdKot['id'],
+                                  'created_at': createdKot['created_at'],
+                                }) + "\n");
+                              }
+                            } catch (error) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('पार्सल KOT सेव नहीं हुआ: $error')),
+                                );
+                              }
+                              return;
+                            }
 
                             if (mounted) Navigator.pop(context);
                             ScaffoldMessenger.of(context).showSnackBar(
