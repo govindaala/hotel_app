@@ -132,6 +132,12 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     }
   }
 
+  Future<void> _saveInventoryCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    final rows = inventoryGroups.values.expand((items) => items).toList();
+    await prefs.setString('saved_counter_inventory_${widget.storeCode}', jsonEncode(rows));
+  }
+
   Map<String, List<Map<String, dynamic>>> _groupInventoryRows(List<dynamic> allRows) {
     final Map<String, Map<String, dynamic>> mergedMap = {};
     for (final row in allRows) {
@@ -415,26 +421,34 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         }
       }
 
-      // स्टॉक अपडेट अलग से करें; बिक्री/KOT सेव होने के बाद इसकी विफलता पर
-      // पूरा checkout दोबारा चलाकर duplicate invoice/KOT नहीं बनना चाहिए।
-      try {
-        for (final item in cart.values) {
-          if (item['id'] != null) {
-            final int currentStock = (item['stock'] as num?)?.toInt() ?? 0;
-            final int quantity = (item['qty'] as num?)?.toInt() ?? 0;
-            final int remaining = currentStock - quantity;
-            await supabase.from('counter_inventory').update({
-              'stock_qty': remaining < 0 ? 0 : remaining,
-            }).eq('id', item['id']);
+      // बिक्री/KOT के बाद स्टॉक लोकल में तुरंत घटाएँ और इंटरनेट आने पर क्लाउड Sync करें।
+      for (final item in cart.values) {
+        if (item['id'] == null) continue;
+        final int currentStock = (item['stock'] as num?)?.toInt() ?? 0;
+        final int quantity = (item['qty'] as num?)?.toInt() ?? 0;
+        final int remaining = (currentStock - quantity).clamp(0, 1 << 31);
+        for (final group in inventoryGroups.values) {
+          for (final row in group) {
+            if (row['id'].toString() == item['id'].toString()) {
+              row['stock_qty'] = remaining;
+            }
           }
         }
-      } catch (error) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('ऑर्डर सेव है, लेकिन स्टॉक अपडेट नहीं हुआ: $error')),
+        try {
+          await supabase.from('counter_inventory').update({
+            'stock_qty': remaining,
+          }).eq('id', item['id']);
+        } catch (error) {
+          await OfflineDatabase.instance.enqueue(
+            id: 'inventory-${item['id']}',
+            storeCode: widget.storeCode,
+            entity: 'counter_inventory_update',
+            payload: {'id': item['id'], 'stock_qty': remaining},
           );
+          debugPrint('Inventory update queued for offline sync: $error');
         }
       }
+      await _saveInventoryCache();
 
       if (tableOrderNumber != null && tableOrderItems != null) {
         widget.onTableOrderAdded?.call({
