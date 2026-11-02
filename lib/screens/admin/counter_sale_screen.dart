@@ -297,6 +297,24 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   Future<void> _processCheckout(String mode) async {
     if (cart.isEmpty) return;
 
+    // Recheck stock at checkout because the cart may have stayed open while inventory changed.
+    for (final item in cart.values) {
+      if (item['id'] == null) continue;
+      final int currentStock = (item['stock'] as num?)?.toInt() ?? 0;
+      final int quantity = (item['qty'] as num?)?.toInt() ?? 0;
+      if (quantity > currentStock) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('स्टॉक कम है: ${item['name']} (${item['variant']}) — उपलब्ध $currentStock, ऑर्डर $quantity। कृपया मात्रा सुधारें।'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+    }
+
     final double total = grandTotal;
     final List<String> details = cart.values
         .map((v) => '${v['name']} (${v['variant']}) x${v['qty']}')

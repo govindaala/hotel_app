@@ -68,7 +68,7 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
       final rows = await supabase
           .from('daily_expenses')
           .select('amount')
-          .eq('restaurant_id', widget.restaurantId)
+          .or('restaurant_id.eq.${widget.restaurantId},store_code.eq.${widget.restaurantId}')
           .eq('type', 'OPENING_CASH')
           .gte('created_at', dayStart.toIso8601String())
           .lt('created_at', nextDay.toIso8601String())
@@ -94,7 +94,7 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
       final existing = await supabase
           .from('daily_expenses')
           .select('id')
-          .eq('restaurant_id', widget.restaurantId)
+          .or('restaurant_id.eq.${widget.restaurantId},store_code.eq.${widget.restaurantId}')
           .eq('type', 'OPENING_CASH')
           .gte('created_at', dayStart.toIso8601String())
           .lt('created_at', nextDay.toIso8601String())
@@ -187,7 +187,7 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
       final res = await supabase
           .from('daily_expenses')
           .select()
-          .eq('restaurant_id', widget.restaurantId)
+          .or('restaurant_id.eq.${widget.restaurantId},store_code.eq.${widget.restaurantId}')
           .gte('created_at', range.start.toIso8601String())
           .lt('created_at', range.end.toIso8601String())
           .order('created_at', ascending: false);
@@ -220,6 +220,7 @@ class _DailyExpenseScreenState extends State<DailyExpenseScreen> {
     try {
       await supabase.from('daily_expenses').insert({
         'restaurant_id': widget.restaurantId,
+        'store_code': widget.restaurantId,
         'title': finalTitle,
         'amount': amount,
         'type': _type,

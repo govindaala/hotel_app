@@ -2,7 +2,9 @@ name: Build and Release Android APK
 
 on:
   push:
-    branches: [ main, master, requirements/pos-audit-fixes ]
+    branches: [ main, master, requirements/pos-audit-fixes, fix/batch-pos-ledger-consistency ]
+  pull_request:
+    branches: [ main, master ]
   workflow_dispatch:
 
 permissions:
