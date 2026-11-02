@@ -150,115 +150,215 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
 
   // सामान रिसीव करना और खर्च का माध्यम दर्ज करना
   void _openReceiveDialog(AdvancedRationDemandModel item) {
-    final costController = TextEditingController();
-    String paidBy = 'DRAWER_CASH';
-    String partnerName = '';
+    final costController = TextEditingController(
+      text: item.purchaseCost > 0 ? item.purchaseCost.toStringAsFixed(2) : '',
+    );
+    String paidBy = item.paidBy;
+    final categoryVendors = _vendors
+        .where((vendor) => item.vendorCategory == null || vendor.category == item.vendorCategory)
+        .toList();
+    final availableVendors = categoryVendors.isNotEmpty ? categoryVendors : _vendors;
+    String? selectedVendorId = availableVendors.any((v) => v.id == item.vendorId)
+        ? item.vendorId
+        : (availableVendors.isNotEmpty ? availableVendors.first.id : null);
+    String? selectedPartnerId = _partners.isNotEmpty ? _partners.first.partnerId : null;
 
     showDialog(
       context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Text('सामान रिसीव: ${item.itemName}', style: const TextStyle(fontWeight: FontWeight.bold)),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('मात्रा: ${item.quantity}', style: const TextStyle(color: Colors.grey)),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: costController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'खरीद लागत (₹)',
-                        prefixText: '₹ ',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text('भुगतान का माध्यम (Paid By):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    const SizedBox(height: 6),
-                    DropdownButtonFormField<String>(
-                      value: paidBy,
-                      decoration: const InputDecoration(border: OutlineInputBorder()),
-                      items: const [
-                        DropdownMenuItem(value: 'DRAWER_CASH', child: Text('होटल गल्ले से कैश (Cash Drawer)')),
-                        DropdownMenuItem(value: 'UPI', child: Text('ऑनलाइन UPI (होटल अकाउंट)')),
-                        DropdownMenuItem(value: 'PARTNER_POCKET', child: Text('पार्टनर ने अपनी जेब से दिया')),
-                        DropdownMenuItem(value: 'CREDIT', child: Text('उधारी / खाता (Vendor Pending)')),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) setDialogState(() => paidBy = val);
-                      },
-                    ),
-                    if (paidBy == 'PARTNER_POCKET') ...[
-                      const SizedBox(height: 10),
-                      TextField(
-                        decoration: const InputDecoration(
-                          labelText: 'पार्टनर का नाम',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (val) => partnerName = val,
-                      ),
-                    ],
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('सामान रिसीव: ${item.itemName}', style: const TextStyle(fontWeight: FontWeight.bold)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('मात्रा: ${item.quantity}', style: const TextStyle(color: Colors.grey)),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: selectedVendorId,
+                  decoration: const InputDecoration(
+                    labelText: 'सप्लायर / वेंडर',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: availableVendors.map((vendor) => DropdownMenuItem(
+                    value: vendor.id,
+                    child: Text(vendor.vendorName),
+                  )).toList(),
+                  onChanged: (value) => setDialogState(() => selectedVendorId = value),
+                ),
+                if (availableVendors.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text('वेंडर दर्ज नहीं है; क्रेडिट पर रिसीव करने से पहले वेंडर जोड़ें।',
+                        style: TextStyle(color: Colors.deepOrange, fontSize: 12)),
+                  ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: costController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'खरीद लागत (₹)',
+                    prefixText: '₹ ',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text('भुगतान का माध्यम:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: paidBy,
+                  decoration: const InputDecoration(border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: 'DRAWER_CASH', child: Text('होटल गल्ले से कैश')),
+                    DropdownMenuItem(value: 'UPI', child: Text('ऑनलाइन UPI')),
+                    DropdownMenuItem(value: 'PARTNER_POCKET', child: Text('पार्टनर ने अपनी जेब से दिया')),
+                    DropdownMenuItem(value: 'CREDIT', child: Text('उधारी / वेंडर खाता')),
                   ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('रद्द करें'),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
-                  onPressed: () async {
-                    final double cost = double.tryParse(costController.text.trim()) ?? 0.0;
-
-                    // 1. राशन डिमांड अपडेट करना
-                    await _supabase.from('ration_demands').update({
-                      'is_received': true,
-                      'purchase_cost': cost,
-                      'paid_by': paidBy,
-                      'partner_name': partnerName.isNotEmpty ? partnerName : null,
-                    }).eq('id', item.id);
-
-                    // 2. यदि गल्ले या UPI से भुगतान हुआ, तो दैनिक खर्चे में दर्ज करना
-                    if (cost > 0 && (paidBy == 'DRAWER_CASH' || paidBy == 'UPI')) {
-                      await _supabase.from('daily_expenses').insert({
-                        'store_code': widget.storeCode,
-                        'restaurant_id': widget.storeCode,
-                        'title': 'राशन खरीद: ${item.itemName} (${item.quantity})',
-                        'amount': cost,
-                        'type': paidBy == 'DRAWER_CASH' ? 'EXPENSE_CASH' : 'EXPENSE_UPI',
-                        'created_at': DateTime.now().toIso8601String(),
-                      });
-                    }
-
-                    // 3. यदि पार्टनर ने जेब से दिया, तो पार्टनर लेज़र में क्रेडिट दर्ज करना
-                    if (cost > 0 && paidBy == 'PARTNER_POCKET') {
-                      await _supabase.from('partner_ledger').insert({
-                        'store_code': widget.storeCode,
-                        'partner_id': 'P_EXP',
-                        'partner_name': partnerName.isNotEmpty ? partnerName : 'Partner',
-                        'type': 'POCKET_EXPENSE',
-                        'amount': cost,
-                        'note': 'राशन खरीद: ${item.itemName} (${item.quantity})',
-                        'created_at': DateTime.now().toIso8601String(),
-                      });
-                    }
-
-                    if (mounted) Navigator.pop(ctx);
-                    _loadAllData();
+                  onChanged: (value) {
+                    if (value != null) setDialogState(() => paidBy = value);
                   },
-                  child: const Text('कन्फर्म रिसीव', style: TextStyle(color: Colors.white)),
                 ),
+                if (paidBy == 'PARTNER_POCKET') ...[
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    value: selectedPartnerId,
+                    decoration: const InputDecoration(
+                      labelText: 'खर्च करने वाला पार्टनर',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _partners.map((partner) => DropdownMenuItem(
+                      value: partner.partnerId,
+                      child: Text(partner.partnerName),
+                    )).toList(),
+                    onChanged: (value) => setDialogState(() => selectedPartnerId = value),
+                  ),
+                  if (_partners.isEmpty)
+                    const Text('पहले होटल सेटिंग्स में पार्टनर जोड़ें।',
+                        style: TextStyle(color: Colors.deepOrange, fontSize: 12)),
+                ],
+                if (paidBy == 'CREDIT')
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text('उधारी राशि वेंडर के बकाया बैलेंस में जुड़ेगी।',
+                        style: TextStyle(color: Colors.deepOrange, fontSize: 12)),
+                  ),
               ],
-            );
-          },
-        );
-      },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('रद्द करें'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
+              onPressed: () async {
+                final cost = double.tryParse(costController.text.trim()) ?? 0.0;
+                if (cost <= 0) {
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    const SnackBar(content: Text('सही खरीद लागत दर्ज करें।')),
+                  );
+                  return;
+                }
+                if (paidBy == 'CREDIT' && selectedVendorId == null) {
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    const SnackBar(content: Text('उधारी दर्ज करने के लिए वेंडर चुनें।')),
+                  );
+                  return;
+                }
+                if (paidBy == 'PARTNER_POCKET' && selectedPartnerId == null) {
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    const SnackBar(content: Text('पार्टनर चुनें।')),
+                  );
+                  return;
+                }
+
+                final selectedVendor = availableVendors.where((v) => v.id == selectedVendorId).firstOrNull;
+                final selectedPartner = _partners.where((p) => p.partnerId == selectedPartnerId).firstOrNull;
+                final expenseType = switch (paidBy) {
+                  'UPI' => 'EXPENSE_UPI',
+                  'PARTNER_POCKET' => 'EXPENSE_PARTNER',
+                  'CREDIT' => 'EXPENSE_CREDIT',
+                  _ => 'EXPENSE_CASH',
+                };
+                final now = DateTime.now().toIso8601String();
+                String? expenseId;
+                String? ledgerId;
+                bool vendorBalanceUpdated = false;
+
+                try {
+                  final expenseRow = await _supabase.from('daily_expenses').insert({
+                    'store_code': widget.storeCode,
+                    'restaurant_id': widget.storeCode,
+                    'title': 'राशन खरीद: ${item.itemName} (${item.quantity})',
+                    'amount': cost,
+                    'type': expenseType,
+                    'created_at': now,
+                  }).select('id').single();
+                  expenseId = expenseRow['id'].toString();
+
+                  if (paidBy == 'PARTNER_POCKET' && selectedPartner != null) {
+                    final ledgerRow = await _supabase.from('partner_ledger').insert({
+                      'store_code': widget.storeCode,
+                      'partner_id': selectedPartner.partnerId,
+                      'partner_name': selectedPartner.partnerName,
+                      'type': 'POCKET_EXPENSE',
+                      'amount': cost,
+                      'note': 'राशन खरीद: ${item.itemName} (${item.quantity})',
+                      'created_at': now,
+                    }).select('id').single();
+                    ledgerId = ledgerRow['id'].toString();
+                  }
+
+                  if (paidBy == 'CREDIT' && selectedVendor != null) {
+                    await _supabase.from('hotel_vendors').update({
+                      'current_balance': selectedVendor.currentBalance + cost,
+                    }).eq('id', selectedVendor.id);
+                    vendorBalanceUpdated = true;
+                  }
+
+                  await _supabase.from('ration_demands').update({
+                    'is_received': true,
+                    'purchase_cost': cost,
+                    'paid_by': paidBy,
+                    'vendor_id': selectedVendorId,
+                    'vendor_category': selectedVendor?.category ?? item.vendorCategory,
+                    'partner_name': selectedPartner?.partnerName,
+                  }).eq('id', item.id);
+
+                  if (mounted) Navigator.pop(dialogContext);
+                  await _loadAllData();
+                } catch (error) {
+                  if (vendorBalanceUpdated && selectedVendor != null) {
+                    try {
+                      await _supabase.from('hotel_vendors').update({
+                        'current_balance': selectedVendor.currentBalance,
+                      }).eq('id', selectedVendor.id);
+                    } catch (_) {}
+                  }
+                  if (ledgerId != null) {
+                    try {
+                      await _supabase.from('partner_ledger').delete().eq('id', ledgerId);
+                    } catch (_) {}
+                  }
+                  if (expenseId != null) {
+                    try {
+                      await _supabase.from('daily_expenses').delete().eq('id', expenseId);
+                    } catch (_) {}
+                  }
+                  if (mounted) {
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(content: Text('रिसीव/लेजर अपडेट नहीं हुआ; कृपया दोबारा जाँचें: $error')),
+                    );
+                  }
+                }
+              },
+              child: const Text('कन्फर्म रिसीव', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
