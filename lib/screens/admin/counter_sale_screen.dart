@@ -5,7 +5,13 @@ import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 
 class CounterSaleScreen extends StatefulWidget {
   final String storeCode;
-  const CounterSaleScreen({Key? key, required this.storeCode}) : super(key: key);
+  final void Function(int tableNumber, List<Map<String, dynamic>> items)? onTableOrderAdded;
+
+  const CounterSaleScreen({
+    Key? key,
+    required this.storeCode,
+    this.onTableOrderAdded,
+  }) : super(key: key);
 
   @override
   State<CounterSaleScreen> createState() => _CounterSaleScreenState();
@@ -204,6 +210,9 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         .toList();
 
     try {
+      int? tableOrderNumber;
+      List<Map<String, dynamic>>? tableOrderItems;
+
       if (selectedTable != 'काउंटर सेल (डायरेक्ट)') {
         final int tblNum = int.tryParse(selectedTable.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
         final formattedItems = cart.values.map((v) => {
@@ -214,7 +223,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           'total': v['price'] * v['qty'],
         }).toList();
 
-        // 1. सुपाबेस स्कीमा से पूर्ण मिलान के साथ इन्सर्ट
         await supabase.from('hotel_kots').insert({
           'store_code': widget.storeCode,
           'restaurant_id': widget.storeCode,
@@ -222,19 +230,50 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           'table_name': selectedTable,
           'items': jsonEncode(formattedItems),
           'status': 'pending',
+          'source': 'COUNTER_POS',
           'created_at': DateTime.now().toIso8601String(),
         });
+        tableOrderNumber = tblNum;
+        tableOrderItems = formattedItems;
       } else {
+        final paymentMode = mode == 'UPI' ? 'UPI' : 'CASH';
+        final billNo = 'POS-${DateTime.now().millisecondsSinceEpoch}';
+        final invoice = await supabase.from('invoices').insert({
+          'store_code': widget.storeCode,
+          'bill_no': billNo,
+          'table_no': 0,
+          'waiter_id': null,
+          'subtotal': total,
+          'discount_pct': 0,
+          'discount_amt': 0,
+          'final_amount': total,
+          'payment_mode': paymentMode,
+          'cashier_partner_name': 'Counter Sale',
+          'created_at': DateTime.now().toIso8601String(),
+        }).select('id').single();
+
+        final invoiceItems = cart.values.map((item) => {
+          'invoice_id': invoice['id'],
+          'item_id': item['id']?.toString(),
+          'item_name': '${item['name']} (${item['variant']})',
+          'category': item['name'],
+          'price': item['price'],
+          'qty': item['qty'],
+          'total_price': (item['price'] as num) * (item['qty'] as num),
+        }).toList();
+        await supabase.from('invoice_items').insert(invoiceItems);
+
         await supabase.from('daily_expenses').insert({
           'restaurant_id': widget.storeCode,
-          'title': 'काउंटर सेल: ${details.join(", ")} ($mode)',
+          'store_code': widget.storeCode,
+          'title': 'काउंटर सेल: ${details.join(", ")} ($paymentMode)',
           'amount': total,
           'type': 'CASH_IN',
           'created_at': DateTime.now().toIso8601String(),
         });
       }
 
-      // 2. स्टॉक घटाना
+      // स्टॉक घटाना
       for (var item in cart.values) {
         if (item['id'] != null) {
           final int remaining = ((item['stock'] ?? 0) as int) - (item['qty'] as int);
@@ -242,6 +281,10 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
             'stock_qty': remaining < 0 ? 0 : remaining,
           }).eq('id', item['id']);
         }
+      }
+
+      if (tableOrderNumber != null && tableOrderItems != null) {
+        widget.onTableOrderAdded?.call(tableOrderNumber, tableOrderItems);
       }
 
       if (shouldPrint) {
@@ -259,17 +302,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           ),
         );
 
-        if (selectedTable != 'काउंटर सेल (डायरेक्ट)') {
-          Navigator.pop(context, {
-            'table': selectedTable,
-            'items': cart.values.map((v) => {
-              'name': '${v['name']} (${v['variant']})',
-              'qty': v['qty'],
-              'price': v['price'],
-            }).toList(),
-          });
-          return;
-        }
       }
 
       setState(() => cart.clear());
