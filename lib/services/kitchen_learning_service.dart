@@ -143,15 +143,7 @@ class KitchenLearningService {
           .eq('invoices.store_code', storeCode)
           .gte('created_at', threeWeeksAgo);
 
-      if (salesData.isEmpty) {
-        // यदि इनवॉइस डेटा अभी नया है, तो बेसिक अनुमान सूची लौटाना
-        return [
-          {'item_name': 'पनीर (Paneer)', 'quantity': '12 KG', 'reason': 'वीकेंड स्पेशल औसत'},
-          {'item_name': 'प्याज (Onion)', 'quantity': '30 KG', 'reason': 'सामान्य वीकेंड खपत'},
-          {'item_name': 'टमाटर (Tomato)', 'quantity': '20 KG', 'reason': 'ग्रेवी व सलाद आवश्यकता'},
-          {'item_name': 'दूध (Milk)', 'quantity': '15 Ltr', 'reason': 'चाय व मिष्ठान'},
-        ];
-      }
+      if (salesData.isEmpty) return [];
 
       int paneerDishesCount = 0;
       int gravyDishesCount = 0;
