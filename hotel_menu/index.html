@@ -116,8 +116,8 @@
         buildCategories();
         renderItems();
       } catch (e) {
-        document.getElementById('menuContainer').innerHTML = 
-          `<div style="text-align:center; color:red;">मेन्यू लोड त्रुटि: ${e.message}</div>`;
+        document.getElementById('menuContainer').textContent =
+          'मेन्यू लोड त्रुटि: ' + (e?.message || 'अज्ञात त्रुटि');
       }
     }
 
