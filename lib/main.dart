@@ -2679,6 +2679,17 @@ class _FullCounterAppState extends State<FullCounterApp> {
   Widget _buildQuickPosView() {
     return CounterSaleScreen(
       storeCode: widget.storeCode,
+      onTableOrderAdded: (kot) {
+        final tableNo = int.tryParse(kot['table']?.toString() ?? '') ?? 0;
+        final items = List<Map<String, dynamic>>.from(kot['items'] as List? ?? []);
+        if (tableNo > 0) {
+          activeOrders.putIfAbsent(tableNo, () => []).addAll(items);
+          tableWaiterMap[tableNo] = 'COUNTER';
+          tableStateMap[tableNo] = 'running';
+        }
+        _broadcastLocal(kot);
+        if (mounted) setState(() {});
+      },
     );
   }
 }
