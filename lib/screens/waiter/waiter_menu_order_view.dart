@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../Data/Menu_data_source.dart';
 
 class WaiterMenuOrderView extends StatefulWidget {
@@ -25,8 +23,17 @@ class _WaiterMenuOrderViewState extends State<WaiterMenuOrderView> {
   String _selectedCategory = 'सभी (All)';
   String _searchQuery = '';
   List<MenuItemModel> _activeMenu = [];
-  Map<String, bool> _stockStatusMap = {};
   bool _hideOutOfStock = false;
+
+  List<String> get _categories {
+    final categories = _activeMenu
+        .map((item) => item.category.trim())
+        .where((category) => category.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    return ['सभी (All)', ...categories];
+  }
   final Map<dynamic, int> _localCart = {};
 
   @override
@@ -44,40 +51,18 @@ class _WaiterMenuOrderViewState extends State<WaiterMenuOrderView> {
   }
 
   Future<void> _initMenuData() async {
-    List<MenuItemModel> baseList = widget.menuList ?? List.from(kRestaurantMenu);
-
-    final prefs = await SharedPreferences.getInstance();
-    final cachedStatuses = prefs.getStringList('cached_menu_stock_disabled') ?? [];
-    final Map<String, bool> statusMap = {};
-
-    for (var id in cachedStatuses) {
-      statusMap[id] = false;
-    }
-
-    try {
-      final res = await Supabase.instance.client
-          .from('menu_items')
-          .select('id, is_available');
-
-      List<String> disabledIds = [];
-      for (var r in res) {
-        final String id = r['id'].toString();
-        final bool isAvail = r['is_available'] ?? true;
-        statusMap[id] = isAvail;
-        if (!isAvail) disabledIds.add(id);
-      }
-      await prefs.setStringList('cached_menu_stock_disabled', disabledIds);
-    } catch (_) {}
-
-    final updatedList = baseList.map((item) {
-      final isAvailable = statusMap[item.id] ?? item.isAvailable;
-      return item.copyWith(isAvailable: isAvailable);
-    }).toList();
+    // Counter से आया हुआ store-specific menu ही source of truth है।
+    // Cloud request यहाँ नहीं करते, ताकि local Wi-Fi/offline mode में menu न टूटे।
+    final activeList = List<MenuItemModel>.from(
+      widget.menuList ?? kRestaurantMenu,
+    );
 
     if (mounted) {
       setState(() {
-        _stockStatusMap = statusMap;
-        _activeMenu = updatedList;
+        _activeMenu = activeList;
+        if (!_categories.contains(_selectedCategory)) {
+          _selectedCategory = 'सभी (All)';
+        }
       });
     }
   }
@@ -90,24 +75,30 @@ class _WaiterMenuOrderViewState extends State<WaiterMenuOrderView> {
   }
 
   void _handleIncrease(MenuItemModel item) {
-    widget.onAddItem(item);
+    if (widget.cart != null) {
+      widget.onAddItem(item);
+      return;
+    }
     setState(() {
       _localCart[item.id] = (_localCart[item.id] ?? 0) + 1;
     });
+    widget.onAddItem(item);
   }
 
   void _handleDecrease(MenuItemModel item) {
-    if (widget.onRemoveItem != null) {
-      widget.onRemoveItem!(item);
+    if (widget.cart != null) {
+      widget.onRemoveItem?.call(item);
+      return;
     }
     setState(() {
-      final cur = _getItemCount(item.id);
+      final cur = _localCart[item.id] ?? 0;
       if (cur > 1) {
         _localCart[item.id] = cur - 1;
       } else {
         _localCart.remove(item.id);
       }
     });
+    widget.onRemoveItem?.call(item);
   }
 
   List<MenuItemModel> get _filteredItems {
@@ -161,10 +152,10 @@ class _WaiterMenuOrderViewState extends State<WaiterMenuOrderView> {
           height: 44,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
-            itemCount: kMenuCategories.length,
+            itemCount: _categories.length,
             padding: const EdgeInsets.symmetric(horizontal: 8),
             itemBuilder: (context, index) {
-              final cat = kMenuCategories[index];
+              final cat = _categories[index];
               final isSelected = cat == _selectedCategory;
               return Padding(
                 padding: const EdgeInsets.only(right: 6),
