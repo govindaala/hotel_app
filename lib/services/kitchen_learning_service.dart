@@ -36,7 +36,7 @@ class KitchenLearningService {
           final name = (it['name'] ?? '').toString().toLowerCase();
           final cat = (it['category'] ?? it['cat'] ?? '').toString().toLowerCase();
 
-          if (cat.contains('main course') || name.contains('paneer') || name.contains('thali')) {
+          if (cat.contains('main course') || name.contains('paneer') || name.contains('पनीर') || name.contains('thali')) {
             hasHeavyMainCourse = true;
             hasOnlyBeverages = false;
           } else if (!cat.contains('beverage') && !cat.contains('tea') && !cat.contains('coffee')) {
@@ -160,22 +160,22 @@ class KitchenLearningService {
         if (name.contains('paneer')) {
           paneerDishesCount += qty;
         }
-        if (name.contains('curry') || name.contains('masala') || name.contains('dal')) {
+        if (name.contains('curry') || name.contains('masala') || name.contains('dal') || name.contains('करी') || name.contains('मसाला') || name.contains('दाल')) {
           gravyDishesCount += qty;
         }
-        if (name.contains('tea') || name.contains('chai') || name.contains('coffee')) {
+        if (name.contains('tea') || name.contains('chai') || name.contains('coffee') || name.contains('चाय') || name.contains('कॉफी')) {
           teaCoffeeCount += qty;
         }
       }
 
       // 3 हफ़्तों का औसत प्रति वीकेंड (Recipe BOM फ़ॉर्मूला)
       // 1 पनीर डिश ≈ 140 ग्राम पनीर
-      final double estimatedPaneerKg = ((paneerDishesCount / 3) * 0.14).clamp(5.0, 50.0);
+      final double estimatedPaneerKg = ((paneerDishesCount / 3) * 0.14).clamp(0.0, 50.0);
       // प्रति 10 ग्रेवी डिश ≈ 1.5 किलो प्याज, 1 किलो टमाटर
-      final double estimatedOnionKg = ((gravyDishesCount / 3) * 0.15).clamp(10.0, 80.0);
-      final double estimatedTomatoKg = ((gravyDishesCount / 3) * 0.10).clamp(8.0, 50.0);
+      final double estimatedOnionKg = ((gravyDishesCount / 3) * 0.15).clamp(0.0, 80.0);
+      final double estimatedTomatoKg = ((gravyDishesCount / 3) * 0.10).clamp(0.0, 50.0);
       // प्रति 10 कप चाय ≈ 1.2 लीटर दूध
-      final double estimatedMilkLtr = ((teaCoffeeCount / 3) * 0.12).clamp(5.0, 40.0);
+      final double estimatedMilkLtr = ((teaCoffeeCount / 3) * 0.12).clamp(0.0, 40.0);
 
       predictions.add({
         'item_name': 'पनीर (Paneer)',
