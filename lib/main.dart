@@ -2998,8 +2998,12 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
           } catch (_) {}
         }
       },
-          onDone: () => setState(() => _socketConnected = false),
-          onError: (_) => setState(() => _socketConnected = false));
+          onDone: () {
+            if (mounted) setState(() => _socketConnected = false);
+          },
+          onError: (_) {
+            if (mounted) setState(() => _socketConnected = false);
+          });
     } catch (_) {
       if (mounted && _socketConnected) setState(() => _socketConnected = false);
     }
@@ -3613,6 +3617,7 @@ class _FullCookAppState extends State<FullCookApp> {
   Socket? _cookSocket;
   List<Map<String, dynamic>> kitchenOrders = [];
   final Set<String> _spokenOrderKots = {};
+  final Set<String> _seenKotIds = {};
   Timer? _cookSyncTimer;
 
   Map<String, dynamic>? _lastReadyOrder;
@@ -3623,10 +3628,8 @@ class _FullCookAppState extends State<FullCookApp> {
     _initNetworkAndSync();
 
     _cookSyncTimer = Timer.periodic(const Duration(seconds: 25), (_) {
-      if (!_socketConnected) {
-        _connectToSocket();
-        _syncFromCloud();
-      }
+      if (!_socketConnected) _connectToSocket();
+      _syncFromCloud();
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) => checkForAppUpdates(context));
@@ -3660,8 +3663,11 @@ class _FullCookAppState extends State<FullCookApp> {
             if (msg['type'] == 'NEW_KOT' && mounted) {
               int tbl = msg['table'];
               final newKotMap = Map<String, dynamic>.from(msg);
-              newKotMap['created_at'] = DateTime.now().toIso8601String();
-              setState(() => kitchenOrders.insert(0, newKotMap));
+              newKotMap['created_at'] = msg['created_at'] ?? DateTime.now().toIso8601String();
+              final kotId = newKotMap['id']?.toString();
+              if (kotId == null || _seenKotIds.add(kotId)) {
+                setState(() => kitchenOrders.insert(0, newKotMap));
+              }
 
               if (tbl >= 900) {
                 VoiceService.speak("नया पार्सल ऑर्डर आया है");
@@ -3717,6 +3723,7 @@ class _FullCookAppState extends State<FullCookApp> {
             'items': items,
             'created_at': r['created_at'],
           });
+          _seenKotIds.add(id);
 
           if (!_spokenOrderKots.contains(id)) {
             _spokenOrderKots.add(id);
