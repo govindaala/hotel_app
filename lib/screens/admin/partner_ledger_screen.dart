@@ -218,7 +218,7 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
                               'store_code': widget.storeCode,
                               'title': 'पार्टनर जेब खर्च: ${selectedPartner.partnerName} | ${noteController.text.trim()}',
                               'amount': amt,
-                              'type': 'EXPENSE',
+                              'type': 'EXPENSE_PARTNER',
                               'created_at': DateTime.now().toIso8601String(),
                             });
                           } catch (error) {
