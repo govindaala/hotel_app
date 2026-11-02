@@ -1,8 +1,11 @@
 // lib/services/usb_printer_service.dart
 
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:image/image.dart' as img;
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -55,6 +58,36 @@ class UsbThermalPrinterManager {
       return await PrintBluetoothThermal.disconnect;
     } catch (error) {
       debugPrint('Bluetooth printer disconnect failed: $error');
+      return false;
+    }
+  }
+
+  /// Hindi receipt PNG को ESC/POS raster image की तरह प्रिंट करें.
+  /// इससे प्रिंटर के Hindi code-page पर निर्भरता नहीं रहती.
+  Future<bool> printPngImage(
+    Uint8List pngBytes, {
+    int paperWidthMm = 58,
+  }) async {
+    try {
+      if (!await PrintBluetoothThermal.connectionStatus) return false;
+
+      final decoded = img.decodeImage(pngBytes);
+      if (decoded == null) {
+        debugPrint('Receipt image decode failed');
+        return false;
+      }
+
+      final profile = await CapabilityProfile.load();
+      final paperSize = paperWidthMm == 58 ? PaperSize.mm58 : PaperSize.mm80;
+      final generator = Generator(paperSize, profile);
+      final bytes = <int>[
+        ...generator.imageRaster(decoded, align: PosAlign.center),
+        ...generator.feed(2),
+        ...generator.cut(),
+      ];
+      return await PrintBluetoothThermal.writeBytes(bytes);
+    } catch (error) {
+      debugPrint('Hindi thermal image print failed: $error');
       return false;
     }
   }
