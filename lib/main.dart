@@ -2666,6 +2666,9 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
   List<Map<String, dynamic>> menu = [];
   Map<int, List<Map<String, dynamic>>> liveTables = {};
   Map<int, String> tableStatus = {};
+  List<Map<String, dynamic>> pendingQrOrders = [];
+  RealtimeChannel? _qrOrderChannel;
+  final Set<String> _processingQrOrderIds = {};
   final Set<String> _spokenReadyKots = {};
   Timer? _waiterSyncTimer;
 
@@ -2678,6 +2681,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
     super.initState();
     _loadMenu();
     _initNetworkAndSync();
+    _listenForQrOrders();
 
     _waiterSyncTimer = Timer.periodic(const Duration(seconds: 25), (_) {
       if (!_socketConnected) {
@@ -2693,7 +2697,245 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
   void dispose() {
     _waiterSyncTimer?.cancel();
     _waiterSocket?.destroy();
+    if (_qrOrderChannel != null) {
+      unawaited(Supabase.instance.client.removeChannel(_qrOrderChannel!));
+    }
     super.dispose();
+  }
+
+  void _listenForQrOrders() {
+    try {
+      _qrOrderChannel = Supabase.instance.client
+          .channel('waiter-qr-orders-${widget.storeCode}')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'qr_orders',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'store_code',
+              value: widget.storeCode,
+            ),
+            callback: (payload) {
+              final record = payload.newRecord;
+              final id = record['id']?.toString();
+              if (id == null || !mounted) return;
+              setState(() {
+                if (record['status'] == 'PENDING_APPROVAL') {
+                  pendingQrOrders.removeWhere((order) => order['id'].toString() == id);
+                  pendingQrOrders.insert(0, record);
+                } else {
+                  pendingQrOrders.removeWhere((order) => order['id'].toString() == id);
+                }
+              });
+              if (record['status'] == 'PENDING_APPROVAL') {
+                VoiceService.speak('नया ग्राहक QR ऑर्डर वेटर पुष्टि के लिए आया है');
+              }
+            },
+          )
+          .subscribe();
+      _fetchPendingQrOrders();
+    } catch (error) {
+      debugPrint('QR order subscription failed: $error');
+    }
+  }
+
+  Future<void> _fetchPendingQrOrders() async {
+    try {
+      final rows = await Supabase.instance.client
+          .from('qr_orders')
+          .select('*')
+          .eq('store_code', widget.storeCode)
+          .eq('status', 'PENDING_APPROVAL')
+          .order('created_at', ascending: false);
+      if (mounted) {
+        setState(() {
+          pendingQrOrders = List<Map<String, dynamic>>.from(rows);
+        });
+      }
+    } catch (error) {
+      debugPrint('Pending QR order fetch failed: $error');
+    }
+  }
+
+  Future<void> _handleWaiterQrOrderAction(
+    Map<String, dynamic> qrOrder,
+    bool isAccepted,
+  ) async {
+    final orderId = qrOrder['id'].toString();
+    if (!_processingQrOrderIds.add(orderId)) return;
+
+    final tableNo = int.tryParse(qrOrder['table_no'].toString()) ?? 0;
+    try {
+      if (isAccepted) {
+        dynamic rawItems = qrOrder['items'];
+        List<Map<String, dynamic>> items = [];
+        if (rawItems is List) {
+          items = List<Map<String, dynamic>>.from(rawItems);
+        } else if (rawItems is String) {
+          items = List<Map<String, dynamic>>.from(jsonDecode(rawItems));
+        }
+        if (items.isEmpty) {
+          throw StateError('QR ऑर्डर में कोई आइटम नहीं है');
+        }
+
+        final createdKot = await Supabase.instance.client
+            .from('hotel_kots')
+            .insert({
+              'store_code': widget.storeCode,
+              'table_no': tableNo,
+              'waiter_id': widget.staffId,
+              'items': jsonEncode(items),
+              'status': 'pending',
+              'source': 'QR_DIGITAL',
+              'created_at': DateTime.now().toIso8601String(),
+            })
+            .select('id, created_at')
+            .single();
+
+        await Supabase.instance.client
+            .from('qr_orders')
+            .update({'status': 'ACCEPTED'})
+            .eq('id', orderId);
+
+        if (mounted) {
+          setState(() {
+            liveTables.putIfAbsent(tableNo, () => []).addAll(items);
+            tableStatus[tableNo] = 'running';
+            pendingQrOrders.removeWhere((order) => order['id'].toString() == orderId);
+          });
+        }
+
+        final message = {
+          'type': 'NEW_KOT',
+          'table': tableNo,
+          'waiter_id': widget.staffId,
+          'items': items,
+          'id': createdKot['id'],
+          'created_at': createdKot['created_at'],
+        };
+        if (_socketConnected && _waiterSocket != null) {
+          _waiterSocket!.write('${jsonEncode(message)}\\n');
+        }
+        VoiceService.speak('टेबल $tableNo का QR ऑर्डर किचन भेज दिया गया');
+      } else {
+        await Supabase.instance.client
+            .from('qr_orders')
+            .update({'status': 'REJECTED'})
+            .eq('id', orderId);
+        if (mounted) {
+          setState(() {
+            pendingQrOrders.removeWhere((order) => order['id'].toString() == orderId);
+          });
+        }
+        VoiceService.speak('टेबल $tableNo का QR ऑर्डर निरस्त किया गया');
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('QR ऑर्डर अपडेट नहीं हुआ: $error')),
+        );
+      }
+    } finally {
+      _processingQrOrderIds.remove(orderId);
+    }
+  }
+
+  void _openWaiterQrOrdersSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SizedBox(
+        height: MediaQuery.of(context).size.height * 0.78,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'ग्राहक QR ऑर्डर — वेटर पुष्टि',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(sheetContext),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: pendingQrOrders.isEmpty
+                  ? const Center(child: Text('अभी कोई QR ऑर्डर पेंडिंग नहीं है'))
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: pendingQrOrders.length,
+                      itemBuilder: (context, index) {
+                        final order = pendingQrOrders[index];
+                        final id = order['id'].toString();
+                        final tableNo = order['table_no'];
+                        dynamic rawItems = order['items'];
+                        List items = rawItems is List ? rawItems : [];
+                        if (rawItems is String) {
+                          try {
+                            items = jsonDecode(rawItems) as List;
+                          } catch (_) {}
+                        }
+                        final isProcessing = _processingQrOrderIds.contains(id);
+                        return Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text('टेबल T-$tableNo', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                    Text('₹${order['total_amount'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                                  ],
+                                ),
+                                const Divider(),
+                                ...items.map((item) => Text('• ${item['name']} × ${item['qty']}')),
+                                const SizedBox(height: 10),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    OutlinedButton(
+                                      onPressed: isProcessing
+                                          ? null
+                                          : () async {
+                                              await _handleWaiterQrOrderAction(order, false);
+                                              if (mounted) Navigator.pop(sheetContext);
+                                            },
+                                      child: const Text('निरस्त'),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    ElevatedButton(
+                                      onPressed: isProcessing
+                                          ? null
+                                          : () async {
+                                              await _handleWaiterQrOrderAction(order, true);
+                                              if (mounted) Navigator.pop(sheetContext);
+                                            },
+                                      child: Text(isProcessing ? 'प्रोसेस...' : 'कन्फर्म करके KOT भेजें'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _initNetworkAndSync() async {
@@ -3235,6 +3477,29 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                         decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(4)),
                         child: const Text('साफ़ करें', style: TextStyle(color: Colors.white, fontSize: 11)),
                       ),
+                    ),
+                  ],
+                ),
+              ),
+
+            if (pendingQrOrders.isNotEmpty)
+              Container(
+                color: Colors.deepOrange.shade50,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.qr_code_scanner, color: Colors.deepOrange),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${pendingQrOrders.length} ग्राहक QR ऑर्डर वेटर पुष्टि की प्रतीक्षा में',
+                        style: const TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                    ),
+                    ElevatedButton(
+                      onPressed: _openWaiterQrOrdersSheet,
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
+                      child: const Text('जाँचें', style: TextStyle(color: Colors.white)),
                     ),
                   ],
                 ),
