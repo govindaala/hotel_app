@@ -34,7 +34,7 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
   }
 
   Future<void> _loadAllData() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
     try {
       // 1. वेंडर्स लोड करना
       final vendorRes = await _supabase
@@ -73,7 +73,7 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
         storeCode: widget.storeCode,
       );
 
-      setState(() {
+      if (mounted) setState(() {
         _vendors = loadedVendors;
         _partners = loadedPartners;
         _demands = loadedDemands;
@@ -81,7 +81,7 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('डेटा लोड त्रुटि: $e')),
@@ -274,8 +274,10 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
                   return;
                 }
 
-                final selectedVendor = availableVendors.where((v) => v.id == selectedVendorId).firstOrNull;
-                final selectedPartner = _partners.where((p) => p.partnerId == selectedPartnerId).firstOrNull;
+                final matchingVendor = availableVendors.where((v) => v.id == selectedVendorId);
+                final selectedVendor = matchingVendor.isEmpty ? null : matchingVendor.first;
+                final matchingPartner = _partners.where((p) => p.partnerId == selectedPartnerId);
+                final selectedPartner = matchingPartner.isEmpty ? null : matchingPartner.first;
                 final expenseType = switch (paidBy) {
                   'UPI' => 'EXPENSE_UPI',
                   'PARTNER_POCKET' => 'EXPENSE_PARTNER',
