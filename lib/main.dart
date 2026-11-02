@@ -909,7 +909,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
       _qrOrderChannel = Supabase.instance.client
           .channel('public:qr_orders')
           .onPostgresChanges(
-            event: PostgresChangeEvent.insert,
+            event: PostgresChangeEvent.all,
             schema: 'public',
             table: 'qr_orders',
             filter: PostgresChangeFilter(
@@ -919,10 +919,17 @@ class _FullCounterAppState extends State<FullCounterApp> {
             ),
             callback: (payload) {
               final newRecord = payload.newRecord;
+              final orderId = newRecord['id']?.toString();
+              if (orderId == null || !mounted) return;
               if (newRecord['status'] == 'PENDING_APPROVAL') {
-                setState(() => pendingQrOrders.insert(0, newRecord));
+                setState(() {
+                  pendingQrOrders.removeWhere((order) => order['id'].toString() == orderId);
+                  pendingQrOrders.insert(0, newRecord);
+                });
                 final int tbl = newRecord['table_no'] ?? 0;
                 VoiceService.speak("टेबल $tbl से नया ऑनलाइन QR ऑर्डर आया है");
+              } else {
+                setState(() => pendingQrOrders.removeWhere((order) => order['id'].toString() == orderId));
               }
             },
           )
@@ -2815,7 +2822,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
           'created_at': createdKot['created_at'],
         };
         if (_socketConnected && _waiterSocket != null) {
-          _waiterSocket!.write('${jsonEncode(message)}\\n');
+          _waiterSocket!.write('${jsonEncode(message)}\n');
         }
         VoiceService.speak('टेबल $tableNo का QR ऑर्डर किचन भेज दिया गया');
       } else {
