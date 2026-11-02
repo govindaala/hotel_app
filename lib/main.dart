@@ -4094,9 +4094,14 @@ class _FullCookAppState extends State<FullCookApp> {
         debugPrint('Kitchen learning update deferred: $error');
       }
       try {
-        await Supabase.instance.client
+        final readyRows = await Supabase.instance.client
             .from('hotel_kots')
-            .update({'status': 'ready'}).eq('id', kotId);
+            .update({'status': 'ready'})
+            .eq('id', kotId)
+            .select('id');
+        if ((readyRows as List).isEmpty) {
+          throw StateError('KOT $kotId सर्वर पर नहीं मिला; स्थिति अपडेट नहीं हुई।');
+        }
       } catch (error) {
         await _queueOfflineKotStatus(kotId, 'ready');
         debugPrint('KOT ready status queued for cloud sync: $error');
@@ -4128,9 +4133,14 @@ class _FullCookAppState extends State<FullCookApp> {
     if (order['id'] != null) {
       final kotId = order['id'].toString();
       try {
-        await Supabase.instance.client
+        final pendingRows = await Supabase.instance.client
             .from('hotel_kots')
-            .update({'status': 'pending'}).eq('id', kotId);
+            .update({'status': 'pending'})
+            .eq('id', kotId)
+            .select('id');
+        if ((pendingRows as List).isEmpty) {
+          throw StateError('KOT $kotId सर्वर पर नहीं मिला; Undo स्थिति सिंक नहीं हुई।');
+        }
       } catch (error) {
         await _queueOfflineKotStatus(kotId, 'pending');
         debugPrint('KOT undo status queued for cloud sync: $error');
