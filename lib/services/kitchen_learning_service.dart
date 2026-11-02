@@ -139,7 +139,8 @@ class KitchenLearningService {
       // पिछले 21 दिनों के इनवॉइस आइटम्स फेच करना
       final salesData = await _supabase
           .from('invoice_items')
-          .select('item_name, qty, category')
+          .select('item_name, qty, category, created_at, invoices!inner(store_code)')
+          .eq('invoices.store_code', storeCode)
           .gte('created_at', threeWeeksAgo);
 
       if (salesData.isEmpty) {
