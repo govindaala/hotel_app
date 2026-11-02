@@ -215,6 +215,7 @@ class _VendorRationScreenState extends State<VendorRationScreen> {
                     if (cost > 0 && (paidBy == 'DRAWER_CASH' || paidBy == 'UPI')) {
                       await _supabase.from('daily_expenses').insert({
                         'store_code': widget.storeCode,
+                        'restaurant_id': widget.storeCode,
                         'title': 'राशन खरीद: ${item.itemName} (${item.quantity})',
                         'amount': cost,
                         'type': paidBy == 'DRAWER_CASH' ? 'EXPENSE_CASH' : 'EXPENSE_UPI',
