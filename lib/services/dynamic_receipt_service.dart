@@ -288,7 +288,7 @@ class DynamicReceiptService {
 
     // अगर टेम्पलेट में पहले से कोई टूटी हुई qrserver लिंक हो तो उसे शुद्ध एन्कोडेड URL से बदलें
     if (qrApiUrl.isNotEmpty) {
-      html = html.replaceAll(RegExp(r'https:\/\/api\.qrserver\.com\/[^\s"\'<>]+'), qrApiUrl);
+      html = html.replaceAll(RegExp(r'''https:\/\/api\.qrserver\.com\/[^\s"'<>]+'''), qrApiUrl);
     }
 
     // अगर टेम्पलेट में {{gstin_section}} नहीं है, तो उसे फ़ोन नंबर के ठीक नीचे इंजेक्ट करें

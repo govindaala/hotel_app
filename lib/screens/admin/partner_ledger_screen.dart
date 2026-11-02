@@ -56,26 +56,36 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
       final now = DateTime.now();
       final firstDayOfMonth = DateTime(now.year, now.month, 1).toIso8601String();
 
+      final nextMonth = DateTime(now.year, now.month + 1, 1).toIso8601String();
+      final salesData = await _supabase
+          .from('invoices')
+          .select('final_amount')
+          .eq('store_code', widget.storeCode)
+          .gte('created_at', firstDayOfMonth)
+          .lt('created_at', nextMonth);
+
       final expenseData = await _supabase
           .from('daily_expenses')
           .select('amount, type')
-          .eq('store_code', widget.storeCode)
-          .gte('created_at', firstDayOfMonth);
+          .or('restaurant_id.eq.${widget.storeCode},store_code.eq.${widget.storeCode}')
+          .gte('created_at', firstDayOfMonth)
+          .lt('created_at', nextMonth);
 
       double salesSum = 0.0;
       double expenseSum = 0.0;
 
-      for (var row in (expenseData as List)) {
-        final amt = (row['amount'] as num?)?.toDouble() ?? 0.0;
+      for (final row in (salesData as List)) {
+        salesSum += (row['final_amount'] as num?)?.toDouble() ?? 0.0;
+      }
+      for (final row in (expenseData as List)) {
+        final amount = (row['amount'] as num?)?.toDouble() ?? 0.0;
         final type = (row['type'] ?? '').toString().toUpperCase();
-        if (type.contains('SALE') || type.contains('INCOME')) {
-          salesSum += amt;
-        } else {
-          expenseSum += amt;
+        if (type == 'EXPENSE' || type == 'EXPENSE_CASH' || type == 'EXPENSE_UPI' || type == 'EXPENSE_PARTNER' || type == 'EXPENSE_CREDIT') {
+          expenseSum += amount;
         }
       }
 
-      setState(() {
+      if (mounted) setState(() {
         _partners = loadedPartners;
         _ledgerHistory = loadedLedger;
         _monthlySales = salesSum;
@@ -83,7 +93,7 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('डेटा लोड करने में त्रुटि: $e')),
@@ -195,9 +205,30 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
                           createdAt: DateTime.now(),
                         );
 
-                        await _supabase.from('partner_ledger').insert(newLedger.toMap());
-                        Navigator.pop(ctx);
-                        _fetchPartnerData();
+                        final savedLedger = await _supabase
+                            .from('partner_ledger')
+                            .insert(newLedger.toMap())
+                            .select('id')
+                            .single();
+
+                        if (type == 'POCKET_EXPENSE') {
+                          try {
+                            await _supabase.from('daily_expenses').insert({
+                              'restaurant_id': widget.storeCode,
+                              'store_code': widget.storeCode,
+                              'title': 'पार्टनर जेब खर्च: ${selectedPartner.partnerName} | ${noteController.text.trim()}',
+                              'amount': amt,
+                              'type': 'EXPENSE_PARTNER',
+                              'created_at': DateTime.now().toIso8601String(),
+                            });
+                          } catch (error) {
+                            await _supabase.from('partner_ledger').delete().eq('id', savedLedger['id']);
+                            rethrow;
+                          }
+                        }
+
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        await _fetchPartnerData();
                       },
                       child: const Text('सुरक्षित करें (Save)', style: TextStyle(color: Colors.white, fontSize: 16)),
                     ),
@@ -213,6 +244,7 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
 
   void _showProfitSplitDialog() {
     final double netProfit = (_monthlySales - _monthlyExpenses).clamp(0.0, double.infinity);
+    final now = DateTime.now();
 
     showDialog(
       context: context,
@@ -268,7 +300,9 @@ class _PartnerLedgerScreenState extends State<PartnerLedgerScreen> {
                   double drawings = 0.0;
 
                   for (var row in _ledgerHistory) {
-                    if (row.partnerId == p.partnerId) {
+                    if (row.partnerId == p.partnerId &&
+                        row.createdAt.year == now.year &&
+                        row.createdAt.month == now.month) {
                       if (row.type == 'POCKET_EXPENSE') pocketExp += row.amount;
                       if (row.type == 'DRAWING') drawings += row.amount;
                     }

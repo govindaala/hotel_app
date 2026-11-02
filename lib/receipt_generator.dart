@@ -1,11 +1,8 @@
-import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:screenshot/screenshot.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 Future<pw.Document> buildThermalReceiptPdf({
@@ -15,6 +12,11 @@ Future<pw.Document> buildThermalReceiptPdf({
   required String? fssai,
   required String? gstin,
   required int tbl,
+  String? billNo,
+  String? paymentMode,
+  String? cashierName,
+  String? footerMessage,
+  Future<void> Function(Uint8List imageBytes)? onImageGenerated,
   required List<Map<String, dynamic>> items,
   required double subTotal,
   required double discount,
@@ -25,7 +27,7 @@ Future<pw.Document> buildThermalReceiptPdf({
 }) async {
   final double finalTotal = (subTotal - discount) < 0 ? 0.0 : (subTotal - discount);
   final bool isParcel = tbl >= 900;
-  final String receiptTitle = isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl";
+  final String receiptTitle = tbl == 0 ? 'काउंटर सेल' : (isParcel ? "पार्सल (P-${tbl - 900})" : "टेबल: T-$tbl");
   final String dateStr = "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year} ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}";
 
   // पेपर विड्थ के अनुसार विड्थ और फॉन्ट साइज़
@@ -82,6 +84,21 @@ Future<pw.Document> buildThermalReceiptPdf({
                 Text(dateStr, style: TextStyle(fontSize: smallSize, color: Colors.black87)),
               ],
             ),
+            if (billNo != null && billNo.isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('बिल नंबर: $billNo', style: TextStyle(fontSize: smallSize, color: Colors.black87)),
+              ),
+            if (paymentMode != null && paymentMode.isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('भुगतान: $paymentMode', style: TextStyle(fontSize: smallSize, color: Colors.black87)),
+              ),
+            if (cashierName != null && cashierName.isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('कैशियर: $cashierName', style: TextStyle(fontSize: smallSize, color: Colors.black87)),
+              ),
             const Divider(color: Colors.black54, thickness: 0.6),
 
             Row(
@@ -147,7 +164,7 @@ Future<pw.Document> buildThermalReceiptPdf({
                             width: qrSize,
                             height: qrSize,
                             child: QrImageView(
-                              data: "upi://pay?pa=$upiId&pn=$hotelName&am=$finalTotal&cu=INR",
+                              data: "upi://pay?pa=$upiId&pn=${Uri.encodeComponent(hotelName)}&am=$finalTotal&cu=INR",
                               version: QrVersions.auto,
                               size: qrSize,
                               backgroundColor: Colors.white,
@@ -180,7 +197,11 @@ Future<pw.Document> buildThermalReceiptPdf({
 
             const SizedBox(height: 6),
             const Divider(color: Colors.black26),
-            Text("धन्यवाद! फिर पधारें 🙏", style: TextStyle(fontSize: bodySize, fontWeight: FontWeight.bold, color: Colors.black87)),
+            Text(
+              (footerMessage?.trim().isNotEmpty ?? false) ? footerMessage!.trim() : "धन्यवाद! फिर पधारें 🙏",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: bodySize, fontWeight: FontWeight.bold, color: Colors.black87),
+            ),
           ],
         ),
       ),
@@ -188,6 +209,10 @@ Future<pw.Document> buildThermalReceiptPdf({
     pixelRatio: 3.0, // 300+ DPI HD वेक्टर शार्पनेस
     delay: const Duration(milliseconds: 30),
   );
+
+  if (onImageGenerated != null) {
+    await onImageGenerated(receiptImage);
+  }
 
   final pdf = pw.Document();
   final double widthPoints = paperWidthMm == 58 ? 164.0 : 226.0;

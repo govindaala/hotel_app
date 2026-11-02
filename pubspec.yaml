@@ -1,7 +1,7 @@
 name: hotel_pos
 description: "Zero Cost Offline First Hotel POS and Supply System"
 publish_to: "none"
-version: 1.0.0+1
+version: 1.0.5+5
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -16,11 +16,14 @@ dependencies:
   # डेटाबेस व बैकएंड सिंक
   supabase_flutter: ^2.5.6
   shared_preferences: ^2.2.3
+  sqflite: ^2.3.3+1
+  path: ^1.9.0
   http: ^1.2.0
 
   # ब्लूटूथ थर्मल प्रिंटर व पर्ची सपोर्ट
   print_bluetooth_thermal: ^1.1.2
   esc_pos_utils_plus: ^2.0.4
+  image: ^4.0.17
 
   # PDF जनरेशन, स्क्रीनशॉट व शेयरिंग
   pdf: ^3.10.8

@@ -1,11 +1,23 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
+import '../../receipt_generator.dart';
+import '../../services/usb_printer_service.dart';
+import '../../services/offline_database.dart';
 
 class CounterSaleScreen extends StatefulWidget {
   final String storeCode;
-  const CounterSaleScreen({Key? key, required this.storeCode}) : super(key: key);
+  final void Function(Map<String, dynamic> kot)? onTableOrderAdded;
+
+  const CounterSaleScreen({
+    Key? key,
+    required this.storeCode,
+    this.onTableOrderAdded,
+  }) : super(key: key);
 
   @override
   State<CounterSaleScreen> createState() => _CounterSaleScreenState();
@@ -16,6 +28,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   bool isLoading = true;
   String? fetchErrorMessage;
 
+  Map<String, dynamic> _hotelProfile = {};
   Map<String, List<Map<String, dynamic>>> inventoryGroups = {};
   String? selectedCategory;
   final Map<String, Map<String, dynamic>> cart = {};
@@ -35,22 +48,40 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       fetchErrorMessage = null;
     });
 
-    // 1. टेबल संख्या लोड करना
+    final prefs = await SharedPreferences.getInstance();
+
+    // 1. होटल प्रोफ़ाइल पहले लोकल कैश से दिखाएँ; इंटरनेट मिलने पर क्लाउड से ताज़ा करें।
     int count = 10;
+    _hotelProfile = {
+      'name': prefs.getString('saved_hotel_name') ?? 'AALA',
+      'address': prefs.getString('saved_hotel_address') ?? '',
+      'phone': prefs.getString('saved_hotel_phone') ?? '',
+      'upi_id': prefs.getString('saved_hotel_upi') ?? '',
+      'google_review_link': prefs.getString('saved_hotel_review') ?? '',
+      'footer_message': prefs.getString('saved_hotel_footer') ?? '',
+    };
     try {
       final hotelRes = await supabase
           .from('restaurants')
-          .select('total_tables')
+          .select('total_tables, name, address, phone, upi_id, gst_number, fssai_number, google_review_link, footer_message')
           .eq('store_code', widget.storeCode)
           .maybeSingle();
 
-      if (hotelRes != null && hotelRes['total_tables'] != null) {
-        count = int.tryParse(hotelRes['total_tables'].toString()) ?? 10;
+      if (hotelRes != null) {
+        _hotelProfile = Map<String, dynamic>.from(hotelRes);
+        count = int.tryParse(hotelRes['total_tables']?.toString() ?? '') ?? 10;
+        await prefs.setString('saved_hotel_name', (_hotelProfile['name'] ?? 'AALA').toString());
+        await prefs.setString('saved_hotel_address', (_hotelProfile['address'] ?? '').toString());
+        await prefs.setString('saved_hotel_phone', (_hotelProfile['phone'] ?? '').toString());
+        await prefs.setString('saved_hotel_upi', (_hotelProfile['upi_id'] ?? '').toString());
+        await prefs.setString('saved_hotel_review', (_hotelProfile['google_review_link'] ?? '').toString());
+        await prefs.setString('saved_hotel_footer', (_hotelProfile['footer_message'] ?? '').toString());
       }
     } catch (_) {
-      count = 10;
+      count = prefs.getInt('saved_tables') ?? 10;
     }
 
+    if (!mounted) return;
     setState(() {
       availableTables = [
         'काउंटर सेल (डायरेक्ट)',
@@ -58,50 +89,75 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       ];
     });
 
-    // 2. इन्वेंटरी लोड करना
+    // 2. कैश्ड इन्वेंटरी तुरंत उपलब्ध रखें; नेटवर्क आने पर सर्वर डेटा अपडेट करें।
+    final cacheKey = 'saved_counter_inventory_${widget.storeCode}';
+    final cachedJson = prefs.getString(cacheKey);
+    bool hasLocalInventory = false;
+    if (cachedJson != null) {
+      try {
+        final cachedRows = List<Map<String, dynamic>>.from(jsonDecode(cachedJson));
+        final grouped = _groupInventoryRows(cachedRows);
+        if (mounted) {
+          setState(() {
+            inventoryGroups = grouped;
+            selectedCategory = grouped.isEmpty ? null : (selectedCategory != null && grouped.containsKey(selectedCategory) ? selectedCategory : grouped.keys.first);
+          });
+        }
+        hasLocalInventory = cachedRows.isNotEmpty;
+      } catch (error) {
+        debugPrint('Saved counter inventory cache is invalid: $error');
+      }
+    }
+
     try {
       final List<dynamic> allRows = await supabase
           .from('counter_inventory')
           .select('*')
           .order('id', ascending: true);
-
-      final Map<String, Map<String, dynamic>> mergedMap = {};
-
-      for (var row in allRows) {
-        if (row['restaurant_id'] == null) {
-          final key = '${row['item_name']}_${row['variant_label']}';
-          mergedMap[key] = Map<String, dynamic>.from(row);
-        }
+      final rows = allRows.map((row) => Map<String, dynamic>.from(row)).toList();
+      await prefs.setString(cacheKey, jsonEncode(rows));
+      final grouped = _groupInventoryRows(rows);
+      if (mounted) {
+        setState(() {
+          inventoryGroups = grouped;
+          selectedCategory = grouped.isEmpty ? null : (selectedCategory != null && grouped.containsKey(selectedCategory) ? selectedCategory : grouped.keys.first);
+        });
       }
-
-      for (var row in allRows) {
-        if (row['restaurant_id']?.toString() == widget.storeCode) {
-          final key = '${row['item_name']}_${row['variant_label']}';
-          mergedMap[key] = Map<String, dynamic>.from(row);
-        }
+    } catch (error) {
+      if (!hasLocalInventory && mounted) {
+        setState(() => fetchErrorMessage = 'इन्वेंटरी अभी उपलब्ध नहीं है। पहली बार डेटा लोड करने के लिए इंटरनेट कनेक्शन चाहिए: $error');
       }
-
-      final Map<String, List<Map<String, dynamic>>> grouped = {};
-      for (var item in mergedMap.values) {
-        final cat = item['item_name'].toString();
-        grouped.putIfAbsent(cat, () => []).add(item);
-      }
-
-      setState(() {
-        inventoryGroups = grouped;
-        if (grouped.isNotEmpty) {
-          if (selectedCategory == null || !grouped.containsKey(selectedCategory)) {
-            selectedCategory = grouped.keys.first;
-          }
-        } else {
-          selectedCategory = null;
-        }
-      });
-    } catch (e) {
-      setState(() => fetchErrorMessage = 'डेटा लोड एरर: $e');
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
     }
+  }
+
+  Future<void> _saveInventoryCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    final rows = inventoryGroups.values.expand((items) => items).toList();
+    await prefs.setString('saved_counter_inventory_${widget.storeCode}', jsonEncode(rows));
+  }
+
+  Map<String, List<Map<String, dynamic>>> _groupInventoryRows(List<dynamic> allRows) {
+    final Map<String, Map<String, dynamic>> mergedMap = {};
+    for (final row in allRows) {
+      if (row['restaurant_id'] == null) {
+        final key = '${row['item_name']}_${row['variant_label']}';
+        mergedMap[key] = Map<String, dynamic>.from(row);
+      }
+    }
+    for (final row in allRows) {
+      if (row['restaurant_id']?.toString() == widget.storeCode) {
+        final key = '${row['item_name']}_${row['variant_label']}';
+        mergedMap[key] = Map<String, dynamic>.from(row);
+      }
+    }
+    final Map<String, List<Map<String, dynamic>>> grouped = {};
+    for (final item in mergedMap.values) {
+      final category = item['item_name'].toString();
+      grouped.putIfAbsent(category, () => []).add(item);
+    }
+    return grouped;
   }
 
   void _addToCart(dynamic id, String name, String variant, double price, int stock) {
@@ -164,38 +220,81 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     return sum;
   }
 
-  Future<void> _printReceipt(String mode, double total) async {
+  Future<void> _printReceipt(String mode, double total, {String? billNo}) async {
     try {
-      bool isConnected = await PrintBluetoothThermal.connectionStatus;
-      if (!isConnected) return;
+      final receiptItems = cart.values.map((item) => {
+        'name': '${item['name']} ${item['variant']}',
+        'qty': item['qty'],
+        'price': item['price'],
+      }).toList();
+      final invoiceNo = billNo ?? 'POS-${DateTime.now().millisecondsSinceEpoch}';
+      bool printed = false;
 
-      String billText = """
-       काउंटर बिक्री पर्ची       
-================================
-तारीख: ${DateTime.now().toString().substring(0, 16)}
-मोड: $mode  | टेबल: $selectedTable
---------------------------------
-सामान              मात्रा   रकम
---------------------------------
-""";
-      for (var item in cart.values) {
-        String name = "${item['name']} ${item['variant']}";
-        if (name.length > 16) name = name.substring(0, 16);
-        billText += "${name.padRight(16)} ${item['qty'].toString().padRight(4)} ₹${(item['price'] * item['qty']).toInt()}\n";
+      final receipt = await buildThermalReceiptPdf(
+        hotelName: (_hotelProfile['name'] ?? 'AALA').toString(),
+        address: _hotelProfile['address']?.toString(),
+        phone: _hotelProfile['phone']?.toString(),
+        fssai: _hotelProfile['fssai_number']?.toString(),
+        gstin: _hotelProfile['gst_number']?.toString(),
+        tbl: 0,
+        billNo: invoiceNo,
+        paymentMode: mode,
+        cashierName: 'Counter',
+        footerMessage: _hotelProfile['footer_message']?.toString(),
+        items: receiptItems,
+        subTotal: total,
+        discount: 0,
+        discountPct: 0,
+        upiId: _hotelProfile['upi_id']?.toString(),
+        reviewUrl: _hotelProfile['google_review_link']?.toString(),
+        paperWidthMm: 58,
+        onImageGenerated: (imageBytes) async {
+          printed = await UsbThermalPrinterManager.instance
+              .printPngImage(imageBytes, paperWidthMm: 58);
+        },
+      );
+
+      final directory = await getTemporaryDirectory();
+      final pdfFile = File('${directory.path}/$invoiceNo.pdf');
+      await pdfFile.writeAsBytes(await receipt.save(), flush: true);
+
+      if (!mounted) return;
+      final shouldShare = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('काउंटर बिल तैयार है'),
+          content: Text(printed
+              ? 'बिल थर्मल प्रिंटर पर प्रिंट हो गया। क्या PDF भी शेयर करनी है?'
+              : 'थर्मल प्रिंटर कनेक्ट नहीं है। क्या PDF WhatsApp पर भेजनी है?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('बाद में'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.share),
+              label: const Text('शेयर करें'),
+            ),
+          ],
+        ),
+      );
+      if (shouldShare == true) {
+        await Share.shareXFiles(
+          [XFile(pdfFile.path)],
+          text: '${_hotelProfile['name'] ?? 'AALA'} का काउंटर बिल $invoiceNo',
+        );
       }
-
-      billText += """
---------------------------------
-कुल देय राशि:         ₹${total.toStringAsFixed(2)}
-================================
-        धन्यवाद! फिर पधारें        
-\n\n\n
-""";
-      await PrintBluetoothThermal.writeBytes(billText.codeUnits);
-    } catch (_) {}
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('बिल PDF/प्रिंट में समस्या: $error')),
+        );
+      }
+    }
   }
 
-  Future<void> _processCheckout(String mode, {bool shouldPrint = false}) async {
+  Future<void> _processCheckout(String mode) async {
     if (cart.isEmpty) return;
 
     final double total = grandTotal;
@@ -204,6 +303,12 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         .toList();
 
     try {
+      int? tableOrderNumber;
+      List<Map<String, dynamic>>? tableOrderItems;
+      String? tableOrderId;
+      String? tableOrderCreatedAt;
+      String? directSaleBillNo;
+
       if (selectedTable != 'काउंटर सेल (डायरेक्ट)') {
         final int tblNum = int.tryParse(selectedTable.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
         final formattedItems = cart.values.map((v) => {
@@ -214,38 +319,150 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           'total': v['price'] * v['qty'],
         }).toList();
 
-        // 1. सुपाबेस स्कीमा से पूर्ण मिलान के साथ इन्सर्ट
-        await supabase.from('hotel_kots').insert({
-          'store_code': widget.storeCode,
-          'restaurant_id': widget.storeCode,
-          'table_no': tblNum,
-          'table_name': selectedTable,
-          'items': jsonEncode(formattedItems),
-          'status': 'pending',
-          'created_at': DateTime.now().toIso8601String(),
-        });
+        Map<String, dynamic> createdKot;
+        try {
+          final cloudKot = await supabase.from('hotel_kots').insert({
+            'store_code': widget.storeCode,
+            'restaurant_id': widget.storeCode,
+            'table_no': tblNum,
+            'table_name': selectedTable,
+            'items': jsonEncode(formattedItems),
+            'status': 'pending',
+            'source': 'COUNTER_POS',
+            'waiter_id': 'COUNTER',
+            'created_at': DateTime.now().toIso8601String(),
+          }).select('id, created_at').single();
+          createdKot = Map<String, dynamic>.from(cloudKot);
+        } catch (cloudError) {
+          final localId = OfflineDatabase.instance.createId();
+          final localCreatedAt = DateTime.now().toIso8601String();
+          await OfflineDatabase.instance.enqueue(
+            id: localId,
+            storeCode: widget.storeCode,
+            entity: 'hotel_kots',
+            payload: {
+              'id': localId,
+              'store_code': widget.storeCode,
+              'restaurant_id': widget.storeCode,
+              'table_no': tblNum,
+              'table_name': selectedTable,
+              'items': jsonEncode(formattedItems),
+              'status': 'pending',
+              'source': 'COUNTER_POS_OFFLINE',
+              'waiter_id': 'COUNTER',
+              'created_at': localCreatedAt,
+            },
+          );
+          createdKot = {'id': localId, 'created_at': localCreatedAt};
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('इंटरनेट उपलब्ध नहीं है। KOT इस डिवाइस में सुरक्षित है और नेटवर्क आने पर Sync होगा।'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          debugPrint('Counter KOT queued for offline sync: $cloudError');
+        }
+        tableOrderNumber = tblNum;
+        tableOrderItems = formattedItems;
+        tableOrderId = createdKot['id'].toString();
+        tableOrderCreatedAt = createdKot['created_at'].toString();
       } else {
-        await supabase.from('daily_expenses').insert({
-          'restaurant_id': widget.storeCode,
-          'title': 'काउंटर सेल: ${details.join(", ")} ($mode)',
-          'amount': total,
-          'type': 'CASH_IN',
+        final paymentMode = mode == 'UPI' ? 'UPI' : 'CASH';
+        final billNo = 'POS-${DateTime.now().millisecondsSinceEpoch}';
+        directSaleBillNo = billNo;
+        final invoice = await supabase.from('invoices').insert({
+          'store_code': widget.storeCode,
+          'bill_no': billNo,
+          'table_no': 0,
+          'waiter_id': null,
+          'subtotal': total,
+          'discount_pct': 0,
+          'discount_amt': 0,
+          'final_amount': total,
+          'payment_mode': paymentMode,
+          'cashier_partner_name': 'Counter Sale',
           'created_at': DateTime.now().toIso8601String(),
-        });
-      }
+        }).select('id').single();
 
-      // 2. स्टॉक घटाना
-      for (var item in cart.values) {
-        if (item['id'] != null) {
-          final int remaining = ((item['stock'] ?? 0) as int) - (item['qty'] as int);
-          await supabase.from('counter_inventory').update({
-            'stock_qty': remaining < 0 ? 0 : remaining,
-          }).eq('id', item['id']);
+        final invoiceItems = cart.values.map((item) => {
+          'invoice_id': invoice['id'],
+          'item_id': item['id']?.toString(),
+          'item_name': '${item['name']} (${item['variant']})',
+          'category': item['name'],
+          'price': item['price'],
+          'qty': item['qty'],
+          'total_price': (item['price'] as num) * (item['qty'] as num),
+        }).toList();
+        try {
+          await supabase.from('invoice_items').insert(invoiceItems);
+        } catch (error) {
+          await supabase.from('invoices').delete().eq('id', invoice['id']);
+          rethrow;
+        }
+
+        // Invoice मुख्य बिक्री रिकॉर्ड है; cash-ledger sync failure से sale retry न हो।
+        try {
+          await supabase.from('daily_expenses').insert({
+            'restaurant_id': widget.storeCode,
+            'store_code': widget.storeCode,
+            'title': 'काउंटर सेल: ${details.join(", ")} ($paymentMode)',
+            'amount': total,
+            'type': 'CASH_IN',
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        } catch (error) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('बिक्री सेव है, लेकिन कैश लेजर सिंक नहीं हुआ: $error')),
+            );
+          }
         }
       }
 
-      if (shouldPrint) {
-        await _printReceipt(mode, total);
+      // बिक्री/KOT के बाद स्टॉक लोकल में तुरंत घटाएँ और इंटरनेट आने पर क्लाउड Sync करें।
+      for (final item in cart.values) {
+        if (item['id'] == null) continue;
+        final int currentStock = (item['stock'] as num?)?.toInt() ?? 0;
+        final int quantity = (item['qty'] as num?)?.toInt() ?? 0;
+        final int remaining = (currentStock - quantity).clamp(0, 1 << 31).toInt();
+        for (final group in inventoryGroups.values) {
+          for (final row in group) {
+            if (row['id'].toString() == item['id'].toString()) {
+              row['stock_qty'] = remaining;
+            }
+          }
+        }
+        try {
+          await supabase.from('counter_inventory').update({
+            'stock_qty': remaining,
+          }).eq('id', item['id']);
+        } catch (error) {
+          await OfflineDatabase.instance.enqueue(
+            id: 'inventory-${item['id']}',
+            storeCode: widget.storeCode,
+            entity: 'counter_inventory_update',
+            payload: {'id': item['id'], 'stock_qty': remaining},
+          );
+          debugPrint('Inventory update queued for offline sync: $error');
+        }
+      }
+      await _saveInventoryCache();
+
+      if (tableOrderNumber != null && tableOrderItems != null) {
+        widget.onTableOrderAdded?.call({
+          'type': 'NEW_KOT',
+          'table': tableOrderNumber,
+          'waiter_id': 'COUNTER',
+          'items': tableOrderItems,
+          'id': tableOrderId,
+          'created_at': tableOrderCreatedAt,
+        });
+      }
+
+      if (selectedTable == 'काउंटर सेल (डायरेक्ट)') {
+        await _printReceipt(mode == 'PAID_PRINT' ? 'CASH' : mode, total, billNo: directSaleBillNo);
       }
 
       if (mounted) {
@@ -259,21 +476,12 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           ),
         );
 
-        if (selectedTable != 'काउंटर सेल (डायरेक्ट)') {
-          Navigator.pop(context, {
-            'table': selectedTable,
-            'items': cart.values.map((v) => {
-              'name': '${v['name']} (${v['variant']})',
-              'qty': v['qty'],
-              'price': v['price'],
-            }).toList(),
-          });
-          return;
-        }
       }
 
-      setState(() => cart.clear());
-      _initScreenData();
+      if (mounted) {
+        setState(() => cart.clear());
+        _initScreenData();
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -712,8 +920,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                                   child: ElevatedButton.icon(
                                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A), padding: const EdgeInsets.symmetric(vertical: 12)),
                                     icon: const Icon(Icons.print, color: Colors.white, size: 18),
-                                    label: const Text('प्रिंट', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                    onPressed: cart.isEmpty ? null : () => _processCheckout('PAID_PRINT', shouldPrint: true),
+                                    label: const Text('नकद + प्रिंट', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                    onPressed: cart.isEmpty ? null : () => _processCheckout('PAID_PRINT'),
                                   ),
                                 ),
                               ],

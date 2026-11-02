@@ -58,7 +58,8 @@ class _StarWaiterScreenState extends State<StarWaiterScreen> {
       final staffRes = await _supabase
           .from('hotel_staff')
           .select('staff_id, name')
-          .eq('store_code', widget.storeCode);
+          .eq('store_code', widget.storeCode)
+          .eq('is_active', true);
 
       final Map<String, String> staffNames = {};
       for (var s in (staffRes as List)) {
@@ -89,39 +90,18 @@ class _StarWaiterScreenState extends State<StarWaiterScreen> {
         agg[wId]!.tablesServed += 1;
       }
 
-      // यदि इनवॉइस अभी नया है तो KOTs से भी बैकअप डेटा मिलाना
-      if (agg.isEmpty) {
-        final kotsRes = await _supabase
-            .from('hotel_kots')
-            .select('waiter_id, total_amount')
-            .eq('store_code', widget.storeCode)
-            .gte('created_at', startDate.toIso8601String());
 
-        for (var row in (kotsRes as List)) {
-          final wId = row['waiter_id']?.toString() ?? 'WAITER_1';
-          final amt = (row['total_amount'] as num?)?.toDouble() ?? 0.0;
-
-          if (!agg.containsKey(wId)) {
-            agg[wId] = WaiterPerformanceModel(
-              waiterId: wId,
-              waiterName: staffNames[wId] ?? 'वेटर $wId',
-            );
-          }
-          agg[wId]!.totalSales += amt;
-          agg[wId]!.tablesServed += 1;
-        }
-      }
 
       final list = agg.values.toList();
       // सेल्स के आधार पर रैंकिंग (घटते क्रम में)
       list.sort((a, b) => b.totalSales.compareTo(a.totalSales));
 
-      setState(() {
+      if (mounted) setState(() {
         _leaderboard = list;
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

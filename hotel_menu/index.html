@@ -107,20 +107,17 @@
         if (menu && menu.length > 0) {
           allItems = menu;
         } else {
-          allItems = [
-            { id: '1', name: 'पनीर बटर मसाला', price: 220, category: 'सब्जी' },
-            { id: '2', name: 'दाल तड़का फ्राई', price: 140, category: 'दाल' },
-            { id: '3', name: 'तंदूरी बटर रोटी', price: 15, category: 'रोटी' },
-            { id: '4', name: 'जीरा राइस', price: 110, category: 'चावल' },
-            { id: '5', name: 'मसाला छाछ', price: 25, category: 'पेय' }
-          ];
+          document.getElementById('catBar').innerHTML = '';
+          document.getElementById('menuContainer').textContent =
+            'इस होटल का मेन्यू अभी उपलब्ध नहीं है। कृपया वेटर से संपर्क करें।';
+          return;
         }
 
         buildCategories();
         renderItems();
       } catch (e) {
-        document.getElementById('menuContainer').innerHTML = 
-          `<div style="text-align:center; color:red;">मेन्यू लोड त्रुटि: ${e.message}</div>`;
+        document.getElementById('menuContainer').textContent =
+          'मेन्यू लोड त्रुटि: ' + (e?.message || 'अज्ञात त्रुटि');
       }
     }
 
@@ -154,23 +151,49 @@
         const qty = cart[it.id] ? cart[it.id].qty : 0;
         const card = document.createElement('div');
         card.className = 'item-card';
-        card.innerHTML = `
-          <div>
-            <div class="item-name">${it.name}</div>
-            <div class="item-category">${it.category || 'General'}</div>
-            <div class="item-price">₹${it.price}</div>
-          </div>
-          <div>
-            ${qty === 0 
-              ? `<button class="btn-add" onclick="updateQty('${it.id}', '${it.name}',${it.price}, 1)">+ जोड़ें</button>`
-              : `<div class="qty-box">
-                   <button class="qty-btn" onclick="updateQty('${it.id}', '${it.name}',${it.price}, -1)">−</button>
-                   <span class="qty-num">${qty}</span>
-                   <button class="qty-btn" onclick="updateQty('${it.id}', '${it.name}',${it.price}, 1)">+</button>
-                 </div>`
-            }
-          </div>
-        `;
+
+        const info = document.createElement('div');
+        const nameEl = document.createElement('div');
+        nameEl.className = 'item-name';
+        nameEl.textContent = it.name || '';
+        const categoryEl = document.createElement('div');
+        categoryEl.className = 'item-category';
+        categoryEl.textContent = it.category || 'General';
+        const priceEl = document.createElement('div');
+        priceEl.className = 'item-price';
+        priceEl.textContent = '₹' + Number(it.price || 0).toString();
+        info.append(nameEl, categoryEl, priceEl);
+
+        const actions = document.createElement('div');
+        if (qty === 0) {
+          const addButton = document.createElement('button');
+          addButton.className = 'btn-add';
+          addButton.textContent = '+ जोड़ें';
+          addButton.addEventListener('click', () => updateQty(it.id, it.name, it.price, 1));
+          actions.appendChild(addButton);
+        } else {
+          const qtyBox = document.createElement('div');
+          qtyBox.className = 'qty-box';
+
+          const minusButton = document.createElement('button');
+          minusButton.className = 'qty-btn';
+          minusButton.textContent = '−';
+          minusButton.addEventListener('click', () => updateQty(it.id, it.name, it.price, -1));
+
+          const qtyText = document.createElement('span');
+          qtyText.className = 'qty-num';
+          qtyText.textContent = qty.toString();
+
+          const plusButton = document.createElement('button');
+          plusButton.className = 'qty-btn';
+          plusButton.textContent = '+';
+          plusButton.addEventListener('click', () => updateQty(it.id, it.name, it.price, 1));
+
+          qtyBox.append(minusButton, qtyText, plusButton);
+          actions.appendChild(qtyBox);
+        }
+
+        card.append(info, actions);
         container.appendChild(card);
       });
     }

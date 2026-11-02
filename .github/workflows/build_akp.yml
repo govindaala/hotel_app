@@ -2,11 +2,15 @@ name: Build and Release Android APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, requirements/pos-audit-fixes ]
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: aala-pos-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -56,9 +60,21 @@ jobs:
         run: dart run flutter_launcher_icons
 
       - name: Build APK
-        run: flutter build apk --release --build-number=${{ github.run_number }}
+        run: |
+          VERSION_CODE=$(jq -r '.version_code' app_config.json)
+          VERSION_NAME=$(jq -r '.version_name' app_config.json)
+          flutter build apk --release --build-name="$VERSION_NAME" --build-number="$VERSION_CODE"
+
+      - name: Upload APK Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AALA-POS-${{ github.run_number }}
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14
+          if-no-files-found: error
 
       - name: Publish Direct APK Release (No Zip)
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest

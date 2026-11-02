@@ -7,10 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
-import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
-import 'package:screenshot/screenshot.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -19,7 +15,6 @@ import 'package:ota_update/ota_update.dart';
 
 // Models aur Screen Files
 import 'models/restaurant_profile_model.dart';
-import 'models/expense_model.dart';
 import 'screens/admin/counter_sale_screen.dart';
 import 'screens/admin/restaurant_settings_screen.dart';
 import 'screens/admin/daily_expense_screen.dart';
@@ -34,11 +29,13 @@ import 'screens/admin/star_waiter_screen.dart';
 import 'screens/admin/vendor_ration_screen.dart';
 import 'screens/admin/qr_table_generator_screen.dart';
 import 'services/kitchen_learning_service.dart';
+import 'services/usb_printer_service.dart';
+import 'services/offline_database.dart';
 
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
 
-const int currentAppVersionCode = 4;
+const int currentAppVersionCode = 5;
 const int tcpServerPort = 4040;
 const int udpDiscoveryPort = 4042;
 
@@ -167,16 +164,25 @@ final List<Map<String, dynamic>> defaultHotelMenu = kRestaurantMenu
 // =========================================================================
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await OfflineDatabase.instance.database;
+  } catch (error) {
+    debugPrint('Local transaction database unavailable: $error');
+  }
 
-  final results = await Future.wait([
+  final prefsFuture = SharedPreferences.getInstance();
+  await Future.wait<void>([
     Supabase.initialize(url: supabaseUrl, anonKey: supabaseKey)
-        .catchError((_) => null as Supabase),
-    SharedPreferences.getInstance(),
+        .then<void>((_) {})
+        .catchError((Object error) {
+          debugPrint('Supabase initialization unavailable; continuing in local mode: $error');
+        }),
+    prefsFuture.then<void>((_) {}),
   ]);
 
   unawaited(VoiceService.init());
 
-  final prefs = results[1] as SharedPreferences;
+  final prefs = await prefsFuture;
   final bool isLoggedIn = prefs.getBool('is_logged_in') ?? false;
   final String savedRole = prefs.getString('saved_role') ?? '';
   final String savedStoreCode = prefs.getString('saved_store_code') ?? '111';
@@ -293,7 +299,6 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
 
   RawDatagramSocket? _discoverySocket;
   String _discoveredMasterIp = '';
-  String _discoveredStoreCode = '';
   bool _masterFound = false;
 
   @override
@@ -329,8 +334,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
                 final String mIp = data['master_ip'] ?? '';
                 setState(() {
                   _discoveredMasterIp = mIp;
-                  _discoveredStoreCode = sCode;
-                  _masterFound = true;
+                            _masterFound = true;
                   if (_codeCtrl.text.isEmpty || _codeCtrl.text == '111') {
                     _codeCtrl.text = sCode;
                   }
@@ -455,7 +459,6 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
         : (prefs.getString('saved_counter_ip') ?? '192.168.43.1');
 
     bool authSuccess = false;
-    String hotelName = 'होटल';
     int tableCount = 10;
 
     try {
@@ -480,7 +483,6 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
             final msg = jsonDecode(l);
             if (msg['type'] == 'AUTH_RESULT') {
               if (msg['success'] == true) {
-                hotelName = msg['hotel_name'] ?? 'होटल';
                 tableCount = msg['tables'] ?? 10;
                 if (!completer.isCompleted) completer.complete(true);
               } else {
@@ -765,23 +767,45 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
   // Supabase Cloud Menu Sync
   Future<void> _syncMenuToCloud() async {
-    if (hotelMenu.isEmpty) return;
-    try {
-      final List<Map<String, dynamic>> rows = hotelMenu.map((m) {
-        return {
-          'store_code': widget.storeCode,
-          'item_id': m['id'].toString(),
-          'name': m['name'] ?? '',
-          'category': m['cat'] ?? m['category'] ?? 'General',
-          'price': (m['price'] as num?)?.toDouble() ?? 0.0,
-          'is_available': m['available'] != false,
-        };
-      }).toList();
+    final prefs = await SharedPreferences.getInstance();
+    final pendingKey = 'menu_sync_pending_${widget.storeCode}';
+    if (hotelMenu.isEmpty) {
+      await prefs.setBool(pendingKey, false);
+      return;
+    }
 
+    // menu_items joined view है; बदलाव store_menu_custom में सेव करें।
+    final uuidPattern = RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+    );
+    final hasLocalOnlyItems = hotelMenu.any(
+      (item) => !uuidPattern.hasMatch(item['id']?.toString() ?? ''),
+    );
+    final rows = hotelMenu.where((item) {
+      return uuidPattern.hasMatch(item['id']?.toString() ?? '');
+    }).map((item) {
+      return {
+        'store_code': widget.storeCode,
+        'item_id': item['id'].toString(),
+        'custom_name': item['name'] ?? '',
+        'custom_price': (item['price'] as num?)?.toDouble() ?? 0.0,
+        'is_available': item['available'] != false,
+      };
+    }).toList();
+
+    if (rows.isEmpty) {
+      await prefs.setBool(pendingKey, hasLocalOnlyItems);
+      return;
+    }
+    try {
       await Supabase.instance.client
-          .from('menu_items')
+          .from('store_menu_custom')
           .upsert(rows, onConflict: 'store_code,item_id');
-    } catch (_) {}
+      await prefs.setBool(pendingKey, hasLocalOnlyItems);
+    } catch (error) {
+      await prefs.setBool(pendingKey, true);
+      debugPrint('Store menu cloud sync failed; local copy retained: $error');
+    }
   }
 
   void _loadMenu() async {
@@ -793,27 +817,52 @@ class _FullCounterAppState extends State<FullCounterApp> {
       setState(() => hotelMenu = List.from(defaultHotelMenu));
       await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
     }
+    final localMenu = List<Map<String, dynamic>>.from(hotelMenu);
+    final pendingKey = 'menu_sync_pending_${widget.storeCode}';
+    final hasPendingLocalChanges = prefs.getBool(pendingKey) ?? false;
 
     try {
       final res = await Supabase.instance.client
           .from('menu_items')
           .select('*')
           .eq('store_code', widget.storeCode);
-      if (res != null && res.isNotEmpty) {
-        final cloudMenu = res.map((m) => {
-          'id': m['item_id'] ?? m['id'].toString(),
-          'name': m['name'] ?? '',
-          'price': (m['price'] as num?)?.toDouble() ?? 0.0,
-          'cat': m['category'] ?? 'General',
-          'available': m['is_available'] ?? true,
+      if (res.isNotEmpty) {
+        final cloudMenu = res.map((item) => {
+          'id': item['item_id'] ?? item['id'].toString(),
+          'name': item['name'] ?? '',
+          'price': (item['price'] as num?)?.toDouble() ?? 0.0,
+          'cat': item['category'] ?? 'General',
+          'available': item['is_available'] ?? true,
         }).toList();
-        setState(() => hotelMenu = List<Map<String, dynamic>>.from(cloudMenu));
-        await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
+
+        if (hasPendingLocalChanges) {
+          final localById = {
+            for (final item in localMenu) item['id'].toString(): item,
+          };
+          final cloudIds = cloudMenu.map((item) => item['id'].toString()).toSet();
+          final mergedMenu = cloudMenu.map((cloudItem) {
+            final localItem = localById[cloudItem['id'].toString()];
+            return localItem == null ? cloudItem : {...cloudItem, ...localItem};
+          }).toList();
+
+          for (final localItem in localMenu) {
+            if (!cloudIds.contains(localItem['id'].toString())) {
+              mergedMenu.add(localItem);
+            }
+          }
+          setState(() => hotelMenu = List<Map<String, dynamic>>.from(mergedMenu));
+          await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
+          await _syncMenuToCloud();
+        } else {
+          setState(() => hotelMenu = List<Map<String, dynamic>>.from(cloudMenu));
+          await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(hotelMenu));
+        }
       } else {
         await _syncMenuToCloud();
       }
-    } catch (_) {
-      await _syncMenuToCloud();
+    } catch (error) {
+      await prefs.setBool(pendingKey, true);
+      debugPrint('Cloud menu unavailable; using saved local menu: $error');
     }
   }
 
@@ -824,8 +873,46 @@ class _FullCounterAppState extends State<FullCounterApp> {
     await _syncMenuToCloud();
   }
 
+  Future<void> _syncPendingOfflineOperations() async {
+    try {
+      final pending = await OfflineDatabase.instance.pending(widget.storeCode);
+      for (final operation in pending) {
+        try {
+          final entity = operation['entity']?.toString();
+          final payload = Map<String, dynamic>.from(
+            jsonDecode(operation['payload'].toString()) as Map,
+          );
+          if (entity == 'hotel_kots') {
+            await Supabase.instance.client
+                .from('hotel_kots')
+                .upsert(payload, onConflict: 'id');
+            await OfflineDatabase.instance.markSynced(operation['id'].toString());
+          } else if (entity == 'hotel_kots_update') {
+            await Supabase.instance.client
+                .from('hotel_kots')
+                .update({'status': payload['status']})
+                .eq('id', payload['id']);
+            await OfflineDatabase.instance.markSynced(operation['id'].toString());
+          } else if (entity == 'counter_inventory_update') {
+            await Supabase.instance.client
+                .from('counter_inventory')
+                .update({'stock_qty': payload['stock_qty']})
+                .eq('id', payload['id']);
+            await OfflineDatabase.instance.markSynced(operation['id'].toString());
+          }
+        } catch (error) {
+          await OfflineDatabase.instance.recordFailure(operation['id'].toString(), error);
+          debugPrint('Offline operation sync deferred: $error');
+        }
+      }
+    } catch (error) {
+      debugPrint('Offline queue read failed: $error');
+    }
+  }
+
   // Master Data Sync Method (KOTs aur Ration Demands Sync)
   void _syncMasterData() async {
+    await _syncPendingOfflineOperations();
     try {
       final tenDaysAgo = DateTime.now().subtract(const Duration(days: 10)).toIso8601String();
       final res = await Supabase.instance.client
@@ -834,7 +921,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
           .eq('store_code', widget.storeCode)
           .gte('created_at', tenDaysAgo)
           .order('created_at', ascending: false);
-      if (res != null && mounted) {
+      if (mounted) {
         setState(() => rationDemands = List<Map<String, dynamic>>.from(res));
       }
     } catch (_) {}
@@ -846,7 +933,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
           .eq('store_code', widget.storeCode)
           .neq('status', 'settled');
 
-      if (kots != null && mounted) {
+      if (mounted) {
         for (var k in kots) {
           int tbl = k['table_no'] ?? 0;
           String st = k['status'] ?? 'pending';
@@ -873,6 +960,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
             }
             if (st == 'bill_ready') {
               tableStateMap[tbl] = 'bill_ready';
+            } else if (st == 'ready') {
+              tableStateMap[tbl] = 'ready';
             } else if (!tableStateMap.containsKey(tbl)) {
               tableStateMap[tbl] = 'running';
             }
@@ -905,7 +994,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
       _qrOrderChannel = Supabase.instance.client
           .channel('public:qr_orders')
           .onPostgresChanges(
-            event: PostgresChangeEvent.insert,
+            event: PostgresChangeEvent.all,
             schema: 'public',
             table: 'qr_orders',
             filter: PostgresChangeFilter(
@@ -915,10 +1004,17 @@ class _FullCounterAppState extends State<FullCounterApp> {
             ),
             callback: (payload) {
               final newRecord = payload.newRecord;
+              final orderId = newRecord['id']?.toString();
+              if (orderId == null || !mounted) return;
               if (newRecord['status'] == 'PENDING_APPROVAL') {
-                setState(() => pendingQrOrders.insert(0, newRecord));
+                setState(() {
+                  pendingQrOrders.removeWhere((order) => order['id'].toString() == orderId);
+                  pendingQrOrders.insert(0, newRecord);
+                });
                 final int tbl = newRecord['table_no'] ?? 0;
                 VoiceService.speak("टेबल $tbl से नया ऑनलाइन QR ऑर्डर आया है");
+              } else {
+                setState(() => pendingQrOrders.removeWhere((order) => order['id'].toString() == orderId));
               }
             },
           )
@@ -937,70 +1033,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
           .eq('status', 'PENDING_APPROVAL')
           .order('created_at', ascending: false);
 
-      if (res != null && mounted) {
+      if (mounted) {
         setState(() => pendingQrOrders = List<Map<String, dynamic>>.from(res));
       }
     } catch (_) {}
-  }
-
-  Future<void> _handleQrOrderAction(Map<String, dynamic> qrOrder, bool isAccepted) async {
-    final String orderId = qrOrder['id'].toString();
-    final int tbl = qrOrder['table_no'] ?? 0;
-
-    dynamic rawItems = qrOrder['items'];
-    List<Map<String, dynamic>> itemsList = [];
-    if (rawItems is List) {
-      itemsList = List<Map<String, dynamic>>.from(rawItems);
-    } else if (rawItems is String) {
-      itemsList = List<Map<String, dynamic>>.from(jsonDecode(rawItems));
-    }
-
-    if (isAccepted) {
-      setState(() {
-        activeOrders.putIfAbsent(tbl, () => []);
-        activeOrders[tbl]!.addAll(itemsList);
-        tableStateMap[tbl] = 'running';
-        tableWaiterMap[tbl] = 'QR_CUSTOMER';
-        pendingQrOrders.removeWhere((o) => o['id'] == orderId);
-      });
-
-      _broadcastLocal({
-        'type': 'NEW_KOT',
-        'table': tbl,
-        'waiter_id': 'QR_CUSTOMER',
-        'items': itemsList,
-      });
-
-      try {
-        await Supabase.instance.client.from('hotel_kots').insert({
-          'store_code': widget.storeCode,
-          'table_no': tbl,
-          'waiter_id': 'QR_CUSTOMER',
-          'items': jsonEncode(itemsList),
-          'status': 'pending',
-          'source': 'QR_DIGITAL',
-          'created_at': DateTime.now().toIso8601String(),
-        });
-
-        await Supabase.instance.client
-            .from('qr_orders')
-            .update({'status': 'ACCEPTED'})
-            .eq('id', orderId);
-      } catch (_) {}
-
-      VoiceService.speak("टेबल $tbl का QR ऑर्डर स्वीकार किया गया");
-    } else {
-      setState(() => pendingQrOrders.removeWhere((o) => o['id'] == orderId));
-
-      try {
-        await Supabase.instance.client
-            .from('qr_orders')
-            .update({'status': 'REJECTED'})
-            .eq('id', orderId);
-      } catch (_) {}
-
-      VoiceService.speak("टेबल $tbl का QR ऑर्डर निरस्त किया गया");
-    }
   }
 
   void _openPendingQrOrdersSheet() {
@@ -1059,27 +1095,17 @@ class _FullCounterAppState extends State<FullCounterApp> {
                                 const Divider(),
                                 ...items.map((it) => Text('• ${it['name']} x ${it['qty']}')),
                                 const SizedBox(height: 10),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    OutlinedButton(
-                                      style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                                      onPressed: () {
-                                        _handleQrOrderAction(ord, false);
-                                        setSheetState(() {});
-                                      },
-                                      child: const Text('निरस्त करें'),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                                      onPressed: () {
-                                        _handleQrOrderAction(ord, true);
-                                        setSheetState(() {});
-                                      },
-                                      child: const Text('स्वीकार करें (KOT)', style: TextStyle(color: Colors.white)),
-                                    ),
-                                  ],
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Text(
+                                    'इस QR ऑर्डर की पुष्टि वेटर ऐप से होगी। कन्फर्म होने के बाद ही KOT किचन भेजा जाएगा।',
+                                    style: TextStyle(fontWeight: FontWeight.w600, color: Colors.deepOrange),
+                                  ),
                                 ),
                               ],
                             ),
@@ -1427,15 +1453,22 @@ class _FullCounterAppState extends State<FullCounterApp> {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('saved_staff_cache_${widget.storeCode}');
     if (saved != null) {
-      _staffCache = List<Map<String, dynamic>>.from(jsonDecode(saved));
+      _staffCache = List<Map<String, dynamic>>.from(jsonDecode(saved))
+          .where((staff) => staff['is_active'] != false)
+          .toList();
     }
     try {
-      final res = await Supabase.instance.client.from('hotel_staff').select().eq('store_code', widget.storeCode);
-      if (res != null) {
-        _staffCache = List<Map<String, dynamic>>.from(res);
-        await prefs.setString('saved_staff_cache_${widget.storeCode}', jsonEncode(_staffCache));
-      }
-    } catch (_) {}
+      final res = await Supabase.instance.client
+          .from('hotel_staff')
+          .select()
+          .eq('store_code', widget.storeCode);
+      _staffCache = List<Map<String, dynamic>>.from(res)
+          .where((staff) => staff['is_active'] != false)
+          .toList();
+      await prefs.setString('saved_staff_cache_${widget.storeCode}', jsonEncode(_staffCache));
+    } catch (error) {
+      debugPrint('Staff cache cloud refresh failed; using saved staff: $error');
+    }
   }
 
   void _loadRestoProfile() async {
@@ -1444,6 +1477,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
     final savedAddr = prefs.getString('saved_hotel_address') ?? '';
     final savedPhone = prefs.getString('saved_hotel_phone') ?? '';
     final savedUpi = prefs.getString('saved_hotel_upi') ?? '';
+    final savedReview = prefs.getString('saved_hotel_review') ?? '';
+    final savedFooter = prefs.getString('saved_hotel_footer') ?? '';
 
     if (mounted) {
       setState(() {
@@ -1453,6 +1488,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
           'phone': savedPhone,
           'address': savedAddr,
           'upi_id': savedUpi,
+          'google_review_link': savedReview,
+          'footer_message': savedFooter,
         });
       });
     }
@@ -1546,7 +1583,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
           .eq('restaurant_id', widget.storeCode)
           .gte('created_at', todayStart);
 
-      if (res != null && mounted) {
+      if (mounted) {
         double cash = 0.0;
         double bank = 0.0;
         double exp = 0.0;
@@ -1608,8 +1645,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 bool matched = _staffCache.any((s) =>
                     s['staff_id'] == sId && s['pin'] == sPin && s['role'] == sRole);
 
-                if (!matched && _staffCache.isEmpty) matched = true;
-
                 client.write(jsonEncode({
                       'type': 'AUTH_RESULT',
                       'success': matched,
@@ -1633,6 +1668,27 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     }) + "\n");
               } else if (msg['type'] == 'NEW_KOT') {
                 int tbl = msg['table'];
+                final kotId = (msg['id']?.toString().isNotEmpty ?? false)
+                    ? msg['id'].toString()
+                    : OfflineDatabase.instance.createId();
+                final createdAt = msg['created_at']?.toString() ?? DateTime.now().toIso8601String();
+                msg['id'] = kotId;
+                msg['created_at'] = createdAt;
+                unawaited(OfflineDatabase.instance.enqueue(
+                  id: kotId,
+                  storeCode: widget.storeCode,
+                  entity: 'hotel_kots',
+                  payload: {
+                    'id': kotId,
+                    'store_code': widget.storeCode,
+                    'table_no': tbl,
+                    'waiter_id': msg['waiter_id']?.toString(),
+                    'items': jsonEncode(msg['items'] ?? []),
+                    'status': 'pending',
+                    'source': 'LAN_LOCAL',
+                    'created_at': createdAt,
+                  },
+                ));
                 if (msg['waiter_id'] != null) {
                   tableWaiterMap[tbl] = msg['waiter_id'].toString();
                 }
@@ -1655,7 +1711,12 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   VoiceService.speak("टेबल $tbl का बिल तैयार है");
                 }
               } else if (msg['type'] == 'ORDER_READY') {
+                final int tbl = msg['table'];
+                if (tbl < 900) {
+                  setState(() => tableStateMap[tbl] = 'ready');
+                }
                 _broadcastLocal(msg);
+                VoiceService.speak("टेबल $tbl का खाना तैयार है");
               } else if (msg['type'] == 'RATION_DEMAND') {
                 _syncMasterData();
                 VoiceService.speak("रसोई से नई राशन मांग आई है");
@@ -1806,6 +1867,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 const Divider(),
                 Expanded(
                   child: WaiterMenuOrderView(
+                    menuList: hotelMenu.map((item) => MenuItemModel.fromMap(item)).toList(),
                     cart: cart,
                     onAddItem: (item) {
                       setBState(() => cart[item.id] = (cart[item.id] ?? 0) + 1);
@@ -1834,7 +1896,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
                             List<Map<String, dynamic>> newOrderItems = [];
                             cart.forEach((id, qty) {
                               if (qty > 0) {
-                                final it = kRestaurantMenu.firstWhere((e) => e.id == id);
+                                final itemMap = hotelMenu.firstWhere((item) => item['id'].toString() == id.toString(), orElse: () => {'id': id, 'name': 'Item', 'price': 0, 'cat': 'अन्य'});
+                                final it = MenuItemModel.fromMap(itemMap);
                                 newOrderItems.add({'name': it.name, 'price': it.price, 'qty': qty});
                               }
                             });
@@ -1845,15 +1908,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
                               tableWaiterMap[tbl] = 'COUNTER';
                             });
 
-                            _broadcastLocal({
-                              'type': 'NEW_KOT',
-                              'table': tbl,
-                              'waiter_id': 'COUNTER',
-                              'items': newOrderItems,
-                            });
-
                             try {
-                              await Supabase.instance.client.from('hotel_kots').insert({
+                              final createdKot = await Supabase.instance.client.from('hotel_kots').insert({
                                 'store_code': widget.storeCode,
                                 'table_no': tbl,
                                 'waiter_id': 'COUNTER',
@@ -1861,8 +1917,24 @@ class _FullCounterAppState extends State<FullCounterApp> {
                                 'status': 'pending',
                                 'source': 'COUNTER',
                                 'created_at': DateTime.now().toIso8601String(),
+                              }).select('id, created_at').single();
+
+                              _broadcastLocal({
+                                'type': 'NEW_KOT',
+                                'table': tbl,
+                                'waiter_id': 'COUNTER',
+                                'items': newOrderItems,
+                                'id': createdKot['id'],
+                                'created_at': createdKot['created_at'],
                               });
-                            } catch (_) {}
+                            } catch (error) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('KOT सेव नहीं हुआ: $error')),
+                                );
+                              }
+                              return;
+                            }
 
                             if (mounted) Navigator.pop(context);
                             VoiceService.speak("टेबल $tbl का KOT किचन भेज दिया गया");
@@ -1902,58 +1974,98 @@ class _FullCounterAppState extends State<FullCounterApp> {
             Navigator.pop(context);
 
             final String currentWaiterId = tableWaiterMap[tbl] ?? 'SELF_COUNTER';
-            final String generatedBillNo = 'BILL-${DateTime.now().millisecondsSinceEpoch % 100000}';
+            final String generatedBillNo = 'BILL-${DateTime.now().millisecondsSinceEpoch}';
+            final String source = isParcel ? 'PARCEL P-${tbl - 900}' : 'Table T-$tbl';
+            late final String newInvoiceId;
 
+            // Invoice और उसके सभी items सेव हुए बिना टेबल/पार्सल ऑर्डर हटाएँ नहीं।
+            try {
+              final invoiceRes = await Supabase.instance.client
+                  .from('invoices')
+                  .insert({
+                    'store_code': widget.storeCode,
+                    'bill_no': generatedBillNo,
+                    'table_no': tbl,
+                    'waiter_id': isParcel ? 'PARCEL' : currentWaiterId,
+                    'cashier_partner_id': _currentPartnerId,
+                    'cashier_partner_name': _currentPartnerName,
+                    'subtotal': subTotal,
+                    'discount_pct': enteredPct,
+                    'discount_amt': discountAmt,
+                    'final_amount': finalPayable,
+                    'payment_mode': mode,
+                    'created_at': DateTime.now().toIso8601String(),
+                  })
+                  .select('id')
+                  .single();
+
+              newInvoiceId = invoiceRes['id'].toString();
+              final List<Map<String, dynamic>> itemsToInsert = items.map((it) {
+                final double price = (it['price'] as num?)?.toDouble() ?? 0.0;
+                final int quantity = (it['qty'] as num?)?.toInt() ?? 1;
+                return {
+                  if (it['id'] != null) 'item_id': it['id'].toString(),
+                  'invoice_id': newInvoiceId,
+                  'item_name': it['name'] ?? '',
+                  'category': it['category'] ?? it['cat'] ?? 'General',
+                  'price': price,
+                  'qty': quantity,
+                  'total_price': price * quantity,
+                };
+              }).toList();
+
+              try {
+                await Supabase.instance.client
+                    .from('invoice_items')
+                    .insert(itemsToInsert);
+              } catch (error) {
+                await Supabase.instance.client
+                    .from('invoices')
+                    .delete()
+                    .eq('id', newInvoiceId);
+                rethrow;
+              }
+            } catch (error) {
+              if (mounted) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(content: Text('बिल डेटाबेस में सेव नहीं हुआ; ऑर्डर सुरक्षित रखा गया: $error')),
+                );
+              }
+              return;
+            }
+
+            // अब बिल सुरक्षित है; KOT को settled करें।
             try {
               await Supabase.instance.client
                   .from('hotel_kots')
                   .update({'status': 'settled'})
                   .eq('store_code', widget.storeCode)
                   .eq('table_no', tbl);
-            } catch (_) {}
-
-            try {
-              final invoiceRes = await Supabase.instance.client.from('invoices').insert({
-                'store_code': widget.storeCode,
-                'bill_no': generatedBillNo,
-                'table_no': tbl,
-                'waiter_id': isParcel ? 'PARCEL' : currentWaiterId,
-                'cashier_partner_id': _currentPartnerId,
-                'subtotal': subTotal,
-                'discount_amt': discountAmt,
-                'final_amount': finalPayable,
-                'payment_mode': mode,
-                'created_at': DateTime.now().toIso8601String(),
-              }).select('id').maybeSingle();
-
-              if (invoiceRes != null && invoiceRes['id'] != null) {
-                final String newInvoiceId = invoiceRes['id'].toString();
-                final List<Map<String, dynamic>> itemsToInsert = items.map((it) {
-                  final double p = (it['price'] as num?)?.toDouble() ?? 0.0;
-                  final int q = (it['qty'] as num?)?.toInt() ?? 1;
-                  return {
-                    'invoice_id': newInvoiceId,
-                    'item_name': it['name'] ?? '',
-                    'category': it['category'] ?? it['cat'] ?? 'General',
-                    'price': p,
-                    'qty': q,
-                    'total_price': p * q,
-                  };
-                }).toList();
-                await Supabase.instance.client.from('invoice_items').insert(itemsToInsert);
+            } catch (error) {
+              if (mounted) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(content: Text('बिल सेव है, लेकिन KOT स्थिति अपडेट नहीं हुई: $error')),
+                );
               }
-            } catch (_) {}
+            }
 
+            // Cash ledger में UPI और नकद बिक्री का माध्यम स्पष्ट रखें।
             try {
-              final source = isParcel ? 'PARCEL P-${tbl - 900}' : 'Table T-$tbl';
               await Supabase.instance.client.from('daily_expenses').insert({
                 'restaurant_id': widget.storeCode,
+                'store_code': widget.storeCode,
                 'title': '$source Sale ($mode) [प्रभारी: $_currentPartnerName]',
                 'amount': finalPayable,
                 'type': 'CASH_IN',
                 'created_at': DateTime.now().toIso8601String(),
               });
-            } catch (_) {}
+            } catch (error) {
+              if (mounted) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(content: Text('बिल सेव है, लेकिन कैश/UPI लेजर सिंक नहीं हुआ: $error')),
+                );
+              }
+            }
 
             if (isParcel) {
               setState(() => parcelOrders.remove(tbl));
@@ -1968,6 +2080,74 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
             _fetchDailyBalances();
             VoiceService.speak("बिल ₹${finalPayable.toInt()} $mode से प्राप्त हुआ");
+
+            // Hindi PDF में वास्तविक UPI राशि और Google Review QR शामिल करें।
+            try {
+              final profile = _restoProfile;
+              bool thermalPrinted = false;
+              final receipt = await buildThermalReceiptPdf(
+                hotelName: profile?.name ?? widget.hotelName,
+                address: profile?.address,
+                phone: profile?.phone,
+                fssai: profile?.fssaiNumber,
+                gstin: profile?.gstNumber,
+                tbl: tbl,
+                billNo: generatedBillNo,
+                paymentMode: mode,
+                cashierName: _currentPartnerName,
+                footerMessage: profile?.footerMessage,
+                items: items,
+                subTotal: subTotal,
+                discount: discountAmt,
+                discountPct: enteredPct,
+                upiId: profile?.upiId,
+                reviewUrl: profile?.googleReviewLink,
+                paperWidthMm: 58,
+                onImageGenerated: (imageBytes) async {
+                  thermalPrinted = await UsbThermalPrinterManager.instance
+                      .printPngImage(imageBytes, paperWidthMm: 58);
+                },
+              );
+              final directory = await getTemporaryDirectory();
+              final pdfFile = File('${directory.path}/$generatedBillNo.pdf');
+              await pdfFile.writeAsBytes(await receipt.save(), flush: true);
+
+              if (mounted) {
+                final shouldShare = await showDialog<bool>(
+                  context: this.context,
+                  builder: (shareContext) => AlertDialog(
+                    title: const Text('बिल तैयार है'),
+                    content: Text(thermalPrinted
+                        ? 'बिल थर्मल प्रिंटर पर प्रिंट हो गया। क्या PDF भी WhatsApp या किसी अन्य ऐप पर भेजना है?'
+                        : 'क्या इस बिल की PDF WhatsApp या किसी अन्य ऐप पर भेजनी है?'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(shareContext, false),
+                        child: const Text('बाद में'),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () => Navigator.pop(shareContext, true),
+                        icon: const Icon(Icons.share),
+                        label: const Text('बिल शेयर करें'),
+                      ),
+                    ],
+                  ),
+                );
+
+                if (shouldShare == true) {
+                  await Share.shareXFiles(
+                    [XFile(pdfFile.path)],
+                    text: '${profile?.name ?? widget.hotelName} का बिल $generatedBillNo',
+                  );
+                }
+              }
+            } catch (error) {
+              if (mounted) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(content: Text('बिल सेव हो गया, लेकिन PDF/शेयर तैयार नहीं हुआ: $error')),
+                );
+              }
+            }
           }
 
           return AlertDialog(
@@ -2082,6 +2262,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 const Divider(),
                 Expanded(
                   child: WaiterMenuOrderView(
+                    menuList: hotelMenu.map((item) => MenuItemModel.fromMap(item)).toList(),
                     onAddItem: (item) {
                       setBState(() => cart[item.id] = (cart[item.id] ?? 0) + 1);
                     },
@@ -2098,23 +2279,39 @@ class _FullCounterAppState extends State<FullCounterApp> {
                             List<Map<String, dynamic>> newOrderItems = [];
                             cart.forEach((id, qty) {
                               if (qty > 0) {
-                                final it = kRestaurantMenu.firstWhere((e) => e.id == id);
+                                final itemMap = hotelMenu.firstWhere((item) => item['id'].toString() == id.toString(), orElse: () => {'id': id, 'name': 'Item', 'price': 0, 'cat': 'अन्य'});
+                                final it = MenuItemModel.fromMap(itemMap);
                                 newOrderItems.add({'name': it.name, 'price': it.price, 'qty': qty});
                               }
                             });
 
-                            _broadcastLocal({'type': 'NEW_KOT', 'table': parcelId, 'items': newOrderItems});
-
                             try {
-                              await Supabase.instance.client.from('hotel_kots').insert({
+                              final createdKot = await Supabase.instance.client.from('hotel_kots').insert({
                                 'store_code': widget.storeCode,
                                 'table_no': parcelId,
+                                'waiter_id': 'COUNTER',
                                 'items': jsonEncode(newOrderItems),
                                 'status': 'pending',
                                 'source': 'PARCEL',
                                 'created_at': DateTime.now().toIso8601String(),
+                              }).select('id, created_at').single();
+
+                              _broadcastLocal({
+                                'type': 'NEW_KOT',
+                                'table': parcelId,
+                                'waiter_id': 'COUNTER',
+                                'items': newOrderItems,
+                                'id': createdKot['id'],
+                                'created_at': createdKot['created_at'],
                               });
-                            } catch (_) {}
+                            } catch (error) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('पार्सल KOT सेव नहीं हुआ: $error')),
+                                );
+                              }
+                              return;
+                            }
 
                             setState(() => parcelOrders[parcelId] = newOrderItems);
                             if (mounted) Navigator.pop(context);
@@ -2599,8 +2796,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
               String st = tableStateMap[tbl] ?? 'empty';
               Color c = st == 'bill_ready'
                   ? Colors.purple
-                  : (st == 'running' ? Colors.red : Colors.green);
-              String label = st == 'bill_ready' ? 'बिल तैयार 🔔' : (st == 'running' ? 'ऑर्डर चालू' : 'खाली (टैप करें)');
+                  : (st == 'ready' ? Colors.teal : (st == 'running' ? Colors.red : Colors.green));
+              String label = st == 'bill_ready'
+                  ? 'बिल तैयार 🔔'
+                  : (st == 'ready' ? 'खाना तैयार ✓' : (st == 'running' ? 'ऑर्डर चालू' : 'खाली (टैप करें)'));
 
               return InkWell(
                 onTap: () {
@@ -2673,6 +2872,17 @@ class _FullCounterAppState extends State<FullCounterApp> {
   Widget _buildQuickPosView() {
     return CounterSaleScreen(
       storeCode: widget.storeCode,
+      onTableOrderAdded: (kot) {
+        final tableNo = int.tryParse(kot['table']?.toString() ?? '') ?? 0;
+        final items = List<Map<String, dynamic>>.from(kot['items'] as List? ?? []);
+        if (tableNo > 0) {
+          activeOrders.putIfAbsent(tableNo, () => []).addAll(items);
+          tableWaiterMap[tableNo] = 'COUNTER';
+          tableStateMap[tableNo] = 'running';
+        }
+        _broadcastLocal(kot);
+        if (mounted) setState(() {});
+      },
     );
   }
 }
@@ -2695,6 +2905,9 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
   List<Map<String, dynamic>> menu = [];
   Map<int, List<Map<String, dynamic>>> liveTables = {};
   Map<int, String> tableStatus = {};
+  List<Map<String, dynamic>> pendingQrOrders = [];
+  RealtimeChannel? _qrOrderChannel;
+  final Set<String> _processingQrOrderIds = {};
   final Set<String> _spokenReadyKots = {};
   Timer? _waiterSyncTimer;
 
@@ -2707,6 +2920,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
     super.initState();
     _loadMenu();
     _initNetworkAndSync();
+    _listenForQrOrders();
 
     _waiterSyncTimer = Timer.periodic(const Duration(seconds: 25), (_) {
       if (!_socketConnected) {
@@ -2722,7 +2936,247 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
   void dispose() {
     _waiterSyncTimer?.cancel();
     _waiterSocket?.destroy();
+    if (_qrOrderChannel != null) {
+      try {
+        unawaited(Supabase.instance.client.removeChannel(_qrOrderChannel!));
+      } catch (_) {}
+    }
     super.dispose();
+  }
+
+  void _listenForQrOrders() {
+    try {
+      _qrOrderChannel = Supabase.instance.client
+          .channel('waiter-qr-orders-${widget.storeCode}')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'qr_orders',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'store_code',
+              value: widget.storeCode,
+            ),
+            callback: (payload) {
+              final record = payload.newRecord;
+              final id = record['id']?.toString();
+              if (id == null || !mounted) return;
+              setState(() {
+                if (record['status'] == 'PENDING_APPROVAL') {
+                  pendingQrOrders.removeWhere((order) => order['id'].toString() == id);
+                  pendingQrOrders.insert(0, record);
+                } else {
+                  pendingQrOrders.removeWhere((order) => order['id'].toString() == id);
+                }
+              });
+              if (record['status'] == 'PENDING_APPROVAL') {
+                VoiceService.speak('नया ग्राहक QR ऑर्डर वेटर पुष्टि के लिए आया है');
+              }
+            },
+          )
+          .subscribe();
+      _fetchPendingQrOrders();
+    } catch (error) {
+      debugPrint('QR order subscription failed: $error');
+    }
+  }
+
+  Future<void> _fetchPendingQrOrders() async {
+    try {
+      final rows = await Supabase.instance.client
+          .from('qr_orders')
+          .select('*')
+          .eq('store_code', widget.storeCode)
+          .eq('status', 'PENDING_APPROVAL')
+          .order('created_at', ascending: false);
+      if (mounted) {
+        setState(() {
+          pendingQrOrders = List<Map<String, dynamic>>.from(rows);
+        });
+      }
+    } catch (error) {
+      debugPrint('Pending QR order fetch failed: $error');
+    }
+  }
+
+  Future<void> _handleWaiterQrOrderAction(
+    Map<String, dynamic> qrOrder,
+    bool isAccepted,
+  ) async {
+    final orderId = qrOrder['id'].toString();
+    if (!_processingQrOrderIds.add(orderId)) return;
+
+    final tableNo = int.tryParse(qrOrder['table_no'].toString()) ?? 0;
+    try {
+      if (isAccepted) {
+        dynamic rawItems = qrOrder['items'];
+        List<Map<String, dynamic>> items = [];
+        if (rawItems is List) {
+          items = List<Map<String, dynamic>>.from(rawItems);
+        } else if (rawItems is String) {
+          items = List<Map<String, dynamic>>.from(jsonDecode(rawItems));
+        }
+        if (items.isEmpty) {
+          throw StateError('QR ऑर्डर में कोई आइटम नहीं है');
+        }
+
+        final createdKot = await Supabase.instance.client
+            .from('hotel_kots')
+            .insert({
+              'store_code': widget.storeCode,
+              'table_no': tableNo,
+              'waiter_id': widget.staffId,
+              'items': jsonEncode(items),
+              'status': 'pending',
+              'source': 'QR_DIGITAL',
+              'created_at': DateTime.now().toIso8601String(),
+            })
+            .select('id, created_at')
+            .single();
+
+        await Supabase.instance.client
+            .from('qr_orders')
+            .update({'status': 'ACCEPTED'})
+            .eq('id', orderId);
+
+        if (mounted) {
+          setState(() {
+            liveTables.putIfAbsent(tableNo, () => []).addAll(items);
+            tableStatus[tableNo] = 'running';
+            pendingQrOrders.removeWhere((order) => order['id'].toString() == orderId);
+          });
+        }
+
+        final message = {
+          'type': 'NEW_KOT',
+          'table': tableNo,
+          'waiter_id': widget.staffId,
+          'items': items,
+          'id': createdKot['id'],
+          'created_at': createdKot['created_at'],
+        };
+        if (_socketConnected && _waiterSocket != null) {
+          _waiterSocket!.write('${jsonEncode(message)}\n');
+        }
+        VoiceService.speak('टेबल $tableNo का QR ऑर्डर किचन भेज दिया गया');
+      } else {
+        await Supabase.instance.client
+            .from('qr_orders')
+            .update({'status': 'REJECTED'})
+            .eq('id', orderId);
+        if (mounted) {
+          setState(() {
+            pendingQrOrders.removeWhere((order) => order['id'].toString() == orderId);
+          });
+        }
+        VoiceService.speak('टेबल $tableNo का QR ऑर्डर निरस्त किया गया');
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('QR ऑर्डर अपडेट नहीं हुआ: $error')),
+        );
+      }
+    } finally {
+      _processingQrOrderIds.remove(orderId);
+    }
+  }
+
+  void _openWaiterQrOrdersSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SizedBox(
+        height: MediaQuery.of(context).size.height * 0.78,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'ग्राहक QR ऑर्डर — वेटर पुष्टि',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(sheetContext),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: pendingQrOrders.isEmpty
+                  ? const Center(child: Text('अभी कोई QR ऑर्डर पेंडिंग नहीं है'))
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: pendingQrOrders.length,
+                      itemBuilder: (context, index) {
+                        final order = pendingQrOrders[index];
+                        final id = order['id'].toString();
+                        final tableNo = order['table_no'];
+                        dynamic rawItems = order['items'];
+                        List items = rawItems is List ? rawItems : [];
+                        if (rawItems is String) {
+                          try {
+                            items = jsonDecode(rawItems) as List;
+                          } catch (_) {}
+                        }
+                        final isProcessing = _processingQrOrderIds.contains(id);
+                        return Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text('टेबल T-$tableNo', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                    Text('₹${order['total_amount'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                                  ],
+                                ),
+                                const Divider(),
+                                ...items.map((item) => Text('• ${item['name']} × ${item['qty']}')),
+                                const SizedBox(height: 10),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    OutlinedButton(
+                                      onPressed: isProcessing
+                                          ? null
+                                          : () async {
+                                              await _handleWaiterQrOrderAction(order, false);
+                                              if (mounted) Navigator.pop(sheetContext);
+                                            },
+                                      child: const Text('निरस्त'),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    ElevatedButton(
+                                      onPressed: isProcessing
+                                          ? null
+                                          : () async {
+                                              await _handleWaiterQrOrderAction(order, true);
+                                              if (mounted) Navigator.pop(sheetContext);
+                                            },
+                                      child: Text(isProcessing ? 'प्रोसेस...' : 'कन्फर्म करके KOT भेजें'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _initNetworkAndSync() async {
@@ -2759,8 +3213,12 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
           } catch (_) {}
         }
       },
-          onDone: () => setState(() => _socketConnected = false),
-          onError: (_) => setState(() => _socketConnected = false));
+          onDone: () {
+            if (mounted) setState(() => _socketConnected = false);
+          },
+          onError: (_) {
+            if (mounted) setState(() => _socketConnected = false);
+          });
     } catch (_) {
       if (mounted && _socketConnected) setState(() => _socketConnected = false);
     }
@@ -2942,8 +3400,11 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
           double draftTotal = 0.0;
           cart.forEach((id, qty) {
             if (qty > 0) {
-              final it = kRestaurantMenu.firstWhere((e) => e.id == id,
-                  orElse: () => MenuItemModel(id: id.toString(), name: 'Item', price: 0, category: 'अन्य'));
+              final itemMap = menu.firstWhere(
+                  (item) => item['id'].toString() == id.toString(),
+                  orElse: () => {'id': id, 'name': 'Item', 'price': 0, 'category': 'अन्य'},
+                );
+              final it = MenuItemModel.fromMap(itemMap);
               draftItems.add({'id': id, 'name': it.name, 'price': it.price, 'qty': qty});
               draftTotal += (it.price * qty);
             }
@@ -2980,6 +3441,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                 ],
                 Expanded(
                   child: WaiterMenuOrderView(
+                    menuList: menu.map((item) => MenuItemModel.fromMap(item)).toList(),
                     cart: cart,
                     onAddItem: (item) {
                       setBState(() => cart[item.id] = (cart[item.id] ?? 0) + 1);
@@ -3061,24 +3523,14 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                                 List<Map<String, dynamic>> newOrderItems = [];
                                 cart.forEach((id, qty) {
                                   if (qty > 0) {
-                                    final it = kRestaurantMenu.firstWhere((e) => e.id == id);
+                                    final itemMap = menu.firstWhere((item) => item['id'].toString() == id.toString(), orElse: () => {'id': id, 'name': 'Item', 'price': 0, 'category': 'अन्य'});
+                                    final it = MenuItemModel.fromMap(itemMap);
                                     newOrderItems.add({'name': it.name, 'price': it.price, 'qty': qty});
                                   }
                                 });
 
-                                if (_socketConnected && _waiterSocket != null) {
-                                  try {
-                                    _waiterSocket!.write(jsonEncode({
-                                          'type': 'NEW_KOT',
-                                          'table': tableNum,
-                                          'waiter_id': widget.staffId,
-                                          'items': newOrderItems,
-                                        }) + "\n");
-                                  } catch (_) {}
-                                }
-
                                 try {
-                                  await Supabase.instance.client.from('hotel_kots').insert({
+                                  final createdKot = await Supabase.instance.client.from('hotel_kots').insert({
                                     'store_code': widget.storeCode,
                                     'table_no': tableNum,
                                     'waiter_id': widget.staffId,
@@ -3086,8 +3538,26 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                                     'status': 'pending',
                                     'source': 'WAITER',
                                     'created_at': DateTime.now().toIso8601String(),
-                                  });
-                                } catch (_) {}
+                                  }).select('id, created_at').single();
+
+                                  if (_socketConnected && _waiterSocket != null) {
+                                    _waiterSocket!.write(jsonEncode({
+                                      'type': 'NEW_KOT',
+                                      'table': tableNum,
+                                      'waiter_id': widget.staffId,
+                                      'items': newOrderItems,
+                                      'id': createdKot['id'],
+                                      'created_at': createdKot['created_at'],
+                                    }) + "\n");
+                                  }
+                                } catch (error) {
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('KOT सेव नहीं हुआ: $error')),
+                                    );
+                                  }
+                                  return;
+                                }
 
                                 if (mounted) Navigator.pop(context);
                                 _syncFromCloud();
@@ -3128,6 +3598,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                 const Divider(),
                 Expanded(
                   child: WaiterMenuOrderView(
+                    menuList: menu.map((item) => MenuItemModel.fromMap(item)).toList(),
                     cart: cart,
                     onAddItem: (item) {
                       setBState(() => cart[item.id] = (cart[item.id] ?? 0) + 1);
@@ -3146,24 +3617,14 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                             List<Map<String, dynamic>> newOrderItems = [];
                             cart.forEach((id, qty) {
                               if (qty > 0) {
-                                final it = kRestaurantMenu.firstWhere((e) => e.id == id);
+                                final itemMap = menu.firstWhere((item) => item['id'].toString() == id.toString(), orElse: () => {'id': id, 'name': 'Item', 'price': 0, 'category': 'अन्य'});
+                                final it = MenuItemModel.fromMap(itemMap);
                                 newOrderItems.add({'name': it.name, 'price': it.price, 'qty': qty});
                               }
                             });
 
-                            if (_socketConnected && _waiterSocket != null) {
-                              try {
-                                _waiterSocket!.write(jsonEncode({
-                                      'type': 'NEW_KOT',
-                                      'table': parcelId,
-                                      'waiter_id': widget.staffId,
-                                      'items': newOrderItems,
-                                    }) + "\n");
-                              } catch (_) {}
-                            }
-
                             try {
-                              await Supabase.instance.client.from('hotel_kots').insert({
+                              final createdKot = await Supabase.instance.client.from('hotel_kots').insert({
                                 'store_code': widget.storeCode,
                                 'table_no': parcelId,
                                 'waiter_id': widget.staffId,
@@ -3171,8 +3632,26 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                                 'status': 'pending',
                                 'source': 'PARCEL',
                                 'created_at': DateTime.now().toIso8601String(),
-                              });
-                            } catch (_) {}
+                              }).select('id, created_at').single();
+
+                              if (_socketConnected && _waiterSocket != null) {
+                                _waiterSocket!.write(jsonEncode({
+                                  'type': 'NEW_KOT',
+                                  'table': parcelId,
+                                  'waiter_id': widget.staffId,
+                                  'items': newOrderItems,
+                                  'id': createdKot['id'],
+                                  'created_at': createdKot['created_at'],
+                                }) + "\n");
+                              }
+                            } catch (error) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('पार्सल KOT सेव नहीं हुआ: $error')),
+                                );
+                              }
+                              return;
+                            }
 
                             if (mounted) Navigator.pop(context);
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -3243,6 +3722,29 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                         decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(4)),
                         child: const Text('साफ़ करें', style: TextStyle(color: Colors.white, fontSize: 11)),
                       ),
+                    ),
+                  ],
+                ),
+              ),
+
+            if (pendingQrOrders.isNotEmpty)
+              Container(
+                color: Colors.deepOrange.shade50,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.qr_code_scanner, color: Colors.deepOrange),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${pendingQrOrders.length} ग्राहक QR ऑर्डर वेटर पुष्टि की प्रतीक्षा में',
+                        style: const TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                    ),
+                    ElevatedButton(
+                      onPressed: _openWaiterQrOrdersSheet,
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
+                      child: const Text('जाँचें', style: TextStyle(color: Colors.white)),
                     ),
                   ],
                 ),
@@ -3330,6 +3832,7 @@ class _FullCookAppState extends State<FullCookApp> {
   Socket? _cookSocket;
   List<Map<String, dynamic>> kitchenOrders = [];
   final Set<String> _spokenOrderKots = {};
+  final Set<String> _seenKotIds = {};
   Timer? _cookSyncTimer;
 
   Map<String, dynamic>? _lastReadyOrder;
@@ -3340,10 +3843,8 @@ class _FullCookAppState extends State<FullCookApp> {
     _initNetworkAndSync();
 
     _cookSyncTimer = Timer.periodic(const Duration(seconds: 25), (_) {
-      if (!_socketConnected) {
-        _connectToSocket();
-        _syncFromCloud();
-      }
+      if (!_socketConnected) _connectToSocket();
+      _syncFromCloud();
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) => checkForAppUpdates(context));
@@ -3377,13 +3878,17 @@ class _FullCookAppState extends State<FullCookApp> {
             if (msg['type'] == 'NEW_KOT' && mounted) {
               int tbl = msg['table'];
               final newKotMap = Map<String, dynamic>.from(msg);
-              newKotMap['created_at'] = DateTime.now().toIso8601String();
-              setState(() => kitchenOrders.insert(0, newKotMap));
-
-              if (tbl >= 900) {
-                VoiceService.speak("नया पार्सल ऑर्डर आया है");
-              } else {
-                VoiceService.speak("टेबल $tbl पर नया ऑर्डर आया है");
+              newKotMap['created_at'] = msg['created_at'] ?? DateTime.now().toIso8601String();
+              final kotId = newKotMap['id']?.toString();
+              final isNewKot = kotId == null || _seenKotIds.add(kotId);
+              if (isNewKot) {
+                if (kotId != null) _spokenOrderKots.add(kotId);
+                setState(() => kitchenOrders.insert(0, newKotMap));
+                if (tbl >= 900) {
+                  VoiceService.speak("नया पार्सल ऑर्डर आया है");
+                } else {
+                  VoiceService.speak("टेबल $tbl पर नया ऑर्डर आया है");
+                }
               }
             } else if (msg['type'] == 'TABLE_SHIFT' && mounted) {
               int fromTbl = msg['from_table'];
@@ -3400,8 +3905,12 @@ class _FullCookAppState extends State<FullCookApp> {
           } catch (_) {}
         }
       },
-          onDone: () => setState(() => _socketConnected = false),
-          onError: (_) => setState(() => _socketConnected = false));
+          onDone: () {
+            if (mounted) setState(() => _socketConnected = false);
+          },
+          onError: (_) {
+            if (mounted) setState(() => _socketConnected = false);
+          });
     } catch (_) {
       if (mounted && _socketConnected) setState(() => _socketConnected = false);
     }
@@ -3416,7 +3925,7 @@ class _FullCookAppState extends State<FullCookApp> {
           .eq('status', 'pending')
           .order('created_at', ascending: false);
 
-      if (res != null && mounted) {
+      if (mounted) {
         List<Map<String, dynamic>> loaded = [];
         for (var r in res) {
           String id = r['id'];
@@ -3434,6 +3943,7 @@ class _FullCookAppState extends State<FullCookApp> {
             'items': items,
             'created_at': r['created_at'],
           });
+          _seenKotIds.add(id);
 
           if (!_spokenOrderKots.contains(id)) {
             _spokenOrderKots.add(id);
@@ -3537,6 +4047,15 @@ class _FullCookAppState extends State<FullCookApp> {
     );
   }
 
+  Future<void> _queueOfflineKotStatus(String kotId, String status) async {
+    await OfflineDatabase.instance.enqueue(
+      id: '$kotId-status-$status',
+      storeCode: widget.storeCode,
+      entity: 'hotel_kots_update',
+      payload: {'id': kotId, 'status': status},
+    );
+  }
+
   void _markOrderReady(int index) async {
     final order = kitchenOrders[index];
     setState(() {
@@ -3551,21 +4070,24 @@ class _FullCookAppState extends State<FullCookApp> {
     }
 
     if (order['id'] != null) {
+      final kotId = order['id'].toString();
+      final createdAt = DateTime.tryParse(order['created_at']?.toString() ?? '') ?? DateTime.now();
       try {
-        final kotId = order['id'].toString();
-        final createdAt = DateTime.tryParse(order['created_at']?.toString() ?? '') ?? DateTime.now();
-
         await KitchenLearningService.recordKotCompletionAndLearn(
           storeCode: widget.storeCode,
           kotId: kotId,
           createdAt: createdAt,
         );
-      } catch (_) {
-        try {
-          await Supabase.instance.client
-              .from('hotel_kots')
-              .update({'status': 'ready'}).eq('id', order['id']);
-        } catch (_) {}
+      } catch (error) {
+        debugPrint('Kitchen learning update deferred: $error');
+      }
+      try {
+        await Supabase.instance.client
+            .from('hotel_kots')
+            .update({'status': 'ready'}).eq('id', kotId);
+      } catch (error) {
+        await _queueOfflineKotStatus(kotId, 'ready');
+        debugPrint('KOT ready status queued for cloud sync: $error');
       }
     }
 
@@ -3592,11 +4114,15 @@ class _FullCookAppState extends State<FullCookApp> {
     });
 
     if (order['id'] != null) {
+      final kotId = order['id'].toString();
       try {
         await Supabase.instance.client
             .from('hotel_kots')
-            .update({'status': 'pending'}).eq('id', order['id']);
-      } catch (_) {}
+            .update({'status': 'pending'}).eq('id', kotId);
+      } catch (error) {
+        await _queueOfflineKotStatus(kotId, 'pending');
+        debugPrint('KOT undo status queued for cloud sync: $error');
+      }
     }
   }
 

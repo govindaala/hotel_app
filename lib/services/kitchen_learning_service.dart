@@ -1,6 +1,5 @@
 // lib/services/kitchen_learning_service.dart
 
-import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -36,7 +35,7 @@ class KitchenLearningService {
           final name = (it['name'] ?? '').toString().toLowerCase();
           final cat = (it['category'] ?? it['cat'] ?? '').toString().toLowerCase();
 
-          if (cat.contains('main course') || name.contains('paneer') || name.contains('thali')) {
+          if (cat.contains('main course') || name.contains('paneer') || name.contains('पनीर') || name.contains('पनीर') || name.contains('thali')) {
             hasHeavyMainCourse = true;
             hasOnlyBeverages = false;
           } else if (!cat.contains('beverage') && !cat.contains('tea') && !cat.contains('coffee')) {
@@ -139,67 +138,70 @@ class KitchenLearningService {
       // पिछले 21 दिनों के इनवॉइस आइटम्स फेच करना
       final salesData = await _supabase
           .from('invoice_items')
-          .select('item_name, qty, category')
+          .select('item_name, qty, category, created_at, invoices!inner(store_code)')
+          .eq('invoices.store_code', storeCode)
           .gte('created_at', threeWeeksAgo);
 
-      if (salesData.isEmpty) {
-        // यदि इनवॉइस डेटा अभी नया है, तो बेसिक अनुमान सूची लौटाना
-        return [
-          {'item_name': 'पनीर (Paneer)', 'quantity': '12 KG', 'reason': 'वीकेंड स्पेशल औसत'},
-          {'item_name': 'प्याज (Onion)', 'quantity': '30 KG', 'reason': 'सामान्य वीकेंड खपत'},
-          {'item_name': 'टमाटर (Tomato)', 'quantity': '20 KG', 'reason': 'ग्रेवी व सलाद आवश्यकता'},
-          {'item_name': 'दूध (Milk)', 'quantity': '15 Ltr', 'reason': 'चाय व मिष्ठान'},
-        ];
-      }
+      final weekendSales = salesData.where((row) {
+        final soldAt = DateTime.tryParse(row['created_at']?.toString() ?? '');
+        return soldAt != null && soldAt.weekday >= DateTime.friday;
+      }).toList();
+      if (weekendSales.isEmpty) return [];
 
       int paneerDishesCount = 0;
       int gravyDishesCount = 0;
       int teaCoffeeCount = 0;
 
-      for (var row in salesData) {
+      for (var row in weekendSales) {
         final name = (row['item_name'] ?? '').toString().toLowerCase();
         final qty = (row['qty'] as num?)?.toInt() ?? 1;
 
         if (name.contains('paneer')) {
           paneerDishesCount += qty;
         }
-        if (name.contains('curry') || name.contains('masala') || name.contains('dal')) {
+        if (name.contains('curry') || name.contains('masala') || name.contains('dal') || name.contains('करी') || name.contains('मसाला') || name.contains('दाल') || name.contains('करी') || name.contains('मसाला') || name.contains('दाल')) {
           gravyDishesCount += qty;
         }
-        if (name.contains('tea') || name.contains('chai') || name.contains('coffee')) {
+        if (name.contains('tea') || name.contains('chai') || name.contains('coffee') || name.contains('चाय') || name.contains('कॉफी') || name.contains('चाय') || name.contains('कॉफी')) {
           teaCoffeeCount += qty;
         }
       }
 
       // 3 हफ़्तों का औसत प्रति वीकेंड (Recipe BOM फ़ॉर्मूला)
       // 1 पनीर डिश ≈ 140 ग्राम पनीर
-      final double estimatedPaneerKg = ((paneerDishesCount / 3) * 0.14).clamp(5.0, 50.0);
+      final double estimatedPaneerKg = ((paneerDishesCount / 3) * 0.14).clamp(0.0, 50.0);
       // प्रति 10 ग्रेवी डिश ≈ 1.5 किलो प्याज, 1 किलो टमाटर
-      final double estimatedOnionKg = ((gravyDishesCount / 3) * 0.15).clamp(10.0, 80.0);
-      final double estimatedTomatoKg = ((gravyDishesCount / 3) * 0.10).clamp(8.0, 50.0);
+      final double estimatedOnionKg = ((gravyDishesCount / 3) * 0.15).clamp(0.0, 80.0);
+      final double estimatedTomatoKg = ((gravyDishesCount / 3) * 0.10).clamp(0.0, 50.0);
       // प्रति 10 कप चाय ≈ 1.2 लीटर दूध
-      final double estimatedMilkLtr = ((teaCoffeeCount / 3) * 0.12).clamp(5.0, 40.0);
+      final double estimatedMilkLtr = ((teaCoffeeCount / 3) * 0.12).clamp(0.0, 40.0);
 
-      predictions.add({
-        'item_name': 'पनीर (Paneer)',
-        'quantity': '${estimatedPaneerKg.toStringAsFixed(1)} KG',
-        'reason': 'पिछले 3 वीकेंड्स में औसतन ${(paneerDishesCount / 3).round()} पनीर डिशेज़ बिकीं',
-      });
-      predictions.add({
-        'item_name': 'प्याज (Onion)',
-        'quantity': '${estimatedOnionKg.toStringAsFixed(1)} KG',
-        'reason': 'मुख्य ग्रेवी डिशेज़ की औसत खपत के आधार पर',
-      });
-      predictions.add({
-        'item_name': 'टमाटर (Tomato)',
-        'quantity': '${estimatedTomatoKg.toStringAsFixed(1)} KG',
-        'reason': 'सूप, सलाद व मसाला ग्रेवी हेतु',
-      });
-      predictions.add({
-        'item_name': 'दूध (Fresh Milk)',
-        'quantity': '${estimatedMilkLtr.toStringAsFixed(1)} Ltr',
-        'reason': 'हॉट बेवरेजेस व शेक की औसत वीकेंड मांग',
-      });
+      if (paneerDishesCount > 0) {
+        predictions.add({
+          'item_name': 'पनीर (Paneer)',
+          'quantity': '${estimatedPaneerKg.toStringAsFixed(1)} KG',
+          'reason': 'पिछले 3 वीकेंड्स की पनीर डिश बिक्री के आधार पर',
+        });
+      }
+      if (gravyDishesCount > 0) {
+        predictions.add({
+          'item_name': 'प्याज (Onion)',
+          'quantity': '${estimatedOnionKg.toStringAsFixed(1)} KG',
+          'reason': 'पिछले 3 वीकेंड्स की ग्रेवी डिश बिक्री के आधार पर',
+        });
+        predictions.add({
+          'item_name': 'टमाटर (Tomato)',
+          'quantity': '${estimatedTomatoKg.toStringAsFixed(1)} KG',
+          'reason': 'पिछले 3 वीकेंड्स की ग्रेवी डिश बिक्री के आधार पर',
+        });
+      }
+      if (teaCoffeeCount > 0) {
+        predictions.add({
+          'item_name': 'दूध (Fresh Milk)',
+          'quantity': '${estimatedMilkLtr.toStringAsFixed(1)} Ltr',
+          'reason': 'पिछले 3 वीकेंड्स की चाय/कॉफी बिक्री के आधार पर',
+        });
+      }
     } catch (_) {}
 
     return predictions;
