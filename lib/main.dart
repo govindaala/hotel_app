@@ -881,7 +881,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
           .eq('store_code', widget.storeCode)
           .gte('created_at', tenDaysAgo)
           .order('created_at', ascending: false);
-      if (res != null && mounted) {
+      if (mounted) {
         setState(() => rationDemands = List<Map<String, dynamic>>.from(res));
       }
     } catch (_) {}
@@ -893,7 +893,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
           .eq('store_code', widget.storeCode)
           .neq('status', 'settled');
 
-      if (kots != null && mounted) {
+      if (mounted) {
         for (var k in kots) {
           int tbl = k['table_no'] ?? 0;
           String st = k['status'] ?? 'pending';
@@ -993,7 +993,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
           .eq('status', 'PENDING_APPROVAL')
           .order('created_at', ascending: false);
 
-      if (res != null && mounted) {
+      if (mounted) {
         setState(() => pendingQrOrders = List<Map<String, dynamic>>.from(res));
       }
     } catch (_) {}
@@ -1539,7 +1539,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
           .eq('restaurant_id', widget.storeCode)
           .gte('created_at', todayStart);
 
-      if (res != null && mounted) {
+      if (mounted) {
         double cash = 0.0;
         double bank = 0.0;
         double exp = 0.0;
@@ -3857,7 +3857,7 @@ class _FullCookAppState extends State<FullCookApp> {
           .eq('status', 'pending')
           .order('created_at', ascending: false);
 
-      if (res != null && mounted) {
+      if (mounted) {
         List<Map<String, dynamic>> loaded = [];
         for (var r in res) {
           String id = r['id'];
