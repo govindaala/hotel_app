@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../receipt_generator.dart';
 import '../../services/usb_printer_service.dart';
@@ -47,8 +48,18 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       fetchErrorMessage = null;
     });
 
-    // 1. टेबल संख्या लोड करना
+    final prefs = await SharedPreferences.getInstance();
+
+    // 1. होटल प्रोफ़ाइल पहले लोकल कैश से दिखाएँ; इंटरनेट मिलने पर क्लाउड से ताज़ा करें।
     int count = 10;
+    _hotelProfile = {
+      'name': prefs.getString('saved_hotel_name') ?? 'AALA',
+      'address': prefs.getString('saved_hotel_address') ?? '',
+      'phone': prefs.getString('saved_hotel_phone') ?? '',
+      'upi_id': prefs.getString('saved_hotel_upi') ?? '',
+      'google_review_link': prefs.getString('saved_hotel_review') ?? '',
+      'footer_message': prefs.getString('saved_hotel_footer') ?? '',
+    };
     try {
       final hotelRes = await supabase
           .from('restaurants')
@@ -58,14 +69,19 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
 
       if (hotelRes != null) {
         _hotelProfile = Map<String, dynamic>.from(hotelRes);
-        if (hotelRes['total_tables'] != null) {
-          count = int.tryParse(hotelRes['total_tables'].toString()) ?? 10;
-        }
+        count = int.tryParse(hotelRes['total_tables']?.toString() ?? '') ?? 10;
+        await prefs.setString('saved_hotel_name', (_hotelProfile['name'] ?? 'AALA').toString());
+        await prefs.setString('saved_hotel_address', (_hotelProfile['address'] ?? '').toString());
+        await prefs.setString('saved_hotel_phone', (_hotelProfile['phone'] ?? '').toString());
+        await prefs.setString('saved_hotel_upi', (_hotelProfile['upi_id'] ?? '').toString());
+        await prefs.setString('saved_hotel_review', (_hotelProfile['google_review_link'] ?? '').toString());
+        await prefs.setString('saved_hotel_footer', (_hotelProfile['footer_message'] ?? '').toString());
       }
     } catch (_) {
-      count = 10;
+      count = int.tryParse(prefs.getString('saved_tables') ?? '') ?? 10;
     }
 
+    if (!mounted) return;
     setState(() {
       availableTables = [
         'काउंटर सेल (डायरेक्ट)',
@@ -73,50 +89,69 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       ];
     });
 
-    // 2. इन्वेंटरी लोड करना
+    // 2. कैश्ड इन्वेंटरी तुरंत उपलब्ध रखें; नेटवर्क आने पर सर्वर डेटा अपडेट करें।
+    final cacheKey = 'saved_counter_inventory_${widget.storeCode}';
+    final cachedJson = prefs.getString(cacheKey);
+    bool hasLocalInventory = false;
+    if (cachedJson != null) {
+      try {
+        final cachedRows = List<Map<String, dynamic>>.from(jsonDecode(cachedJson));
+        final grouped = _groupInventoryRows(cachedRows);
+        if (mounted) {
+          setState(() {
+            inventoryGroups = grouped;
+            selectedCategory = grouped.isEmpty ? null : (selectedCategory != null && grouped.containsKey(selectedCategory) ? selectedCategory : grouped.keys.first);
+          });
+        }
+        hasLocalInventory = cachedRows.isNotEmpty;
+      } catch (error) {
+        debugPrint('Saved counter inventory cache is invalid: $error');
+      }
+    }
+
     try {
       final List<dynamic> allRows = await supabase
           .from('counter_inventory')
           .select('*')
           .order('id', ascending: true);
-
-      final Map<String, Map<String, dynamic>> mergedMap = {};
-
-      for (var row in allRows) {
-        if (row['restaurant_id'] == null) {
-          final key = '${row['item_name']}_${row['variant_label']}';
-          mergedMap[key] = Map<String, dynamic>.from(row);
-        }
+      final rows = allRows.map((row) => Map<String, dynamic>.from(row)).toList();
+      await prefs.setString(cacheKey, jsonEncode(rows));
+      final grouped = _groupInventoryRows(rows);
+      if (mounted) {
+        setState(() {
+          inventoryGroups = grouped;
+          selectedCategory = grouped.isEmpty ? null : (selectedCategory != null && grouped.containsKey(selectedCategory) ? selectedCategory : grouped.keys.first);
+        });
       }
-
-      for (var row in allRows) {
-        if (row['restaurant_id']?.toString() == widget.storeCode) {
-          final key = '${row['item_name']}_${row['variant_label']}';
-          mergedMap[key] = Map<String, dynamic>.from(row);
-        }
+    } catch (error) {
+      if (!hasLocalInventory && mounted) {
+        setState(() => fetchErrorMessage = 'इन्वेंटरी अभी उपलब्ध नहीं है। पहली बार डेटा लोड करने के लिए इंटरनेट कनेक्शन चाहिए: $error');
       }
-
-      final Map<String, List<Map<String, dynamic>>> grouped = {};
-      for (var item in mergedMap.values) {
-        final cat = item['item_name'].toString();
-        grouped.putIfAbsent(cat, () => []).add(item);
-      }
-
-      setState(() {
-        inventoryGroups = grouped;
-        if (grouped.isNotEmpty) {
-          if (selectedCategory == null || !grouped.containsKey(selectedCategory)) {
-            selectedCategory = grouped.keys.first;
-          }
-        } else {
-          selectedCategory = null;
-        }
-      });
-    } catch (e) {
-      setState(() => fetchErrorMessage = 'डेटा लोड एरर: $e');
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
     }
+  }
+
+  Map<String, List<Map<String, dynamic>>> _groupInventoryRows(List<dynamic> allRows) {
+    final Map<String, Map<String, dynamic>> mergedMap = {};
+    for (final row in allRows) {
+      if (row['restaurant_id'] == null) {
+        final key = '${row['item_name']}_${row['variant_label']}';
+        mergedMap[key] = Map<String, dynamic>.from(row);
+      }
+    }
+    for (final row in allRows) {
+      if (row['restaurant_id']?.toString() == widget.storeCode) {
+        final key = '${row['item_name']}_${row['variant_label']}';
+        mergedMap[key] = Map<String, dynamic>.from(row);
+      }
+    }
+    final Map<String, List<Map<String, dynamic>>> grouped = {};
+    for (final item in mergedMap.values) {
+      final category = item['item_name'].toString();
+      grouped.putIfAbsent(category, () => []).add(item);
+    }
+    return grouped;
   }
 
   void _addToCart(dynamic id, String name, String variant, double price, int stock) {
