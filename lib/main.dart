@@ -947,66 +947,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
-  Future<void> _handleQrOrderAction(Map<String, dynamic> qrOrder, bool isAccepted) async {
-    final String orderId = qrOrder['id'].toString();
-    final int tbl = qrOrder['table_no'] ?? 0;
-
-    dynamic rawItems = qrOrder['items'];
-    List<Map<String, dynamic>> itemsList = [];
-    if (rawItems is List) {
-      itemsList = List<Map<String, dynamic>>.from(rawItems);
-    } else if (rawItems is String) {
-      itemsList = List<Map<String, dynamic>>.from(jsonDecode(rawItems));
-    }
-
-    if (isAccepted) {
-      setState(() {
-        activeOrders.putIfAbsent(tbl, () => []);
-        activeOrders[tbl]!.addAll(itemsList);
-        tableStateMap[tbl] = 'running';
-        tableWaiterMap[tbl] = 'QR_CUSTOMER';
-        pendingQrOrders.removeWhere((o) => o['id'] == orderId);
-      });
-
-      _broadcastLocal({
-        'type': 'NEW_KOT',
-        'table': tbl,
-        'waiter_id': 'QR_CUSTOMER',
-        'items': itemsList,
-      });
-
-      try {
-        await Supabase.instance.client.from('hotel_kots').insert({
-          'store_code': widget.storeCode,
-          'table_no': tbl,
-          'waiter_id': 'QR_CUSTOMER',
-          'items': jsonEncode(itemsList),
-          'status': 'pending',
-          'source': 'QR_DIGITAL',
-          'created_at': DateTime.now().toIso8601String(),
-        });
-
-        await Supabase.instance.client
-            .from('qr_orders')
-            .update({'status': 'ACCEPTED'})
-            .eq('id', orderId);
-      } catch (_) {}
-
-      VoiceService.speak("टेबल $tbl का QR ऑर्डर स्वीकार किया गया");
-    } else {
-      setState(() => pendingQrOrders.removeWhere((o) => o['id'] == orderId));
-
-      try {
-        await Supabase.instance.client
-            .from('qr_orders')
-            .update({'status': 'REJECTED'})
-            .eq('id', orderId);
-      } catch (_) {}
-
-      VoiceService.speak("टेबल $tbl का QR ऑर्डर निरस्त किया गया");
-    }
-  }
-
   void _openPendingQrOrdersSheet() {
     showModalBottomSheet(
       context: context,
@@ -1063,27 +1003,17 @@ class _FullCounterAppState extends State<FullCounterApp> {
                                 const Divider(),
                                 ...items.map((it) => Text('• ${it['name']} x ${it['qty']}')),
                                 const SizedBox(height: 10),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    OutlinedButton(
-                                      style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                                      onPressed: () {
-                                        _handleQrOrderAction(ord, false);
-                                        setSheetState(() {});
-                                      },
-                                      child: const Text('निरस्त करें'),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                                      onPressed: () {
-                                        _handleQrOrderAction(ord, true);
-                                        setSheetState(() {});
-                                      },
-                                      child: const Text('स्वीकार करें (KOT)', style: TextStyle(color: Colors.white)),
-                                    ),
-                                  ],
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Text(
+                                    'इस QR ऑर्डर की पुष्टि वेटर ऐप से होगी। कन्फर्म होने के बाद ही KOT किचन भेजा जाएगा।',
+                                    style: TextStyle(fontWeight: FontWeight.w600, color: Colors.deepOrange),
+                                  ),
                                 ),
                               ],
                             ),
