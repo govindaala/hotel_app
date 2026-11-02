@@ -143,13 +143,17 @@ class KitchenLearningService {
           .eq('invoices.store_code', storeCode)
           .gte('created_at', threeWeeksAgo);
 
-      if (salesData.isEmpty) return [];
+      final weekendSales = salesData.where((row) {
+        final soldAt = DateTime.tryParse(row['created_at']?.toString() ?? '');
+        return soldAt != null && soldAt.weekday >= DateTime.friday;
+      }).toList();
+      if (weekendSales.isEmpty) return [];
 
       int paneerDishesCount = 0;
       int gravyDishesCount = 0;
       int teaCoffeeCount = 0;
 
-      for (var row in salesData) {
+      for (var row in weekendSales) {
         final name = (row['item_name'] ?? '').toString().toLowerCase();
         final qty = (row['qty'] as num?)?.toInt() ?? 1;
 
