@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../receipt_generator.dart';
 import '../../services/usb_printer_service.dart';
@@ -26,7 +27,10 @@ class CounterSaleScreen extends StatefulWidget {
 class _CounterSaleScreenState extends State<CounterSaleScreen> {
   final supabase = Supabase.instance.client;
   bool isLoading = true;
+  bool _isProcessingCheckout = false;
   String? fetchErrorMessage;
+  final TextEditingController _customerNameController = TextEditingController();
+  final TextEditingController _customerPhoneController = TextEditingController();
 
   Map<String, dynamic> _hotelProfile = {};
   Map<String, List<Map<String, dynamic>>> inventoryGroups = {};
@@ -40,6 +44,46 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   void initState() {
     super.initState();
     _initScreenData();
+  }
+
+  @override
+  void dispose() {
+    _customerNameController.dispose();
+    _customerPhoneController.dispose();
+    super.dispose();
+  }
+
+  String _normalizedWhatsAppNumber(String raw) {
+    final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length == 10) return '91$digits';
+    if (digits.length == 12 && digits.startsWith('91')) return digits;
+    return '';
+  }
+
+  Future<void> _confirmCheckout(String mode) async {
+    if (cart.isEmpty || _isProcessingCheckout) return;
+    final phone = _customerPhoneController.text.trim();
+    if (phone.isNotEmpty && _normalizedWhatsAppNumber(phone).isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ग्राहक का मोबाइल नंबर 10 अंकों का दर्ज करें।'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+    final isTableOrder = mode == 'TABLE';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(isTableOrder ? 'ऑर्डर की पुष्टि करें' : 'बिल और भुगतान की पुष्टि करें'),
+        content: Text(isTableOrder
+            ? '$selectedTable में ${cart.length} प्रकार के आइटम जोड़े जाएँ?\nकुल मात्रा/रकम: ₹${grandTotal.toStringAsFixed(2)}'
+            : 'ग्राहक: ${_customerNameController.text.trim().isEmpty ? 'Walk-in' : _customerNameController.text.trim()}\nमोबाइल: ${phone.isEmpty ? 'नहीं दिया' : phone}\nभुगतान: ${mode == 'UPI' ? 'UPI' : 'नकद'}\nकुल बिल: ₹${grandTotal.toStringAsFixed(2)}\n\nपुष्टि करने पर बिल सर्वर पर सुरक्षित होगा और स्टॉक घटेगा।'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('वापस जाएँ')),
+          ElevatedButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('कन्फर्म करें')),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) await _processCheckout(mode);
   }
 
   Future<void> _initScreenData() async {
@@ -220,7 +264,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     return sum;
   }
 
-  Future<void> _printReceipt(String mode, double total, {String? billNo}) async {
+  Future<void> _printReceipt(String mode, double total, {String? billNo, String? customerName, String? customerPhone}) async {
     try {
       final receiptItems = cart.values.map((item) => {
         'name': '${item['name']} ${item['variant']}',
@@ -240,6 +284,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         billNo: invoiceNo,
         paymentMode: mode,
         cashierName: 'Counter',
+        customerName: customerName,
+        customerPhone: customerPhone,
         footerMessage: _hotelProfile['footer_message']?.toString(),
         items: receiptItems,
         subTotal: total,
@@ -259,7 +305,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       await pdfFile.writeAsBytes(await receipt.save(), flush: true);
 
       if (!mounted) return;
-      final shouldShare = await showDialog<bool>(
+      final shouldShare = await showDialog<String>(
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('काउंटर बिल तैयार है'),
@@ -268,21 +314,35 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
               : 'थर्मल प्रिंटर कनेक्ट नहीं है। क्या PDF WhatsApp पर भेजनी है?'),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
+              onPressed: () => Navigator.pop(dialogContext, 'later'),
               child: const Text('बाद में'),
             ),
+            if (_normalizedWhatsAppNumber(customerPhone ?? '').isNotEmpty)
+              OutlinedButton.icon(
+                onPressed: () => Navigator.pop(dialogContext, 'whatsapp'),
+                icon: const Icon(Icons.chat, color: Colors.green),
+                label: const Text('WhatsApp चैट'),
+              ),
             ElevatedButton.icon(
-              onPressed: () => Navigator.pop(dialogContext, true),
+              onPressed: () => Navigator.pop(dialogContext, 'share'),
               icon: const Icon(Icons.share),
-              label: const Text('शेयर करें'),
+              label: const Text('PDF शेयर करें'),
             ),
           ],
         ),
       );
-      if (shouldShare == true) {
+      final billMessage = '${_hotelProfile['name'] ?? 'AALA'} का काउंटर बिल $invoiceNo, कुल ₹${total.toStringAsFixed(2)}';
+      if (shouldShare == 'whatsapp') {
+        final phone = _normalizedWhatsAppNumber(customerPhone ?? '');
+        final uri = Uri.parse('https://wa.me/$phone?text=${Uri.encodeComponent('$billMessage. PDF भी भेजने के लिए चैट में अटैच करें।')}');
+        final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+        if (!opened && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('WhatsApp चैट नहीं खुली।')));
+        }
+      } else if (shouldShare == 'share') {
         await Share.shareXFiles(
           [XFile(pdfFile.path)],
-          text: '${_hotelProfile['name'] ?? 'AALA'} का काउंटर बिल $invoiceNo',
+          text: '$billMessage${customerPhone == null || customerPhone.trim().isEmpty ? '' : ' | ग्राहक मोबाइल: $customerPhone'}',
         );
       }
     } catch (error) {
@@ -295,6 +355,16 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   }
 
   Future<void> _processCheckout(String mode) async {
+    if (cart.isEmpty || _isProcessingCheckout) return;
+    setState(() => _isProcessingCheckout = true);
+    try {
+      await _performCheckout(mode);
+    } finally {
+      if (mounted) setState(() => _isProcessingCheckout = false);
+    }
+  }
+
+  Future<void> _performCheckout(String mode) async {
     if (cart.isEmpty) return;
 
     // Refresh stock from the server before checkout when online; keep cached stock as offline fallback.
@@ -418,52 +488,40 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         final paymentMode = mode == 'UPI' ? 'UPI' : 'CASH';
         final billNo = 'POS-${DateTime.now().millisecondsSinceEpoch}';
         directSaleBillNo = billNo;
-        final invoice = await supabase.from('invoices').insert({
-          'store_code': widget.storeCode,
-          'bill_no': billNo,
-          'table_no': 0,
-          'waiter_id': null,
-          'subtotal': total,
-          'discount_pct': 0,
-          'discount_amt': 0,
-          'final_amount': total,
-          'payment_mode': paymentMode,
-          'cashier_partner_name': 'Counter Sale',
-          'created_at': DateTime.now().toIso8601String(),
-        }).select('id').single();
-
-        final invoiceItems = cart.values.map((item) => {
-          'invoice_id': invoice['id'],
-          'item_id': item['id']?.toString(),
+        final customerName = _customerNameController.text.trim();
+        final customerPhone = _customerPhoneController.text.trim();
+        final itemsToInsert = cart.values.map((item) => {
+          if (item['id'] != null) 'item_id': item['id'].toString(),
           'item_name': '${item['name']} (${item['variant']})',
           'category': item['name'],
           'price': item['price'],
           'qty': item['qty'],
           'total_price': (item['price'] as num) * (item['qty'] as num),
         }).toList();
-        try {
-          await supabase.from('invoice_items').insert(invoiceItems);
-        } catch (error) {
-          await supabase.from('invoices').delete().eq('id', invoice['id']);
-          rethrow;
-        }
-
-        // Invoice मुख्य बिक्री रिकॉर्ड है; cash-ledger sync failure से sale retry न हो।
-        try {
-          await supabase.from('daily_expenses').insert({
-            'restaurant_id': widget.storeCode,
+        final result = await supabase.rpc('settle_hotel_order', params: {
+          'p_invoice': {
             'store_code': widget.storeCode,
-            'title': 'काउंटर सेल: ${details.join(", ")} ($paymentMode)',
-            'amount': total,
-            'type': 'CASH_IN',
+            'bill_no': billNo,
+            'table_no': 0,
+            'waiter_id': null,
+            'cashier_partner_id': null,
+            'cashier_partner_name': 'Counter Sale',
+            'subtotal': total,
+            'discount_pct': 0,
+            'discount_amt': 0,
+            'final_amount': total,
+            'payment_mode': paymentMode,
+            'customer_name': customerName,
+            'customer_phone': customerPhone,
             'created_at': DateTime.now().toIso8601String(),
-          });
-        } catch (error) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('बिक्री सेव है, लेकिन कैश लेजर सिंक नहीं हुआ: $error')),
-            );
-          }
+          },
+          'p_items': itemsToInsert,
+          'p_source': 'COUNTER',
+          'p_partner_name': 'Counter Sale',
+          'p_partner_id': '',
+        });
+        if (result == null || result['invoice_id'] == null) {
+          throw StateError('सर्वर ने काउंटर बिल की पुष्टि नहीं की।');
         }
       }
 
@@ -508,7 +566,13 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       }
 
       if (selectedTable == 'काउंटर सेल (डायरेक्ट)') {
-        await _printReceipt(mode == 'PAID_PRINT' ? 'CASH' : mode, total, billNo: directSaleBillNo);
+        await _printReceipt(
+          mode == 'PAID_PRINT' ? 'CASH' : mode,
+          total,
+          billNo: directSaleBillNo,
+          customerName: _customerNameController.text.trim(),
+          customerPhone: _customerPhoneController.text.trim(),
+        );
       }
 
       if (mounted) {
@@ -525,7 +589,11 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       }
 
       if (mounted) {
-        setState(() => cart.clear());
+        setState(() {
+          cart.clear();
+          _customerNameController.clear();
+          _customerPhoneController.clear();
+        });
         _initScreenData();
       }
     } catch (e) {
@@ -922,6 +990,40 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                                 }).toList(),
                               ),
                             ),
+                          if (!isTable) ...[
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _customerNameController,
+                                    textCapitalization: TextCapitalization.words,
+                                    decoration: const InputDecoration(
+                                      labelText: 'ग्राहक का नाम (वैकल्पिक)',
+                                      isDense: true,
+                                      prefixIcon: Icon(Icons.person_outline),
+                                      border: OutlineInputBorder(),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _customerPhoneController,
+                                    keyboardType: TextInputType.phone,
+                                    maxLength: 12,
+                                    decoration: const InputDecoration(
+                                      labelText: 'मोबाइल नंबर',
+                                      counterText: '',
+                                      isDense: true,
+                                      prefixIcon: Icon(Icons.phone_android),
+                                      border: OutlineInputBorder(),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                          ],
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -938,7 +1040,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563EB), padding: const EdgeInsets.symmetric(vertical: 12)),
                                 icon: const Icon(Icons.add_task, color: Colors.white),
                                 label: Text('$selectedTable में जोड़ें', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                onPressed: cart.isEmpty ? null : () => _processCheckout('TABLE'),
+                                onPressed: cart.isEmpty || _isProcessingCheckout ? null : () => _confirmCheckout('TABLE'),
                               ),
                             )
                           else
@@ -949,7 +1051,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF059669), padding: const EdgeInsets.symmetric(vertical: 12)),
                                     icon: const Icon(Icons.money, color: Colors.white, size: 18),
                                     label: const Text('नकद', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                    onPressed: cart.isEmpty ? null : () => _processCheckout('CASH'),
+                                    onPressed: cart.isEmpty || _isProcessingCheckout ? null : () => _confirmCheckout('CASH'),
                                   ),
                                 ),
                                 const SizedBox(width: 6),
@@ -958,7 +1060,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0284C7), padding: const EdgeInsets.symmetric(vertical: 12)),
                                     icon: const Icon(Icons.qr_code, color: Colors.white, size: 18),
                                     label: const Text('UPI', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                    onPressed: cart.isEmpty ? null : () => _processCheckout('UPI'),
+                                    onPressed: cart.isEmpty || _isProcessingCheckout ? null : () => _confirmCheckout('UPI'),
                                   ),
                                 ),
                                 const SizedBox(width: 6),
@@ -967,7 +1069,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A), padding: const EdgeInsets.symmetric(vertical: 12)),
                                     icon: const Icon(Icons.print, color: Colors.white, size: 18),
                                     label: const Text('नकद + प्रिंट', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                    onPressed: cart.isEmpty ? null : () => _processCheckout('PAID_PRINT'),
+                                    onPressed: cart.isEmpty || _isProcessingCheckout ? null : () => _confirmCheckout('PAID_PRINT'),
                                   ),
                                 ),
                               ],
