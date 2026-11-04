@@ -15,6 +15,8 @@ Future<pw.Document> buildThermalReceiptPdf({
   String? billNo,
   String? paymentMode,
   String? cashierName,
+  String? customerName,
+  String? customerPhone,
   String? footerMessage,
   Future<void> Function(Uint8List imageBytes)? onImageGenerated,
   required List<Map<String, dynamic>> items,
@@ -98,6 +100,16 @@ Future<pw.Document> buildThermalReceiptPdf({
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text('कैशियर: $cashierName', style: TextStyle(fontSize: smallSize, color: Colors.black87)),
+              ),
+            if (customerName != null && customerName.trim().isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('ग्राहक: ${customerName.trim()}', style: TextStyle(fontSize: smallSize, color: Colors.black87)),
+              ),
+            if (customerPhone != null && customerPhone.trim().isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('ग्राहक मोबाइल: ${customerPhone.trim()}', style: TextStyle(fontSize: smallSize, color: Colors.black87)),
               ),
             const Divider(color: Colors.black54, thickness: 0.6),
 
