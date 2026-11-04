@@ -1986,6 +1986,29 @@ class _FullCounterAppState extends State<FullCounterApp> {
           final double discountAmt = (subTotal * enteredPct) / 100;
           final double finalPayable = (subTotal - discountAmt) < 0 ? 0.0 : (subTotal - discountAmt);
 
+          Future<void> confirmSettlement(String mode) async {
+            final confirmed = await showDialog<bool>(
+              context: ctx,
+              builder: (confirmContext) => AlertDialog(
+                title: const Text('भुगतान की पुष्टि करें'),
+                content: Text(
+                  'क्या ₹${finalPayable.toStringAsFixed(2)} का भुगतान ${mode == 'CASH' ? 'नकद' : 'UPI'} से प्राप्त हो गया है?\n\nपुष्टि करने पर बिल सुरक्षित होगा और यह टेबल/पार्सल बंद हो जाएगा।',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(confirmContext, false),
+                    child: const Text('वापस जाएँ'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(confirmContext, true),
+                    child: const Text('हाँ, बिल कन्फर्म करें'),
+                  ),
+                ],
+              ),
+            );
+            if (confirmed == true && ctx.mounted) completeSettlement(mode);
+          }
+
           void completeSettlement(String mode) async {
             if (isSubmitting) return;
             if (items.isEmpty) {
@@ -2003,6 +2026,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
             final String customerPhone = customerPhoneCtrl.text.trim();
             final String phoneDigits = customerPhone.replaceAll(RegExp(r'[^0-9]'), '');
             if (phoneDigits.isNotEmpty && !(phoneDigits.length == 10 || (phoneDigits.length == 12 && phoneDigits.startsWith('91')))) {
+              setDState(() => isSubmitting = false);
               ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('ग्राहक का मोबाइल नंबर 10 अंकों का दर्ज करें।')));
               return;
             }
@@ -2253,12 +2277,12 @@ class _FullCounterAppState extends State<FullCounterApp> {
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                onPressed: isSubmitting ? null : () => completeSettlement('CASH'),
+                onPressed: isSubmitting ? null : () => confirmSettlement('CASH'),
                 child: Text(isSubmitting ? 'सेव हो रहा है…' : '💵 कैश मिला', style: const TextStyle(color: Colors.white)),
               ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                onPressed: isSubmitting ? null : () => completeSettlement('UPI'),
+                onPressed: isSubmitting ? null : () => confirmSettlement('UPI'),
                 child: Text(isSubmitting ? 'सेव हो रहा है…' : '📱 UPI मिला', style: const TextStyle(color: Colors.white)),
               ),
             ],
