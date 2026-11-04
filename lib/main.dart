@@ -1986,29 +1986,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
           final double discountAmt = (subTotal * enteredPct) / 100;
           final double finalPayable = (subTotal - discountAmt) < 0 ? 0.0 : (subTotal - discountAmt);
 
-          Future<void> confirmSettlement(String mode) async {
-            final confirmed = await showDialog<bool>(
-              context: ctx,
-              builder: (confirmContext) => AlertDialog(
-                title: const Text('भुगतान की पुष्टि करें'),
-                content: Text(
-                  'क्या ₹${finalPayable.toStringAsFixed(2)} का भुगतान ${mode == 'CASH' ? 'नकद' : 'UPI'} से प्राप्त हो गया है?\n\nपुष्टि करने पर बिल सुरक्षित होगा और यह टेबल/पार्सल बंद हो जाएगा।',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(confirmContext, false),
-                    child: const Text('वापस जाएँ'),
-                  ),
-                  ElevatedButton(
-                    onPressed: () => Navigator.pop(confirmContext, true),
-                    child: const Text('हाँ, बिल कन्फर्म करें'),
-                  ),
-                ],
-              ),
-            );
-            if (confirmed == true && ctx.mounted) completeSettlement(mode);
-          }
-
           void completeSettlement(String mode) async {
             if (isSubmitting) return;
             if (items.isEmpty) {
@@ -2183,6 +2160,29 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 );
               }
             }
+          }
+
+          Future<void> confirmSettlement(String mode) async {
+            final confirmed = await showDialog<bool>(
+              context: ctx,
+              builder: (confirmContext) => AlertDialog(
+                title: const Text('भुगतान की पुष्टि करें'),
+                content: Text(
+                  'क्या ₹${finalPayable.toStringAsFixed(2)} का भुगतान ${mode == 'CASH' ? 'नकद' : 'UPI'} से प्राप्त हो गया है?\n\nपुष्टि करने पर बिल सुरक्षित होगा और यह टेबल/पार्सल बंद हो जाएगा।',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(confirmContext, false),
+                    child: const Text('वापस जाएँ'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(confirmContext, true),
+                    child: const Text('हाँ, बिल कन्फर्म करें'),
+                  ),
+                ],
+              ),
+            );
+            if (confirmed == true && ctx.mounted) completeSettlement(mode);
           }
 
           return AlertDialog(
