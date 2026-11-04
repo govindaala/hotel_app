@@ -28,6 +28,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   final supabase = Supabase.instance.client;
   bool isLoading = true;
   bool _isProcessingCheckout = false;
+  bool _isLookingUpCustomer = false;
   String? fetchErrorMessage;
   final TextEditingController _customerNameController = TextEditingController();
   final TextEditingController _customerPhoneController = TextEditingController();
@@ -58,6 +59,44 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     if (digits.length == 10) return '91$digits';
     if (digits.length == 12 && digits.startsWith('91')) return digits;
     return '';
+  }
+
+  Future<void> _lookupCustomerByPhone() async {
+    final phone = _normalizedWhatsAppNumber(_customerPhoneController.text);
+    if (phone.isEmpty) {
+      if (_customerPhoneController.text.trim().isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ग्राहक का सही 10 अंकों का मोबाइल नंबर दर्ज करें।')),
+        );
+      }
+      return;
+    }
+    setState(() => _isLookingUpCustomer = true);
+    try {
+      final result = await supabase.rpc('find_hotel_customer', params: {
+        'p_store_code': widget.storeCode,
+        'p_phone': phone,
+      });
+      if (!mounted) return;
+      if (result is Map && result['customer_name'] != null) {
+        _customerNameController.text = result['customer_name'].toString();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('पुराना ग्राहक मिल गया — नाम भर दिया गया।')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('नया ग्राहक — बिल के साथ नाम/मोबाइल सुरक्षित होगा।')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ग्राहक खोज नहीं हो सकी: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLookingUpCustomer = false);
+    }
   }
 
   Future<void> _confirmCheckout(String mode) async {
@@ -446,6 +485,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
             'status': 'pending',
             'source': 'COUNTER_POS',
             'waiter_id': 'COUNTER',
+            'customer_name': _customerNameController.text.trim(),
+            'customer_phone': _customerPhoneController.text.trim(),
             'created_at': DateTime.now().toIso8601String(),
           }).select('id, created_at').single();
           createdKot = Map<String, dynamic>.from(cloudKot);
@@ -466,6 +507,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
               'status': 'pending',
               'source': 'COUNTER_POS_OFFLINE',
               'waiter_id': 'COUNTER',
+              'customer_name': _customerNameController.text.trim(),
+              'customer_phone': _customerPhoneController.text.trim(),
               'created_at': localCreatedAt,
             },
           );
@@ -990,15 +1033,14 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                                 }).toList(),
                               ),
                             ),
-                          if (!isTable) ...[
-                            Row(
+                          Row(
                               children: [
                                 Expanded(
                                   child: TextField(
                                     controller: _customerNameController,
                                     textCapitalization: TextCapitalization.words,
                                     decoration: const InputDecoration(
-                                      labelText: 'ग्राहक का नाम (वैकल्पिक)',
+                                      labelText: 'ग्राहक का नाम',
                                       isDense: true,
                                       prefixIcon: Icon(Icons.person_outline),
                                       border: OutlineInputBorder(),
@@ -1011,19 +1053,22 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                                     controller: _customerPhoneController,
                                     keyboardType: TextInputType.phone,
                                     maxLength: 12,
-                                    decoration: const InputDecoration(
+                                    onSubmitted: (_) => _lookupCustomerByPhone(),
+                                    decoration: InputDecoration(
                                       labelText: 'मोबाइल नंबर',
                                       counterText: '',
                                       isDense: true,
                                       prefixIcon: Icon(Icons.phone_android),
-                                      border: OutlineInputBorder(),
+                                      border: const OutlineInputBorder(),
+                                      suffixIcon: _isLookingUpCustomer
+                                          ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)))
+                                          : IconButton(icon: const Icon(Icons.search), tooltip: 'पुराना ग्राहक खोजें', onPressed: _lookupCustomerByPhone),
                                     ),
                                   ),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 8),
-                          ],
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
