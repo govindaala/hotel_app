@@ -12,6 +12,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:ota_update/ota_update.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 // Models aur Screen Files
 import 'models/restaurant_profile_model.dart';
@@ -1970,6 +1971,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
         : (activeOrders[tbl] ?? []);
     double subTotal = items.fold(0, (sum, it) => sum + (it['price'] * it['qty']));
     final pctCtrl = TextEditingController(text: '0');
+    final customerNameCtrl = TextEditingController();
+    final customerPhoneCtrl = TextEditingController();
+    bool isSubmitting = false;
 
     showDialog(
       context: context,
@@ -1981,8 +1985,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
           final double discountAmt = (subTotal * enteredPct) / 100;
           final double finalPayable = (subTotal - discountAmt) < 0 ? 0.0 : (subTotal - discountAmt);
-
-          bool isSubmitting = false;
 
           void completeSettlement(String mode) async {
             if (isSubmitting) return;
@@ -1997,6 +1999,14 @@ class _FullCounterAppState extends State<FullCounterApp> {
             final String currentWaiterId = tableWaiterMap[tbl] ?? 'SELF_COUNTER';
             final String generatedBillNo = 'BILL-${DateTime.now().millisecondsSinceEpoch}';
             final String source = isParcel ? 'PARCEL P-${tbl - 900}' : 'Table T-$tbl';
+            final String customerName = customerNameCtrl.text.trim();
+            final String customerPhone = customerPhoneCtrl.text.trim();
+            final String phoneDigits = customerPhone.replaceAll(RegExp(r'[^0-9]'), '');
+            if (phoneDigits.isNotEmpty && !(phoneDigits.length == 10 || (phoneDigits.length == 12 && phoneDigits.startsWith('91')))) {
+              setDState(() => isSubmitting = false);
+              ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('ग्राहक का मोबाइल नंबर 10 अंकों का दर्ज करें।')));
+              return;
+            }
             final List<Map<String, dynamic>> itemsToInsert = items.map((it) {
               final double price = (it['price'] as num?)?.toDouble() ?? 0.0;
               final int quantity = (it['qty'] as num?)?.toInt() ?? 1;
@@ -2026,6 +2036,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     'discount_amt': discountAmt,
                     'final_amount': finalPayable,
                     'payment_mode': mode,
+                    'customer_name': customerName,
+                    'customer_phone': customerPhone,
                     'created_at': DateTime.now().toIso8601String(),
                   },
                   'p_items': itemsToInsert,
@@ -2079,6 +2091,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 billNo: generatedBillNo,
                 paymentMode: mode,
                 cashierName: _currentPartnerName,
+                customerName: customerName,
+                customerPhone: customerPhone,
                 footerMessage: profile?.footerMessage,
                 items: items,
                 subTotal: subTotal,
@@ -2097,7 +2111,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
               await pdfFile.writeAsBytes(await receipt.save(), flush: true);
 
               if (mounted) {
-                final shouldShare = await showDialog<bool>(
+                final shouldShare = await showDialog<String>(
                   context: this.context,
                   builder: (shareContext) => AlertDialog(
                     title: const Text('बिल तैयार है'),
@@ -2106,22 +2120,36 @@ class _FullCounterAppState extends State<FullCounterApp> {
                         : 'क्या इस बिल की PDF WhatsApp या किसी अन्य ऐप पर भेजनी है?'),
                     actions: [
                       TextButton(
-                        onPressed: () => Navigator.pop(shareContext, false),
+                        onPressed: () => Navigator.pop(shareContext, 'later'),
                         child: const Text('बाद में'),
                       ),
+                      if (phoneDigits.isNotEmpty)
+                        OutlinedButton.icon(
+                          onPressed: () => Navigator.pop(shareContext, 'whatsapp'),
+                          icon: const Icon(Icons.chat, color: Colors.green),
+                          label: const Text('WhatsApp चैट'),
+                        ),
                       ElevatedButton.icon(
-                        onPressed: () => Navigator.pop(shareContext, true),
+                        onPressed: () => Navigator.pop(shareContext, 'share'),
                         icon: const Icon(Icons.share),
-                        label: const Text('बिल शेयर करें'),
+                        label: const Text('PDF शेयर करें'),
                       ),
                     ],
                   ),
                 );
 
-                if (shouldShare == true) {
+                final billMessage = '${profile?.name ?? widget.hotelName} का बिल $generatedBillNo, कुल ₹${finalPayable.toStringAsFixed(2)}';
+                if (shouldShare == 'whatsapp') {
+                  final waPhone = phoneDigits.length == 10 ? '91$phoneDigits' : phoneDigits;
+                  final waUri = Uri.parse('https://wa.me/$waPhone?text=${Uri.encodeComponent('$billMessage. PDF भी भेजने के लिए चैट में अटैच करें।')}');
+                  final opened = await launchUrl(waUri, mode: LaunchMode.externalApplication);
+                  if (!opened && mounted) {
+                    ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('WhatsApp चैट नहीं खुली।')));
+                  }
+                } else if (shouldShare == 'share') {
                   await Share.shareXFiles(
                     [XFile(pdfFile.path)],
-                    text: '${profile?.name ?? widget.hotelName} का बिल $generatedBillNo',
+                    text: '$billMessage${customerPhone.isEmpty ? '' : ' | ग्राहक मोबाइल: $customerPhone'}',
                   );
                 }
               }
@@ -2132,6 +2160,29 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 );
               }
             }
+          }
+
+          Future<void> confirmSettlement(String mode) async {
+            final confirmed = await showDialog<bool>(
+              context: ctx,
+              builder: (confirmContext) => AlertDialog(
+                title: const Text('भुगतान की पुष्टि करें'),
+                content: Text(
+                  'क्या ₹${finalPayable.toStringAsFixed(2)} का भुगतान ${mode == 'CASH' ? 'नकद' : 'UPI'} से प्राप्त हो गया है?\n\nपुष्टि करने पर बिल सुरक्षित होगा और यह टेबल/पार्सल बंद हो जाएगा।',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(confirmContext, false),
+                    child: const Text('वापस जाएँ'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(confirmContext, true),
+                    child: const Text('हाँ, बिल कन्फर्म करें'),
+                  ),
+                ],
+              ),
+            );
+            if (confirmed == true && ctx.mounted) completeSettlement(mode);
           }
 
           return AlertDialog(
@@ -2153,6 +2204,28 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     ],
                   ),
                   const SizedBox(height: 10),
+                  TextField(
+                    controller: customerNameCtrl,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      labelText: 'ग्राहक का नाम (वैकल्पिक)',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.person_outline),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: customerPhoneCtrl,
+                    keyboardType: TextInputType.phone,
+                    maxLength: 12,
+                    decoration: const InputDecoration(
+                      labelText: 'ग्राहक मोबाइल नंबर (WhatsApp)',
+                      counterText: '',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.phone_android),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   TextField(
                     controller: pctCtrl,
                     keyboardType: TextInputType.number,
@@ -2204,19 +2277,23 @@ class _FullCounterAppState extends State<FullCounterApp> {
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                onPressed: isSubmitting ? null : () => completeSettlement('CASH'),
+                onPressed: isSubmitting ? null : () => confirmSettlement('CASH'),
                 child: Text(isSubmitting ? 'सेव हो रहा है…' : '💵 कैश मिला', style: const TextStyle(color: Colors.white)),
               ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                onPressed: isSubmitting ? null : () => completeSettlement('UPI'),
+                onPressed: isSubmitting ? null : () => confirmSettlement('UPI'),
                 child: Text(isSubmitting ? 'सेव हो रहा है…' : '📱 UPI मिला', style: const TextStyle(color: Colors.white)),
               ),
             ],
           );
         },
       ),
-    );
+    ).whenComplete(() {
+      pctCtrl.dispose();
+      customerNameCtrl.dispose();
+      customerPhoneCtrl.dispose();
+    });
   }
 
   void _openParcelOrderSheet() {
