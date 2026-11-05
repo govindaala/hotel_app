@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../receipt_generator.dart';
 import '../../services/usb_printer_service.dart';
@@ -360,7 +359,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
               OutlinedButton.icon(
                 onPressed: () => Navigator.pop(dialogContext, 'whatsapp'),
                 icon: const Icon(Icons.chat, color: Colors.green),
-                label: const Text('WhatsApp चैट'),
+                label: const Text('WhatsApp पर PDF भेजें'),
               ),
             ElevatedButton.icon(
               onPressed: () => Navigator.pop(dialogContext, 'share'),
@@ -371,14 +370,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         ),
       );
       final billMessage = '${_hotelProfile['name'] ?? 'AALA'} का काउंटर बिल $invoiceNo, कुल ₹${total.toStringAsFixed(2)}';
-      if (shouldShare == 'whatsapp') {
-        final phone = _normalizedWhatsAppNumber(customerPhone ?? '');
-        final uri = Uri.parse('https://wa.me/$phone?text=${Uri.encodeComponent('$billMessage. PDF भी भेजने के लिए चैट में अटैच करें।')}');
-        final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-        if (!opened && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('WhatsApp चैट नहीं खुली।')));
-        }
-      } else if (shouldShare == 'share') {
+      if (shouldShare == 'whatsapp' || shouldShare == 'share') {
         await Share.shareXFiles(
           [XFile(pdfFile.path)],
           text: '$billMessage${customerPhone == null || customerPhone.trim().isEmpty ? '' : ' | ग्राहक मोबाइल: $customerPhone'}',
