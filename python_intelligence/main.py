@@ -63,6 +63,8 @@ def _text(row: dict[str, Any], key: str, fallback: str = "") -> str:
 
 
 def _register_font() -> str:
+    if getattr(_register_font, '_registered_name', None):
+        return _register_font._registered_name
     candidates = [
         Path(__file__).resolve().parents[1] / "assets/templates/fonts/NotoSansDevanagari-Regular.ttf",
         Path(__file__).resolve().parent / "NotoSansDevanagari-Regular.ttf",
@@ -71,6 +73,7 @@ def _register_font() -> str:
         if candidate.exists():
             try:
                 pdfmetrics.registerFont(TTFont("AalaHindi", str(candidate)))
+                _register_font._registered_name = "AalaHindi"
                 return "AalaHindi"
             except Exception:
                 continue
