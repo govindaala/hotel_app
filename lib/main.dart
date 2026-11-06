@@ -774,35 +774,38 @@ class _FullCounterAppState extends State<FullCounterApp> {
       await prefs.setBool(pendingKey, false);
       return;
     }
-
-    // menu_items joined view है; बदलाव store_menu_custom में सेव करें।
     final uuidPattern = RegExp(
       r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
     );
-    final hasLocalOnlyItems = hotelMenu.any(
-      (item) => !uuidPattern.hasMatch(item['id']?.toString() ?? ''),
-    );
-    final rows = hotelMenu.where((item) {
-      return uuidPattern.hasMatch(item['id']?.toString() ?? '');
-    }).map((item) {
-      return {
-        'store_code': widget.storeCode,
-        'item_id': item['id'].toString(),
-        'custom_name': item['name'] ?? '',
-        'custom_price': (item['price'] as num?)?.toDouble() ?? 0.0,
-        'is_available': item['available'] != false,
-      };
+    final masterRows = hotelMenu.where((item) =>
+      uuidPattern.hasMatch(item['id']?.toString() ?? '')
+    ).map((item) => {
+      'store_code': widget.storeCode,
+      'item_id': item['id'].toString(),
+      'custom_name': item['name'] ?? '',
+      'custom_price': (item['price'] as num?)?.toDouble() ?? 0.0,
+      'is_available': item['available'] != false,
     }).toList();
-
-    if (rows.isEmpty) {
-      await prefs.setBool(pendingKey, hasLocalOnlyItems);
-      return;
-    }
+    final customRows = hotelMenu.where((item) =>
+      !uuidPattern.hasMatch(item['id']?.toString() ?? '')
+    ).map((item) => {
+      'store_code': widget.storeCode,
+      'item_id': item['id'].toString(),
+      'name': item['name'] ?? '',
+      'price': (item['price'] as num?)?.toDouble() ?? 0.0,
+      'category': item['cat'] ?? 'General',
+      'is_available': item['available'] != false,
+    }).toList();
     try {
-      await Supabase.instance.client
-          .from('store_menu_custom')
-          .upsert(rows, onConflict: 'store_code,item_id');
-      await prefs.setBool(pendingKey, hasLocalOnlyItems);
+      if (masterRows.isNotEmpty) {
+        await Supabase.instance.client.from('store_menu_custom')
+            .upsert(masterRows, onConflict: 'store_code,item_id');
+      }
+      if (customRows.isNotEmpty) {
+        await Supabase.instance.client.from('store_custom_menu_items')
+            .upsert(customRows, onConflict: 'store_code,item_id');
+      }
+      await prefs.setBool(pendingKey, false);
     } catch (error) {
       await prefs.setBool(pendingKey, true);
       debugPrint('Store menu cloud sync failed; local copy retained: $error');
@@ -861,6 +864,35 @@ class _FullCounterAppState extends State<FullCounterApp> {
       } else {
         await _syncMenuToCloud();
       }
+      final customRows = await Supabase.instance.client
+          .from('store_custom_menu_items')
+          .select('item_id, name, price, category, is_available')
+          .eq('store_code', widget.storeCode);
+      final cloudCustomMenu = customRows.map((item) => <String, dynamic>{
+        'id': item['item_id'].toString(),
+        'name': item['name'] ?? '',
+        'price': (item['price'] as num?)?.toDouble() ?? 0.0,
+        'cat': item['category'] ?? 'General',
+        'available': item['is_available'] ?? true,
+      }).toList();
+      if (cloudCustomMenu.isNotEmpty) {
+        final currentById = {
+          for (final item in hotelMenu) item['id'].toString(): item,
+        };
+        final merged = List<Map<String, dynamic>>.from(hotelMenu);
+        for (final cloudItem in cloudCustomMenu) {
+          final localItem = currentById[cloudItem['id'].toString()];
+          final resolved = hasPendingLocalChanges && localItem != null
+              ? {...cloudItem, ...localItem}
+              : cloudItem;
+          final index = merged.indexWhere(
+            (item) => item['id'].toString() == cloudItem['id'].toString(),
+          );
+          if (index >= 0) { merged[index] = resolved; } else { merged.add(resolved); }
+        }
+        if (mounted) setState(() => hotelMenu = merged);
+        await prefs.setString('saved_menu_${widget.storeCode}', jsonEncode(merged));
+      }
     } catch (error) {
       await prefs.setBool(pendingKey, true);
       debugPrint('Cloud menu unavailable; using saved local menu: $error');
@@ -893,7 +925,13 @@ class _FullCounterAppState extends State<FullCounterApp> {
           } else if (entity == 'hotel_kots_update') {
             final updatedRows = await Supabase.instance.client
                 .from('hotel_kots')
-                .update({'status': payload['status']})
+                .update({
+                  'status': payload['status'],
+                  'ready_at': payload['status'] == 'ready' ? payload['ready_at'] : null,
+                  'actual_prep_minutes': payload['status'] == 'ready'
+                      ? payload['actual_prep_minutes']
+                      : null,
+                })
                 .eq('id', payload['id'])
                 .select('id');
             if ((updatedRows as List).isEmpty) {
@@ -4108,12 +4146,20 @@ class _FullCookAppState extends State<FullCookApp> {
     );
   }
 
-  Future<void> _queueOfflineKotStatus(String kotId, String status) async {
+  Future<void> _queueOfflineKotStatus(String kotId, String status, {
+    String? readyAt,
+    int? actualPrepMinutes,
+  }) async {
     await OfflineDatabase.instance.enqueue(
       id: '$kotId-status-$status',
       storeCode: widget.storeCode,
       entity: 'hotel_kots_update',
-      payload: {'id': kotId, 'status': status},
+      payload: {
+        'id': kotId,
+        'status': status,
+        'ready_at': status == 'ready' ? (readyAt ?? DateTime.now().toIso8601String()) : null,
+        'actual_prep_minutes': status == 'ready' ? actualPrepMinutes : null,
+      },
     );
   }
 
@@ -4142,17 +4188,26 @@ class _FullCookAppState extends State<FullCookApp> {
       } catch (error) {
         debugPrint('Kitchen learning update deferred: $error');
       }
+      final readyAt = DateTime.now();
+      final actualPrepMinutes = readyAt.difference(createdAt).inMinutes.clamp(0, 1440).toInt();
       try {
         final readyRows = await Supabase.instance.client
             .from('hotel_kots')
-            .update({'status': 'ready'})
+            .update({
+              'status': 'ready',
+              'ready_at': readyAt.toIso8601String(),
+              'actual_prep_minutes': actualPrepMinutes,
+            })
             .eq('id', kotId)
             .select('id');
         if ((readyRows as List).isEmpty) {
           throw StateError('KOT $kotId सर्वर पर नहीं मिला; स्थिति अपडेट नहीं हुई।');
         }
       } catch (error) {
-        await _queueOfflineKotStatus(kotId, 'ready');
+        await _queueOfflineKotStatus(kotId, 'ready',
+          readyAt: readyAt.toIso8601String(),
+          actualPrepMinutes: actualPrepMinutes,
+        );
         debugPrint('KOT ready status queued for cloud sync: $error');
       }
     }
@@ -4184,7 +4239,11 @@ class _FullCookAppState extends State<FullCookApp> {
       try {
         final pendingRows = await Supabase.instance.client
             .from('hotel_kots')
-            .update({'status': 'pending'})
+            .update({
+              'status': 'pending',
+              'ready_at': null,
+              'actual_prep_minutes': null,
+            })
             .eq('id', kotId)
             .select('id');
         if ((pendingRows as List).isEmpty) {
