@@ -65,7 +65,10 @@ jobs:
         run: |
           VERSION_CODE=$(jq -r '.version_code' app_config.json)
           VERSION_NAME=$(jq -r '.version_name' app_config.json)
-          flutter build apk --release --build-name="$VERSION_NAME" --build-number="$VERSION_CODE"
+          flutter build apk --release --build-name="$VERSION_NAME" --build-number="$VERSION_CODE" \
+            --dart-define=AALA_INTELLIGENCE_API_URL="${AALA_INTELLIGENCE_API_URL}"
+        env:
+          AALA_INTELLIGENCE_API_URL: ${{ vars.AALA_INTELLIGENCE_API_URL }}
 
       - name: Upload APK Build Artifact
         uses: actions/upload-artifact@v4

@@ -2669,7 +2669,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     Navigator.pop(context);
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => CounterReportsScreen(storeCode: widget.storeCode)),
+                      MaterialPageRoute(builder: (_) => CounterReportsScreen(storeCode: widget.storeCode, hotelName: widget.hotelName)),
                     );
                   },
                 ),
