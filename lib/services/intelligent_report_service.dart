@@ -115,7 +115,7 @@ class IntelligentReportService {
     if (response.statusCode != 200 ||
         response.bodyBytes.length < 5 ||
         String.fromCharCodes(response.bodyBytes.take(5)) != '%PDF-') {
-      var detail = 'HTTP \${response.statusCode}';
+      var detail = 'HTTP ${response.statusCode}';
       try {
         final decoded = jsonDecode(response.body);
         if (decoded is Map && decoded['detail'] != null) {
@@ -128,7 +128,7 @@ class IntelligentReportService {
     final directory = await getTemporaryDirectory();
     final safeStore = storeCode.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
     final file = File(
-      '\${directory.path}/AALA-Intelligence-$safeStore-\${DateTime.now().millisecondsSinceEpoch}.pdf',
+      '${directory.path}/AALA-Intelligence-$safeStore-${DateTime.now().millisecondsSinceEpoch}.pdf',
     );
     await file.writeAsBytes(response.bodyBytes, flush: true);
     await Share.shareXFiles(
