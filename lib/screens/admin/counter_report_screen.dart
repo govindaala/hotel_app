@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:fl_chart/fl_chart.dart';
+import '../../services/intelligent_report_service.dart';
 
 class CounterReportsScreen extends StatefulWidget {
   final String storeCode;
+  final String hotelName;
 
-  const CounterReportsScreen({Key? key, required this.storeCode}) : super(key: key);
+  const CounterReportsScreen({Key? key, required this.storeCode, this.hotelName = 'Hotel'}) : super(key: key);
 
   @override
   State<CounterReportsScreen> createState() => _CounterReportsScreenState();
@@ -14,6 +16,7 @@ class CounterReportsScreen extends StatefulWidget {
 class _CounterReportsScreenState extends State<CounterReportsScreen> {
   final supabase = Supabase.instance.client;
   bool isLoading = true;
+  bool isGeneratingIntelligencePdf = false;
   String? errorMessage;
 
   String selectedFilter = 'This Month'; // 'Today', 'This Week', 'This Month'
@@ -130,6 +133,69 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
     }
   }
 
+  Future<void> _generateIntelligencePdf() async {
+    if (isGeneratingIntelligencePdf) return;
+    setState(() => isGeneratingIntelligencePdf = true);
+
+    try {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final endDateExclusive = today.add(const Duration(days: 1));
+      DateTime startDate;
+      if (selectedFilter == 'Today') {
+        startDate = today;
+      } else if (selectedFilter == 'This Week') {
+        startDate = today.subtract(Duration(days: now.weekday - 1));
+      } else {
+        startDate = DateTime(now.year, now.month, 1);
+      }
+
+      await IntelligentReportService.generateAndShare(
+        storeCode: widget.storeCode,
+        hotelName: widget.hotelName,
+        periodLabel: selectedFilter == 'Today'
+            ? 'आज'
+            : (selectedFilter == 'This Week' ? 'इस सप्ताह' : 'इस महीने'),
+        startDate: startDate,
+        endDateExclusive: endDateExclusive,
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF रिपोर्ट नहीं बन सकी: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => isGeneratingIntelligencePdf = false);
+    }
+  }
+
+  Widget _buildIntelligencePdfButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: isGeneratingIntelligencePdf ? null : _generateIntelligencePdf,
+        icon: isGeneratingIntelligencePdf
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              )
+            : const Icon(Icons.auto_awesome),
+        label: Text(
+          isGeneratingIntelligencePdf
+              ? 'डेटा का विश्लेषण और PDF तैयार हो रही है...'
+              : 'इंटेलिजेंट होटल रिपोर्ट PDF बनाएँ',
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF123047),
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -172,6 +238,8 @@ class _CounterReportsScreenState extends State<CounterReportsScreen> {
                     ),
 
                   _buildPeriodSelector(),
+                  const SizedBox(height: 12),
+                  _buildIntelligencePdfButton(),
                   const SizedBox(height: 16),
                   _buildMetricsRow(),
                   const SizedBox(height: 16),
