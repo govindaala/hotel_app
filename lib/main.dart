@@ -174,7 +174,7 @@ void main() async {
 
   final prefsFuture = SharedPreferences.getInstance();
   await Future.wait<void>([
-    Supabase.initialize(url: supabaseUrl, anonKey: supabaseKey)
+    Supabase.initialize(url: supabaseUrl, publishableKey: supabaseKey)
         .then<void>((_) {})
         .catchError((Object error) {
           debugPrint('Supabase initialization unavailable; continuing in local mode: $error');
@@ -3433,7 +3433,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
           .eq('store_code', widget.storeCode)
           .neq('status', 'settled');
 
-      if (kots != null && mounted) {
+      if (mounted) {
         Map<int, List<Map<String, dynamic>>> tempOrders = {};
         Map<int, String> tempStatus = {};
 
