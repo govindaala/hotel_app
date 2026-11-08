@@ -67,6 +67,7 @@ DECLARE
   v_qr_created timestamptz;
   v_accepted timestamptz;
   v_wait integer;
+  v_queue integer;
   v_items jsonb;
   v_signature text;
   v_local timestamptz;
@@ -97,6 +98,11 @@ BEGIN
        AND store_code = NEW.store_code
      LIMIT 1;
   END IF;
+  IF NEW.started_at IS NOT NULL AND NEW.created_at IS NOT NULL THEN
+    v_queue := GREATEST(0, LEAST(240, CEIL(EXTRACT(EPOCH FROM (NEW.started_at - NEW.created_at)) / 60.0)::integer));
+  ELSE
+    v_queue := 0;
+  END IF;
   IF v_qr_created IS NOT NULL AND v_accepted IS NOT NULL THEN
     v_wait := GREATEST(0, LEAST(240, CEIL(EXTRACT(EPOCH FROM (v_accepted - v_qr_created)) / 60.0)::integer));
   END IF;
@@ -105,14 +111,14 @@ BEGIN
 
   INSERT INTO public.kitchen_learning_observations (
     store_code, kot_id, qr_order_id, local_weekday, local_hour,
-    item_signature, items, prep_minutes, order_acceptance_minutes,
+    item_signature, items, prep_minutes, order_acceptance_minutes, queue_minutes,
     order_created_at, accepted_at, ready_at
   ) VALUES (
     NEW.store_code, NEW.id::text, NEW.qr_order_id,
     EXTRACT(ISODOW FROM v_local)::smallint,
     EXTRACT(HOUR FROM v_local)::smallint,
     COALESCE(v_signature, ''), COALESCE(v_items, '[]'::jsonb),
-    v_minutes, v_wait, v_qr_created, v_accepted, v_ready
+    v_minutes, v_wait, COALESCE(v_queue, 0), v_qr_created, v_accepted, v_ready
   )
   ON CONFLICT (store_code, kot_id) DO UPDATE SET
     local_weekday = EXCLUDED.local_weekday,
@@ -121,6 +127,7 @@ BEGIN
     items = EXCLUDED.items,
     prep_minutes = EXCLUDED.prep_minutes,
     order_acceptance_minutes = EXCLUDED.order_acceptance_minutes,
+    queue_minutes = EXCLUDED.queue_minutes,
     order_created_at = EXCLUDED.order_created_at,
     accepted_at = EXCLUDED.accepted_at,
     ready_at = EXCLUDED.ready_at,
