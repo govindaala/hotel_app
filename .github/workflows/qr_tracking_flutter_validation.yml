@@ -1,6 +1,15 @@
 name: QR Tracking Flutter Validation
 
 on:
+  push:
+    branches:
+      - "feat/qr-kitchen-intelligence-live-tracking"
+    paths:
+      - "lib/main.dart"
+      - "lib/screens/admin/restaurant_settings_screen.dart"
+      - "lib/services/**"
+      - "pubspec.yaml"
+      - ".github/workflows/qr_tracking_flutter_validation.yml"
   pull_request:
     branches:
       - "feature/pos-complete-customer-crm"
