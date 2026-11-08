@@ -79,7 +79,7 @@ BEGIN
   v_items := CASE
     WHEN jsonb_typeof(to_jsonb(NEW.items)) = 'array' THEN to_jsonb(NEW.items)
     WHEN jsonb_typeof(to_jsonb(NEW.items)) = 'string' THEN
-      CASE WHEN (to_jsonb(NEW.items)#>>'{}') ~ '^\\s*\\['
+      CASE WHEN left(ltrim(to_jsonb(NEW.items)#>>'{}'), 1) = '['
         THEN (to_jsonb(NEW.items)#>>'{}')::jsonb ELSE '[]'::jsonb END
     ELSE '[]'::jsonb
   END;
