@@ -3,6 +3,7 @@ ALTER TABLE public.qr_orders
   ADD COLUMN IF NOT EXISTS accepted_at timestamptz,
   ADD COLUMN IF NOT EXISTS estimated_wait_minutes integer,
   ADD COLUMN IF NOT EXISTS estimated_prep_minutes integer,
+  ADD COLUMN IF NOT EXISTS estimated_queue_minutes integer,
   ADD COLUMN IF NOT EXISTS estimated_ready_at timestamptz,
   ADD COLUMN IF NOT EXISTS ready_at timestamptz,
   ADD COLUMN IF NOT EXISTS kot_id text,
@@ -20,6 +21,8 @@ ALTER TABLE public.restaurants
 
 CREATE INDEX IF NOT EXISTS qr_orders_store_status_created_idx
   ON public.qr_orders (store_code, status, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS hotel_kots_store_qr_order_unique_idx
+  ON public.hotel_kots (store_code, qr_order_id) WHERE qr_order_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS hotel_kots_store_ready_created_idx
   ON public.hotel_kots (store_code, ready_at DESC)
   WHERE ready_at IS NOT NULL;
