@@ -254,7 +254,6 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
       await _supabase.from('restaurants').update({
         'customer_facts': customerFacts,
         'show_customer_timer': _showCustomerTimer,
-        'customer_tracking_api_url': _customerTrackingApiCtrl.text.trim().replaceAll(RegExp(r"/+$"), ''),
       }).eq('store_code', widget.storeCode);
 
       final prefs = await SharedPreferences.getInstance();
@@ -460,17 +459,6 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
                         onChanged: (value) => setState(() => _showCustomerTimer = value),
                       ),
                       const SizedBox(height: 10),
-                      TextField(
-                        controller: _customerTrackingApiCtrl,
-                        keyboardType: TextInputType.url,
-                        decoration: const InputDecoration(
-                          labelText: 'Customer tracking API URL',
-                          hintText: 'https://your-render-service.onrender.com',
-                          helperText: 'Python Intelligence Engine deploy करने के बाद Render URL डालें।',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
                       TextField(
                         controller: _customerFactsCtrl,
                         minLines: 4,
