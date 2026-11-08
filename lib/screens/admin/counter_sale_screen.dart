@@ -678,14 +678,45 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
             onPressed: () async {
-              final int newQty = int.tryParse(stockCtrl.text.trim()) ?? 0;
-              if (item['id'] != null) {
+              final rawQuantity = stockCtrl.text.trim();
+              final int? newQty = int.tryParse(rawQuantity);
+              if (newQty == null || newQty < 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('कृपया 0 या उससे अधिक की पूरी संख्या दर्ज करें। स्टॉक में कोई बदलाव नहीं किया गया।'),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+                return;
+              }
+              if (item['id'] == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('इस आइटम की पहचान उपलब्ध नहीं है; स्टॉक नहीं बदला गया।')),
+                );
+                return;
+              }
+              try {
                 await supabase.from('counter_inventory').update({
-                  'stock_qty': newQty < 0 ? 0 : newQty,
+                  'stock_qty': newQty,
                 }).eq('id', item['id']);
 
+                if (!ctx.mounted) return;
                 Navigator.pop(ctx);
-                _initScreenData();
+                await _initScreenData();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('स्टॉक सफलतापूर्वक अपडेट हुआ।')),
+                  );
+                }
+              } catch (error) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('स्टॉक अपडेट नहीं हुआ: $error'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
               }
             },
             child: const Text('सुरक्षित करें', style: TextStyle(color: Colors.white)),
