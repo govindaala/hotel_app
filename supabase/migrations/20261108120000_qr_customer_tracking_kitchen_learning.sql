@@ -7,8 +7,7 @@ ALTER TABLE public.qr_orders
   ADD COLUMN IF NOT EXISTS estimated_ready_at timestamptz,
   ADD COLUMN IF NOT EXISTS ready_at timestamptz,
   ADD COLUMN IF NOT EXISTS kot_id text,
-  ADD COLUMN IF NOT EXISTS customer_facts_snapshot jsonb,
-  ADD COLUMN IF NOT EXISTS public_tracking_token text UNIQUE;
+  ADD COLUMN IF NOT EXISTS customer_facts_snapshot jsonb;
 
 ALTER TABLE public.hotel_kots
   ADD COLUMN IF NOT EXISTS qr_order_id text,
@@ -18,8 +17,7 @@ ALTER TABLE public.hotel_kots
 
 ALTER TABLE public.restaurants
   ADD COLUMN IF NOT EXISTS customer_facts jsonb NOT NULL DEFAULT '[]'::jsonb,
-  ADD COLUMN IF NOT EXISTS show_customer_timer boolean NOT NULL DEFAULT true,
-  ADD COLUMN IF NOT EXISTS customer_tracking_api_url text NOT NULL DEFAULT '';
+  ADD COLUMN IF NOT EXISTS show_customer_timer boolean NOT NULL DEFAULT true;
 
 CREATE INDEX IF NOT EXISTS qr_orders_store_status_created_idx
   ON public.qr_orders (store_code, status, created_at DESC);
