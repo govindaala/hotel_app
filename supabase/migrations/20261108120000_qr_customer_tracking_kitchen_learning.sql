@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS public.kitchen_learning_observations (
   items jsonb NOT NULL DEFAULT '[]'::jsonb,
   prep_minutes integer NOT NULL CHECK (prep_minutes BETWEEN 1 AND 240),
   order_acceptance_minutes integer,
+  queue_minutes integer NOT NULL DEFAULT 0,
   order_created_at timestamptz,
   accepted_at timestamptz,
   ready_at timestamptz NOT NULL,
