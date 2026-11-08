@@ -41,7 +41,6 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
   late TextEditingController _reviewCtrl;
   late TextEditingController _footerCtrl;
   late TextEditingController _customerFactsCtrl;
-  late TextEditingController _customerTrackingApiCtrl;
   bool _showCustomerTimer = true;
 
   List<RestaurantPartnerModel> _partners = [];
@@ -61,7 +60,6 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
     _reviewCtrl = TextEditingController(text: widget.initialProfile?.googleReviewLink ?? '');
     _footerCtrl = TextEditingController(text: widget.initialProfile?.footerMessage ?? '');
     _customerFactsCtrl = TextEditingController();
-    _customerTrackingApiCtrl = TextEditingController();
 
     _fetchPartnersAndVendors();
     _loadCustomerExperienceSettings();
@@ -79,7 +77,6 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
     _reviewCtrl.dispose();
     _footerCtrl.dispose();
     _customerFactsCtrl.dispose();
-    _customerTrackingApiCtrl.dispose();
     super.dispose();
   }
 
