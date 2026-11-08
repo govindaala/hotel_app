@@ -256,10 +256,13 @@
       document.getElementById('hotelFactText').textContent = hotelFacts[Math.floor(Date.now() / 8000) % hotelFacts.length];
     }
     function stopTracking() {
-      if (trackingChannel) supabaseClient.removeChannel(trackingChannel);
-      trackingChannel = null;
       if (trackingTick) clearInterval(trackingTick);
       trackingTick = null;
+    }
+    function createTrackingToken() {
+      const bytes = new Uint8Array(24);
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
     }
     function renderOrderTracking(order) {
       activeTrackedOrder = order;
@@ -287,13 +290,19 @@
       }
       document.getElementById('trackingNote').textContent = status === 'PENDING_APPROVAL' ? 'वेटर की पुष्टि होते ही किचन का अनुमानित समय दिखेगा।' : 'समय होटल के अपने दिन/समय और डिश के पिछले वास्तविक तैयारी रिकॉर्ड से अनुमानित है; वास्तविक समय बदल सकता है।';
     }
-    async function watchOrder(orderId) {
+    async function watchOrder(orderId, trackingToken) {
       stopTracking();
-      const result = await supabaseClient.from('qr_orders').select('id,status,created_at,accepted_at,estimated_ready_at,estimated_wait_minutes,estimated_prep_minutes,ready_at').eq('id', orderId).eq('store_code', storeCode).maybeSingle();
-      if (result.error || !result.data) return;
-      renderOrderTracking(result.data);
-      trackingChannel = supabaseClient.channel('qr-customer-' + orderId).on('postgres_changes', {event:'UPDATE',schema:'public',table:'qr_orders',filter:'id=eq.' + orderId}, payload => renderOrderTracking(payload.new)).subscribe();
-      trackingTick = setInterval(() => { if (activeTrackedOrder) renderOrderTracking(activeTrackedOrder); }, 1000);
+      if (!orderId || !trackingToken) return;
+      const refresh = async () => {
+        const result = await supabaseClient.rpc('get_qr_order_tracking', {
+          p_order_id: String(orderId),
+          p_tracking_token: String(trackingToken)
+        });
+        if (result.error || !result.data) return;
+        renderOrderTracking(result.data);
+      };
+      await refresh();
+      trackingTick = setInterval(refresh, 5000);
     }
 
     async function submitTableOrder() {
@@ -307,9 +316,21 @@
       const totalAmount = itemsList.reduce((sum, it) => sum + (it.price * it.qty), 0);
 
       try {
-        const { data: newOrder, error } = await supabaseClient.from('qr_orders').insert({store_code:storeCode,table_no:tableNo,items:itemsList,total_amount:totalAmount,status:'PENDING_APPROVAL'}).select('id,status,created_at').single();
+        const trackingToken = createTrackingToken();
+        const { data: newOrder, error } = await supabaseClient.rpc('create_qr_order', {
+          p_store_code: storeCode,
+          p_table_no: Number(tableNo),
+          p_items: itemsList,
+          p_total_amount: totalAmount,
+          p_tracking_token: trackingToken
+        });
         if (error) throw error;
-        if (newOrder?.id) { localStorage.setItem('aala_qr_order_' + storeCode + '_' + tableNo, String(newOrder.id)); await watchOrder(String(newOrder.id)); }
+        if (newOrder?.id) {
+          const key = storeCode + '_' + tableNo;
+          localStorage.setItem('aala_qr_order_' + key, String(newOrder.id));
+          localStorage.setItem('aala_qr_token_' + key, trackingToken);
+          await watchOrder(String(newOrder.id), trackingToken);
+        }
 
         document.getElementById('orderSuccessAlert').style.display = 'block';
         cart = {};
@@ -325,7 +346,12 @@
       }
     }
 
-    initMenu().then(async () => { const savedOrderId = localStorage.getItem('aala_qr_order_' + storeCode + '_' + tableNo); if (savedOrderId) await watchOrder(savedOrderId); });
+    initMenu().then(async () => {
+      const key = storeCode + '_' + tableNo;
+      const savedOrderId = localStorage.getItem('aala_qr_order_' + key);
+      const savedToken = localStorage.getItem('aala_qr_token_' + key);
+      if (savedOrderId && savedToken) await watchOrder(savedOrderId, savedToken);
+    }); if (savedOrderId) await watchOrder(savedOrderId); });
   </script>
 </body>
 </html>
