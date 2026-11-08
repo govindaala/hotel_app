@@ -32,6 +32,7 @@ import 'screens/admin/qr_table_generator_screen.dart';
 import 'services/kitchen_learning_service.dart';
 import 'services/usb_printer_service.dart';
 import 'services/offline_database.dart';
+import 'services/kot_payload.dart';
 
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
@@ -1916,39 +1917,83 @@ class _FullCounterAppState extends State<FullCounterApp> {
                               }
                             });
 
+                            final kotId = OfflineDatabase.instance.createId();
+                            final createdAt = DateTime.now();
+                            final createdAtIso = createdAt.toIso8601String();
+                            final kotPayload = buildKotPayload(
+                              id: kotId,
+                              storeCode: widget.storeCode,
+                              tableNo: tbl,
+                              tableName: 'T-$tbl',
+                              items: newOrderItems,
+                              source: 'COUNTER',
+                              waiterId: 'COUNTER',
+                              createdAt: createdAt,
+                            );
+
+                            Map<String, dynamic> createdKot;
+                            try {
+                              final cloudKot = await Supabase.instance.client
+                                  .from('hotel_kots')
+                                  .insert(kotPayload)
+                                  .select('id, created_at')
+                                  .single();
+                              createdKot = Map<String, dynamic>.from(cloudKot);
+                            } catch (error) {
+                              if (!isRetryableNetworkError(error)) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('KOT सेव नहीं हुआ: $error')),
+                                  );
+                                }
+                                return;
+                              }
+                              try {
+                                await OfflineDatabase.instance.enqueue(
+                                  id: kotId,
+                                  storeCode: widget.storeCode,
+                                  entity: 'hotel_kots',
+                                  payload: kotPayload,
+                                );
+                              } catch (queueError) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('KOT लोकल में भी सुरक्षित नहीं हुआ: $queueError')),
+                                  );
+                                }
+                                return;
+                              }
+                              createdKot = {
+                                'id': kotId,
+                                'created_at': createdAtIso,
+                              };
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('इंटरनेट उपलब्ध नहीं है। KOT इस डिवाइस में सुरक्षित है और नेटवर्क आने पर Sync होगा।'),
+                                    backgroundColor: Colors.orange,
+                                  ),
+                                );
+                              }
+                              debugPrint('Counter table KOT queued for offline sync: $error');
+                            }
+
+                            // Do not show a local active table until the KOT is
+                            // confirmed in cloud or durably stored in the offline queue.
                             setState(() {
                               activeOrders[tbl] = newOrderItems;
                               tableStateMap[tbl] = 'running';
                               tableWaiterMap[tbl] = 'COUNTER';
                             });
 
-                            try {
-                              final createdKot = await Supabase.instance.client.from('hotel_kots').insert({
-                                'store_code': widget.storeCode,
-                                'table_no': tbl,
-                                'waiter_id': 'COUNTER',
-                                'items': jsonEncode(newOrderItems),
-                                'status': 'pending',
-                                'source': 'COUNTER',
-                                'created_at': DateTime.now().toIso8601String(),
-                              }).select('id, created_at').single();
-
-                              _broadcastLocal({
-                                'type': 'NEW_KOT',
-                                'table': tbl,
-                                'waiter_id': 'COUNTER',
-                                'items': newOrderItems,
-                                'id': createdKot['id'],
-                                'created_at': createdKot['created_at'],
-                              });
-                            } catch (error) {
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('KOT सेव नहीं हुआ: $error')),
-                                );
-                              }
-                              return;
-                            }
+                            _broadcastLocal({
+                              'type': 'NEW_KOT',
+                              'table': tbl,
+                              'waiter_id': 'COUNTER',
+                              'items': newOrderItems,
+                              'id': createdKot['id'],
+                              'created_at': createdKot['created_at'],
+                            });
 
                             if (mounted) Navigator.pop(context);
                             VoiceService.speak("टेबल $tbl का KOT किचन भेज दिया गया");
