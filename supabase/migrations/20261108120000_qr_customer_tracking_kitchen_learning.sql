@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS public.kitchen_learning_observations (
   qr_order_id text,
   local_weekday smallint NOT NULL CHECK (local_weekday BETWEEN 1 AND 7),
   local_hour smallint NOT NULL CHECK (local_hour BETWEEN 0 AND 23),
+  order_weekday smallint CHECK (order_weekday BETWEEN 1 AND 7),
+  order_hour smallint CHECK (order_hour BETWEEN 0 AND 23),
   item_signature text NOT NULL DEFAULT '',
   items jsonb NOT NULL DEFAULT '[]'::jsonb,
   prep_minutes integer NOT NULL CHECK (prep_minutes BETWEEN 1 AND 240),
@@ -70,6 +72,7 @@ DECLARE
   v_items jsonb;
   v_signature text;
   v_local timestamptz;
+  v_order_local timestamptz;
 BEGIN
   IF NEW.status IS DISTINCT FROM 'ready' THEN
     RETURN NEW;
@@ -107,21 +110,26 @@ BEGIN
   END IF;
 
   v_local := v_start AT TIME ZONE 'Asia/Kolkata';
+  v_order_local := COALESCE(v_qr_created, NEW.created_at, v_start) AT TIME ZONE 'Asia/Kolkata';
 
   INSERT INTO public.kitchen_learning_observations (
-    store_code, kot_id, qr_order_id, local_weekday, local_hour,
+    store_code, kot_id, qr_order_id, local_weekday, local_hour, order_weekday, order_hour,
     item_signature, items, prep_minutes, order_acceptance_minutes, queue_minutes,
     order_created_at, accepted_at, ready_at
   ) VALUES (
     NEW.store_code, NEW.id::text, NEW.qr_order_id,
     EXTRACT(ISODOW FROM v_local)::smallint,
     EXTRACT(HOUR FROM v_local)::smallint,
+    EXTRACT(ISODOW FROM v_order_local)::smallint,
+    EXTRACT(HOUR FROM v_order_local)::smallint,
     COALESCE(v_signature, ''), COALESCE(v_items, '[]'::jsonb),
     v_minutes, v_wait, COALESCE(v_queue, 0), v_qr_created, v_accepted, v_ready
   )
   ON CONFLICT (store_code, kot_id) DO UPDATE SET
     local_weekday = EXCLUDED.local_weekday,
     local_hour = EXCLUDED.local_hour,
+    order_weekday = EXCLUDED.order_weekday,
+    order_hour = EXCLUDED.order_hour,
     item_signature = EXCLUDED.item_signature,
     items = EXCLUDED.items,
     prep_minutes = EXCLUDED.prep_minutes,
