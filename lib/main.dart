@@ -1940,7 +1940,14 @@ class _FullCounterAppState extends State<FullCounterApp> {
                                   .single();
                               createdKot = Map<String, dynamic>.from(cloudKot);
                             } catch (error) {
-                              if (!isRetryableNetworkError(error)) rethrow;
+                              if (!isRetryableNetworkError(error)) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('KOT सेव नहीं हुआ: $error')),
+                                  );
+                                }
+                                return;
+                              }
                               try {
                                 await OfflineDatabase.instance.enqueue(
                                   id: kotId,
