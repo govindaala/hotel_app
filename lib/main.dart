@@ -39,6 +39,7 @@ const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
 const int currentAppVersionCode = 5;
 const int tcpServerPort = 4040;
 const int udpDiscoveryPort = 4042;
+const String aalaIntelligenceApiUrl = String.fromEnvironment('AALA_INTELLIGENCE_API_URL', defaultValue: '');
 
 // =========================================================================
 // 1. Non-Blocking Voice Service
@@ -173,7 +174,7 @@ void main() async {
 
   final prefsFuture = SharedPreferences.getInstance();
   await Future.wait<void>([
-    Supabase.initialize(url: supabaseUrl, anonKey: supabaseKey)
+    Supabase.initialize(url: supabaseUrl, publishableKey: supabaseKey)
         .then<void>((_) {})
         .catchError((Object error) {
           debugPrint('Supabase initialization unavailable; continuing in local mode: $error');
@@ -3092,6 +3093,55 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
     }
   }
 
+  Future<Map<String, int>> _estimateQrOrderTiming(
+    List<Map<String, dynamic>> items,
+  ) async {
+    int pendingAhead = 0;
+    try {
+      final pendingRows = await Supabase.instance.client
+          .from('hotel_kots')
+          .select('id')
+          .eq('store_code', widget.storeCode)
+          .inFilter('status', ['pending', 'preparing']);
+      pendingAhead = (pendingRows as List).length;
+    } catch (error) {
+      debugPrint('Kitchen queue count unavailable: $error');
+    }
+    if (aalaIntelligenceApiUrl.trim().isNotEmpty) {
+      try {
+        final baseUrl = aalaIntelligenceApiUrl.trim().endsWith('/')
+            ? aalaIntelligenceApiUrl.trim().substring(0, aalaIntelligenceApiUrl.trim().length - 1)
+            : aalaIntelligenceApiUrl.trim();
+        final response = await http.post(
+          Uri.parse(baseUrl + '/v1/kitchen/estimate'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'store_code': widget.storeCode,
+            'items': items,
+            'pending_orders_ahead': pendingAhead,
+            'now': DateTime.now().toIso8601String(),
+          }),
+        ).timeout(const Duration(seconds: 5));
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body) as Map<String, dynamic>;
+          final prep = (data['prep_minutes'] as num?)?.round() ?? 18;
+          final queue = (data['queue_minutes'] as num?)?.round() ?? 0;
+          return {'wait': 0, 'prep': prep, 'queue': queue, 'total': prep + queue};
+        }
+        debugPrint('Kitchen intelligence API returned ${response.statusCode}');
+      } catch (error) {
+        debugPrint('Kitchen intelligence API unavailable; using local estimate: $error');
+      }
+    }
+    final fallbackTotal = await KitchenLearningService.estimateOrderPrepMinutes(
+      storeCode: widget.storeCode,
+      items: items,
+      pendingOrdersAhead: pendingAhead,
+    );
+    final queue = (pendingAhead * 5.5).round().clamp(0, 60);
+    final prep = (fallbackTotal - queue).clamp(8, 90);
+    return {'wait': 0, 'prep': prep, 'queue': queue, 'total': prep + queue};
+  }
   Future<void> _handleWaiterQrOrderAction(
     Map<String, dynamic> qrOrder,
     bool isAccepted,
@@ -3100,8 +3150,18 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
     if (!_processingQrOrderIds.add(orderId)) return;
 
     final tableNo = int.tryParse(qrOrder['table_no'].toString()) ?? 0;
+    bool claimed = false;
+    bool accepted = false;
     try {
       if (isAccepted) {
+        final claim = await Supabase.instance.client
+            .from('qr_orders')
+            .update({'status': 'ACCEPTING'})
+            .eq('id', orderId)
+            .eq('status', 'PENDING_APPROVAL')
+            .select('id');
+        if ((claim as List).isEmpty) return;
+        claimed = true;
         dynamic rawItems = qrOrder['items'];
         List<Map<String, dynamic>> items = [];
         if (rawItems is List) {
@@ -3113,7 +3173,15 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
           throw StateError('QR ऑर्डर में कोई आइटम नहीं है');
         }
 
-        final createdKot = await Supabase.instance.client
+        final acceptedAt = DateTime.now();
+        final timing = await _estimateQrOrderTiming(items);
+        Map<String, dynamic>? createdKot = await Supabase.instance.client
+            .from('hotel_kots')
+            .select('id, created_at')
+            .eq('store_code', widget.storeCode)
+            .eq('qr_order_id', orderId)
+            .maybeSingle();
+        createdKot ??= await Supabase.instance.client
             .from('hotel_kots')
             .insert({
               'store_code': widget.storeCode,
@@ -3122,15 +3190,35 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
               'items': jsonEncode(items),
               'status': 'pending',
               'source': 'QR_DIGITAL',
-              'created_at': DateTime.now().toIso8601String(),
+              'qr_order_id': orderId,
+              'created_at': acceptedAt.toIso8601String(),
             })
             .select('id, created_at')
             .single();
 
-        await Supabase.instance.client
+        final orderCreatedAt = DateTime.tryParse(qrOrder['created_at']?.toString() ?? '');
+        final acceptanceMinutes = orderCreatedAt == null
+            ? 0
+            : acceptedAt.difference(orderCreatedAt).inMinutes.clamp(0, 240);
+        final eta = acceptedAt.add(Duration(minutes: timing['total'] ?? 18));
+        final acceptedRows = await Supabase.instance.client
             .from('qr_orders')
-            .update({'status': 'ACCEPTED'})
-            .eq('id', orderId);
+            .update({
+              'status': 'ACCEPTED',
+              'accepted_at': acceptedAt.toIso8601String(),
+              'estimated_wait_minutes': acceptanceMinutes,
+              'estimated_prep_minutes': timing['prep'] ?? 18,
+              'estimated_queue_minutes': timing['queue'] ?? 0,
+              'estimated_ready_at': eta.toIso8601String(),
+              'kot_id': createdKot['id'].toString(),
+            })
+            .eq('id', orderId)
+            .eq('status', 'ACCEPTING')
+            .select('id');
+        if ((acceptedRows as List).isEmpty) {
+          throw StateError('ऑर्डर की स्वीकृति सेव नहीं हो सकी।');
+        }
+        accepted = true;
 
         if (mounted) {
           setState(() {
@@ -3147,6 +3235,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
           'items': items,
           'id': createdKot['id'],
           'created_at': createdKot['created_at'],
+          'qr_order_id': orderId,
         };
         if (_socketConnected && _waiterSocket != null) {
           _waiterSocket!.write('${jsonEncode(message)}\n');
@@ -3156,7 +3245,8 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
         await Supabase.instance.client
             .from('qr_orders')
             .update({'status': 'REJECTED'})
-            .eq('id', orderId);
+            .eq('id', orderId)
+            .eq('status', 'PENDING_APPROVAL');
         if (mounted) {
           setState(() {
             pendingQrOrders.removeWhere((order) => order['id'].toString() == orderId);
@@ -3165,6 +3255,14 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
         VoiceService.speak('टेबल $tableNo का QR ऑर्डर निरस्त किया गया');
       }
     } catch (error) {
+      if (isAccepted && claimed && !accepted) {
+        try {
+          await Supabase.instance.client.from('qr_orders')
+              .update({'status': 'PENDING_APPROVAL'})
+              .eq('id', orderId)
+              .eq('status', 'ACCEPTING');
+        } catch (_) {}
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('QR ऑर्डर अपडेट नहीं हुआ: $error')),
@@ -3335,7 +3433,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
           .eq('store_code', widget.storeCode)
           .neq('status', 'settled');
 
-      if (kots != null && mounted) {
+      if (mounted) {
         Map<int, List<Map<String, dynamic>>> tempOrders = {};
         Map<int, String> tempStatus = {};
 
@@ -4015,7 +4113,7 @@ class _FullCookAppState extends State<FullCookApp> {
           .from('hotel_kots')
           .select()
           .eq('store_code', widget.storeCode)
-          .eq('status', 'pending')
+          .inFilter('status', ['pending', 'preparing'])
           .order('created_at', ascending: false);
 
       if (mounted) {
@@ -4035,6 +4133,9 @@ class _FullCookAppState extends State<FullCookApp> {
             'table': tbl,
             'items': items,
             'created_at': r['created_at'],
+            'started_at': r['started_at'],
+            'qr_order_id': r['qr_order_id'],
+            'status': r['status'] ?? 'pending',
           });
           _seenKotIds.add(id);
 
@@ -4149,6 +4250,47 @@ class _FullCookAppState extends State<FullCookApp> {
     );
   }
 
+  Future<void> _markOrderPreparing(int index) async {
+    if (index < 0 || index >= kitchenOrders.length) return;
+    final order = kitchenOrders[index];
+    if ((order['status'] ?? 'pending').toString().toLowerCase() == 'preparing') return;
+    final kotId = order['id']?.toString();
+    if (kotId == null || kotId.isEmpty) return;
+    final startedAt = DateTime.now();
+    try {
+      final rows = await Supabase.instance.client
+          .from('hotel_kots')
+          .update({'status': 'preparing', 'started_at': startedAt.toIso8601String()})
+          .eq('id', kotId)
+          .eq('status', 'pending')
+          .select('id');
+      if ((rows as List).isEmpty) {
+        throw StateError('KOT की स्थिति बदल चुकी है; सूची रीफ़्रेश करें।');
+      }
+      if (mounted) {
+        setState(() {
+          order['status'] = 'preparing';
+          order['started_at'] = startedAt.toIso8601String();
+        });
+      }
+      final qrOrderId = order['qr_order_id']?.toString();
+      if (qrOrderId != null && qrOrderId.isNotEmpty) {
+        await Supabase.instance.client
+            .from('qr_orders')
+            .update({'status': 'PREPARING'})
+            .eq('id', qrOrderId)
+            .eq('store_code', widget.storeCode);
+      }
+      VoiceService.speak('टेबल ${order['table']} का खाना बनना शुरू हुआ');
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('किचन स्टार्ट स्थिति सेव नहीं हुई: $error')),
+        );
+      }
+    }
+  }
+
   void _markOrderReady(int index) async {
     final order = kitchenOrders[index];
     setState(() {
@@ -4164,7 +4306,7 @@ class _FullCookAppState extends State<FullCookApp> {
 
     if (order['id'] != null) {
       final kotId = order['id'].toString();
-      final createdAt = DateTime.tryParse(order['created_at']?.toString() ?? '') ?? DateTime.now();
+      final createdAt = DateTime.tryParse(order['started_at']?.toString() ?? '') ?? DateTime.tryParse(order['created_at']?.toString() ?? '') ?? DateTime.now();
       try {
         await KitchenLearningService.recordKotCompletionAndLearn(
           storeCode: widget.storeCode,
@@ -4330,11 +4472,23 @@ class _FullCookAppState extends State<FullCookApp> {
                                         ),
                                       ],
                                     ),
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                          backgroundColor: isParcel ? Colors.deepOrange : Colors.teal),
-                                      onPressed: () => _markOrderReady(i),
-                                      child: const Text('तैयार ✓', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if ((ord['status'] ?? 'pending').toString().toLowerCase() != 'preparing')
+                                          OutlinedButton(
+                                            onPressed: () => _markOrderPreparing(i),
+                                            child: const Text('बनाना शुरू'),
+                                          ),
+                                        const SizedBox(width: 6),
+                                        ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: isParcel ? Colors.deepOrange : Colors.teal,
+                                          ),
+                                          onPressed: () => _markOrderReady(i),
+                                          child: const Text('तैयार ✓', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),

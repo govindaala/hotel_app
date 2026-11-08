@@ -34,6 +34,20 @@
     .btn-submit:disabled { background: #cbd5e1; cursor: not-allowed; }
 
     .alert-banner { display: none; padding: 14px; background: #dcfce7; color: #15803d; border-radius: 10px; font-weight: bold; text-align: center; margin: 16px; }
+.hotel-facts { margin:14px 16px; padding:14px; border-radius:14px; background:#fff7ed; border:1px solid #fed7aa; }
+.hotel-facts h3 { font-size:13px; margin-bottom:7px; color:#9a3412; }
+.hotel-facts p { font-size:13px; line-height:1.5; color:#7c2d12; min-height:38px; }
+.tracking-card { display:none; margin:14px 16px; padding:16px; background:white; border:1px solid #cbd5e1; border-radius:16px; box-shadow:0 4px 14px rgba(15,23,42,.06); }
+.tracking-head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.tracking-title { font-weight:800; font-size:16px; }
+.tracking-state { color:#0f766e; background:#ccfbf1; border-radius:20px; padding:5px 10px; font-size:12px; font-weight:700; }
+.tracking-time { font-size:30px; font-weight:800; color:#0f172a; margin:12px 0 2px; font-variant-numeric:tabular-nums; }
+.tracking-sub { color:#64748b; font-size:12px; }
+.tracking-steps { display:grid; grid-template-columns:repeat(4,1fr); gap:5px; margin-top:16px; }
+.tracking-step { text-align:center; font-size:10px; color:#94a3b8; border-top:4px solid #e2e8f0; padding-top:7px; }
+.tracking-step.done { color:#0f766e; border-color:#14b8a6; font-weight:700; }
+.tracking-step.current { color:#b45309; border-color:#f59e0b; font-weight:700; }
+.tracking-note { margin-top:12px; color:#64748b; font-size:12px; line-height:1.5; }
   </style>
 </head>
 <body>
@@ -52,6 +66,14 @@
     ✅ आपका ऑर्डर काउंटर पर भेज दिया गया है! कृपया 2 मिनट प्रतीक्षा करें।
   </div>
 
+  <section class="hotel-facts" id="hotelFacts" style="display:none"><h3>इस होटल की खासियत</h3><p id="hotelFactText"></p></section>
+  <section class="tracking-card" id="trackingCard" aria-live="polite">
+    <div class="tracking-head"><div class="tracking-title">आपके ऑर्डर की स्थिति</div><span class="tracking-state" id="trackingState">ऑर्डर मिला</span></div>
+    <div class="tracking-time" id="trackingTimer">समय की गणना हो रही है…</div>
+    <div class="tracking-sub" id="trackingEta">किचन की स्थिति अपडेट होते ही समय बदलेगा</div>
+    <div class="tracking-steps"><div class="tracking-step current">ऑर्डर मिला</div><div class="tracking-step">स्वीकृत</div><div class="tracking-step">बन रहा</div><div class="tracking-step">तैयार</div></div>
+    <div class="tracking-note" id="trackingNote">अनुमान होटल के पिछले वास्तविक ऑर्डर और किचन लोड के आधार पर अपडेट होगा।</div>
+  </section>
   <div class="cat-bar" id="catBar">
     <div class="cat-chip active" onclick="setCategory('ALL')">सभी डिशेज़</div>
   </div>
@@ -84,17 +106,22 @@
     let allItems = [];
     let activeCat = 'ALL';
     let cart = {};
+    let activeTrackedOrder = null, trackingTick = null;
+    let hotelFacts = [], hotelShowTimer = true;
 
     async function initMenu() {
       try {
         const { data: resto } = await supabaseClient
           .from('restaurants')
-          .select('name')
+          .select('name, customer_facts, show_customer_timer')
           .eq('store_code', storeCode)
           .maybeSingle();
-        if (resto && resto.name) {
-          document.getElementById('hotelTitle').innerText = resto.name;
-        }
+        if (resto && resto.name) document.getElementById('hotelTitle').innerText = resto.name;
+        hotelShowTimer = resto?.show_customer_timer !== false;
+        const rawFacts = resto?.customer_facts;
+        hotelFacts = Array.isArray(rawFacts) ? rawFacts : (typeof rawFacts === 'string' ? JSON.parse(rawFacts || '[]') : []);
+        hotelFacts = hotelFacts.map(x => String(x || '').trim()).filter(Boolean).slice(0, 50);
+        if (hotelFacts.length) { document.getElementById('hotelFacts').style.display = 'block'; showHotelFact(); setInterval(showHotelFact, 8000); }
       } catch (_) {}
 
       try {
@@ -224,6 +251,63 @@
       document.getElementById('submitBtn').disabled = (totalQty === 0);
     }
 
+    function showHotelFact() {
+      if (!hotelFacts.length) return;
+      document.getElementById('hotelFactText').textContent = hotelFacts[Math.floor(Date.now() / 8000) % hotelFacts.length];
+    }
+    function stopTracking() {
+      if (trackingTick) clearInterval(trackingTick);
+      trackingTick = null;
+    }
+    function createTrackingToken() {
+      const bytes = new Uint8Array(24);
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    }
+    function renderOrderTracking(order) {
+      activeTrackedOrder = order;
+      document.getElementById('trackingCard').style.display = 'block';
+      const status = String(order.status || 'PENDING_APPROVAL').toUpperCase();
+      const labels = {PENDING_APPROVAL:'वेटर की पुष्टि का इंतज़ार', ACCEPTING:'वेटर ऑर्डर स्वीकार कर रहा है', ACCEPTED:'ऑर्डर स्वीकार हुआ', PREPARING:'किचन में बन रहा है', READY:'आपका ऑर्डर तैयार है', SERVED:'ऑर्डर परोस दिया गया', REJECTED:'ऑर्डर स्वीकार नहीं हुआ'};
+      const stage = status === 'READY' || status === 'SERVED' ? 3 : status === 'PREPARING' ? 2 : status === 'ACCEPTED' ? 1 : 0;
+      document.getElementById('trackingState').textContent = labels[status] || 'स्थिति अपडेट हो रही है';
+      document.querySelectorAll('.tracking-step').forEach((el, i) => {
+        el.classList.toggle('done', i < stage || ((status === 'READY' || status === 'SERVED') && i === 3));
+        el.classList.toggle('current', i === stage && status !== 'READY' && status !== 'SERVED' && status !== 'REJECTED');
+      });
+      const eta = order.estimated_ready_at ? new Date(order.estimated_ready_at) : null;
+      if (status === 'READY' || status === 'SERVED') {
+        document.getElementById('trackingTimer').textContent = 'तैयार ✓';
+        document.getElementById('trackingEta').textContent = order.ready_at ? 'तैयार होने का समय: ' + new Date(order.ready_at).toLocaleTimeString('hi-IN',{hour:'2-digit',minute:'2-digit'}) : 'किचन ने ऑर्डर तैयार मार्क किया है।';
+      } else if (status === 'REJECTED') {
+        document.getElementById('trackingTimer').textContent = 'ऑर्डर रद्द';
+        document.getElementById('trackingEta').textContent = 'कृपया वेटर से बात करें।';
+      } else if (eta && !Number.isNaN(eta.getTime()) && hotelShowTimer) {
+        const seconds = Math.max(0, Math.ceil((eta - new Date()) / 1000));
+        document.getElementById('trackingTimer').textContent = Math.floor(seconds/60) + ':' + String(seconds%60).padStart(2,'0');
+        document.getElementById('trackingEta').textContent = seconds > 0 ? 'अनुमानित समय शेष • तैयार होने का समय ' + eta.toLocaleTimeString('hi-IN',{hour:'2-digit',minute:'2-digit'}) : 'अनुमानित समय पूरा हुआ; किचन से पुष्टि की प्रतीक्षा करें।';
+      } else {
+        document.getElementById('trackingTimer').textContent = '—';
+        document.getElementById('trackingEta').textContent = hotelShowTimer ? 'वेटर की पुष्टि और किचन के अनुमान की प्रतीक्षा…' : 'होटल ने ग्राहक टाइमर बंद रखा है।';
+      }
+      document.getElementById('trackingNote').textContent = status === 'PENDING_APPROVAL' ? 'वेटर की पुष्टि होते ही किचन के पिछले वास्तविक रिकॉर्ड से समय का अनुमान बनेगा।' : 'अनुमान होटल के अपने दिन, समय, डिश और हाल के वास्तविक किचन रिकॉर्ड पर आधारित है; वास्तविक समय बदल सकता है।';
+    }
+    async function watchOrder(orderId, trackingToken) {
+      stopTracking();
+      if (!orderId || !trackingToken) return;
+      const refresh = async () => {
+        try {
+          const result = await supabaseClient.rpc('get_qr_order_tracking', {
+            p_order_id: String(orderId),
+            p_tracking_token: String(trackingToken)
+          });
+          if (!result.error && result.data) renderOrderTracking(result.data);
+        } catch (_) {}
+      };
+      await refresh();
+      trackingTick = setInterval(refresh, 5000);
+    }
+
     async function submitTableOrder() {
       const itemsList = Object.values(cart);
       if (itemsList.length === 0) return;
@@ -235,15 +319,21 @@
       const totalAmount = itemsList.reduce((sum, it) => sum + (it.price * it.qty), 0);
 
       try {
-        const { error } = await supabaseClient.from('qr_orders').insert({
-          store_code: storeCode,
-          table_no: tableNo,
-          items: itemsList,
-          total_amount: totalAmount,
-          status: 'PENDING_APPROVAL'
+        const trackingToken = createTrackingToken();
+        const { data: newOrder, error } = await supabaseClient.rpc('create_qr_order', {
+          p_store_code: storeCode,
+          p_table_no: Number(tableNo),
+          p_items: itemsList,
+          p_total_amount: totalAmount,
+          p_tracking_token: trackingToken
         });
-
         if (error) throw error;
+        if (newOrder?.id) {
+          const key = storeCode + '_' + tableNo;
+          sessionStorage.setItem('aala_qr_order_' + key, String(newOrder.id));
+          sessionStorage.setItem('aala_qr_token_' + key, trackingToken);
+          await watchOrder(String(newOrder.id), trackingToken);
+        }
 
         document.getElementById('orderSuccessAlert').style.display = 'block';
         cart = {};
@@ -259,7 +349,12 @@
       }
     }
 
-    initMenu();
+    initMenu().then(async () => {
+      const key = storeCode + '_' + tableNo;
+      const savedOrderId = sessionStorage.getItem('aala_qr_order_' + key);
+      const savedToken = sessionStorage.getItem('aala_qr_token_' + key);
+      if (savedOrderId && savedToken) await watchOrder(savedOrderId, savedToken);
+    });
   </script>
 </body>
 </html>

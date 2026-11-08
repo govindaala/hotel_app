@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 // lib/screens/admin/restaurant_settings_screen.dart
 
 import 'package:flutter/material.dart';
@@ -38,6 +40,9 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
   late TextEditingController _fssaiCtrl;
   late TextEditingController _reviewCtrl;
   late TextEditingController _footerCtrl;
+  late TextEditingController _customerFactsCtrl;
+  late TextEditingController _customerTrackingApiCtrl;
+  bool _showCustomerTimer = true;
 
   List<RestaurantPartnerModel> _partners = [];
   List<HotelVendorModel> _vendors = [];
@@ -55,8 +60,11 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
     _fssaiCtrl = TextEditingController(text: widget.initialProfile?.fssaiNumber ?? '');
     _reviewCtrl = TextEditingController(text: widget.initialProfile?.googleReviewLink ?? '');
     _footerCtrl = TextEditingController(text: widget.initialProfile?.footerMessage ?? '');
+    _customerFactsCtrl = TextEditingController();
+    _customerTrackingApiCtrl = TextEditingController();
 
     _fetchPartnersAndVendors();
+    _loadCustomerExperienceSettings();
   }
 
   @override
@@ -70,7 +78,36 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
     _fssaiCtrl.dispose();
     _reviewCtrl.dispose();
     _footerCtrl.dispose();
+    _customerFactsCtrl.dispose();
+    _customerTrackingApiCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadCustomerExperienceSettings() async {
+    try {
+      final row = await _supabase
+          .from('restaurants')
+          .select('customer_facts, show_customer_timer')
+          .eq('store_code', widget.storeCode)
+          .maybeSingle();
+      if (!mounted || row == null) return;
+      final rawFacts = row['customer_facts'];
+      List<dynamic> facts = [];
+      if (rawFacts is List) {
+        facts = rawFacts;
+      } else if (rawFacts is String && rawFacts.trim().isNotEmpty) {
+        try {
+          final decoded = jsonDecode(rawFacts);
+          if (decoded is List) facts = decoded;
+        } catch (_) {}
+      }
+      setState(() {
+        _customerFactsCtrl.text = facts.map((e) => e.toString()).join('\n');
+        _showCustomerTimer = row['show_customer_timer'] != false;
+      });
+    } catch (error) {
+      debugPrint('Customer screen settings could not be loaded: $error');
+    }
   }
 
   Future<void> _fetchPartnersAndVendors() async {
@@ -208,6 +245,16 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
 
     try {
       await _supabase.from('restaurants').upsert(updated.toMap());
+      final customerFacts = _customerFactsCtrl.text
+          .split(RegExp(r'\r?\n'))
+          .map((line) => line.trim())
+          .where((line) => line.isNotEmpty)
+          .take(50)
+          .toList();
+      await _supabase.from('restaurants').update({
+        'customer_facts': customerFacts,
+        'show_customer_timer': _showCustomerTimer,
+      }).eq('store_code', widget.storeCode);
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('saved_hotel_name', updated.name);
@@ -401,6 +448,28 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
                         decoration: const InputDecoration(
                           labelText: 'बिल के नीचे संदेश (वैकल्पिक)',
                           border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('ग्राहक स्क्रीन पर लाइव टाइमर दिखाएँ'),
+                        subtitle: const Text('ऑर्डर तैयार होने का अनुमान और उलटी गिनती'),
+                        value: _showCustomerTimer,
+                        onChanged: (value) => setState(() => _showCustomerTimer = value),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _customerFactsCtrl,
+                        minLines: 4,
+                        maxLines: 8,
+                        maxLength: 3000,
+                        decoration: const InputDecoration(
+                          labelText: 'ग्राहक स्क्रीन पर होटल की खासियतें',
+                          hintText: 'हर लाइन में एक तथ्य लिखें। अधिकतम 50 तथ्य।\nजैसे: ताज़ी सामग्री\nपरिवार के लिए अलग बैठने की व्यवस्था\nघर जैसा भोजन',
+                          helperText: 'ऑर्डर ट्रैकिंग कार्ड के पास तथ्य हर 8 सेकंड में बदलेंगे।',
+                          border: OutlineInputBorder(),
+                          alignLabelWithHint: true,
                         ),
                       ),
                       const SizedBox(height: 20),

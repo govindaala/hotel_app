@@ -465,10 +465,6 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     }
 
     final double total = grandTotal;
-    final List<String> details = cart.values
-        .map((v) => '${v['name']} (${v['variant']}) x${v['qty']}')
-        .toList();
-
     try {
       int? tableOrderNumber;
       List<Map<String, dynamic>>? tableOrderItems;
