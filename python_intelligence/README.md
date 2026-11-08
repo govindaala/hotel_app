@@ -6,10 +6,10 @@ FastAPI service for the hotel-owner intelligence reports and weekday/hour/dish-a
 
 1. The Supabase migration adds `kitchen_learning_observations`.
 2. When a KOT changes to `ready`, a database trigger records its start/ready timestamps, weekday, hour, dish list, actual preparation minutes, and (for QR orders) the time between customer submission and waiter acceptance.
-3. `POST /v1/kitchen/estimate` reads only that hotel's recent observations and returns separate acceptance-wait, preparation, and queue estimates. Same weekday/hour and matching dishes are preferred; sparse buckets fall back to the hotel's wider history. Confidence and sample counts are returned.
+3. `POST /v1/kitchen/estimate` reads only that hotel's recent observations and returns separate acceptance-wait, learned queue-wait, and preparation estimates. Same weekday/hour and matching dishes are preferred; sparse buckets fall back to the hotel's wider history. Confidence and sample counts are returned.
 4. `GET /v1/kitchen/summary/{store_code}` exposes owner-dashboard learning coverage by weekday/hour.
 
-The service never reads or returns customer names, phone numbers, payment credentials, or full bill data for ETA calculation. Supabase service-role credentials belong only in Render environment variables, never in Flutter or the customer web page.
+Customer status is fetched through a token-gated RPC and refreshed every five seconds; the token is random and never grants access to other orders. The service never reads or returns customer names, phone numbers, payment credentials, or full bill data for ETA calculation. Supabase service-role credentials belong only in Render environment variables, never in Flutter or the customer web page.
 
 ## Required Render environment variables
 
