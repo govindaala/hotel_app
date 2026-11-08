@@ -4080,7 +4080,7 @@ class _FullCookAppState extends State<FullCookApp> {
           .from('hotel_kots')
           .select()
           .eq('store_code', widget.storeCode)
-          .eq('status', 'pending')
+          .inFilter('status', ['pending', 'preparing'])
           .order('created_at', ascending: false);
 
       if (mounted) {
@@ -4100,6 +4100,9 @@ class _FullCookAppState extends State<FullCookApp> {
             'table': tbl,
             'items': items,
             'created_at': r['created_at'],
+            'started_at': r['started_at'],
+            'qr_order_id': r['qr_order_id'],
+            'status': r['status'] ?? 'pending',
           });
           _seenKotIds.add(id);
 
@@ -4214,6 +4217,54 @@ class _FullCookAppState extends State<FullCookApp> {
     );
   }
 
+  Future<void> _markOrderPreparing(int index) async {
+    if (index < 0 || index >= kitchenOrders.length) return;
+    final order = kitchenOrders[index];
+    if ((order['status'] ?? 'pending').toString().toLowerCase() == 'preparing') return;
+    final kotId = order['id']?.toString();
+    if (kotId == null || kotId.isEmpty) return;
+    final startedAt = DateTime.now();
+    try {
+      final rows = await Supabase.instance.client
+          .from('hotel_kots')
+          .update({
+            'status': 'preparing',
+            'started_at': startedAt.toIso8601String(),
+          })
+          .eq('id', kotId)
+          .eq('status', 'pending')
+          .select('id');
+      if ((rows as List).isEmpty) {
+        throw StateError('यह KOT अब pending स्थिति में नहीं है; सूची रीफ़्रेश करें।');
+      }
+      if (mounted) {
+        setState(() {
+          order['status'] = 'preparing';
+          order['started_at'] = startedAt.toIso8601String();
+        });
+      }
+      final qrOrderId = order['qr_order_id']?.toString();
+      if (qrOrderId != null && qrOrderId.isNotEmpty) {
+        try {
+          await Supabase.instance.client
+              .from('qr_orders')
+              .update({'status': 'PREPARING'})
+              .eq('id', qrOrderId)
+              .eq('store_code', widget.storeCode);
+        } catch (error) {
+          debugPrint('Customer QR preparing status sync deferred: $error');
+        }
+      }
+      VoiceService.speak('टेबल ${order['table']} का खाना बनना शुरू हुआ');
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('किचन स्टार्ट स्थिति सेव नहीं हुई: $error')),
+        );
+      }
+    }
+  }
+
   void _markOrderReady(int index) async {
     final order = kitchenOrders[index];
     setState(() {
@@ -4229,7 +4280,8 @@ class _FullCookAppState extends State<FullCookApp> {
 
     if (order['id'] != null) {
       final kotId = order['id'].toString();
-      final createdAt = DateTime.tryParse(order['created_at']?.toString() ?? '') ?? DateTime.now();
+      final createdAt = DateTime.tryParse(order['started_at']?.toString() ?? '') ??
+          DateTime.tryParse(order['created_at']?.toString() ?? '') ?? DateTime.now();
       try {
         await KitchenLearningService.recordKotCompletionAndLearn(
           storeCode: widget.storeCode,
@@ -4395,11 +4447,23 @@ class _FullCookAppState extends State<FullCookApp> {
                                         ),
                                       ],
                                     ),
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                          backgroundColor: isParcel ? Colors.deepOrange : Colors.teal),
-                                      onPressed: () => _markOrderReady(i),
-                                      child: const Text('तैयार ✓', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if ((ord['status'] ?? 'pending').toString().toLowerCase() != 'preparing')
+                                          OutlinedButton(
+                                            onPressed: () => _markOrderPreparing(i),
+                                            child: const Text('बनाना शुरू'),
+                                          ),
+                                        const SizedBox(width: 6),
+                                        ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: isParcel ? Colors.deepOrange : Colors.teal,
+                                          ),
+                                          onPressed: () => _markOrderReady(i),
+                                          child: const Text('तैयार ✓', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),
