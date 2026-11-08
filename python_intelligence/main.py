@@ -439,7 +439,7 @@ async def _load_kitchen_observations(store_code: str) -> list[dict[str, Any]]:
     }
     cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
     params = {
-        "select": "local_weekday,local_hour,item_signature,items,prep_minutes,order_acceptance_minutes,ready_at",
+        "select": "local_weekday,local_hour,item_signature,items,prep_minutes,order_acceptance_minutes,queue_minutes,ready_at",
         "store_code": f"eq.{store_code}",
         "ready_at": f"gte.{cutoff}",
         "order": "ready_at.desc",
