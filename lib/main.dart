@@ -3150,8 +3150,18 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
     if (!_processingQrOrderIds.add(orderId)) return;
 
     final tableNo = int.tryParse(qrOrder['table_no'].toString()) ?? 0;
+    bool claimed = false;
+    bool accepted = false;
     try {
       if (isAccepted) {
+        final claim = await Supabase.instance.client
+            .from('qr_orders')
+            .update({'status': 'ACCEPTING'})
+            .eq('id', orderId)
+            .eq('status', 'PENDING_APPROVAL')
+            .select('id');
+        if ((claim as List).isEmpty) return;
+        claimed = true;
         dynamic rawItems = qrOrder['items'];
         List<Map<String, dynamic>> items = [];
         if (rawItems is List) {
@@ -3163,7 +3173,15 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
           throw StateError('QR ऑर्डर में कोई आइटम नहीं है');
         }
 
-        final createdKot = await Supabase.instance.client
+        final acceptedAt = DateTime.now();
+        final timing = await _estimateQrOrderTiming(items);
+        Map<String, dynamic>? createdKot = await Supabase.instance.client
+            .from('hotel_kots')
+            .select('id, created_at')
+            .eq('store_code', widget.storeCode)
+            .eq('qr_order_id', orderId)
+            .maybeSingle();
+        createdKot ??= await Supabase.instance.client
             .from('hotel_kots')
             .insert({
               'store_code': widget.storeCode,
@@ -3172,15 +3190,35 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
               'items': jsonEncode(items),
               'status': 'pending',
               'source': 'QR_DIGITAL',
-              'created_at': DateTime.now().toIso8601String(),
+              'qr_order_id': orderId,
+              'created_at': acceptedAt.toIso8601String(),
             })
             .select('id, created_at')
             .single();
 
-        await Supabase.instance.client
+        final orderCreatedAt = DateTime.tryParse(qrOrder['created_at']?.toString() ?? '');
+        final acceptanceMinutes = orderCreatedAt == null
+            ? 0
+            : acceptedAt.difference(orderCreatedAt).inMinutes.clamp(0, 240);
+        final eta = acceptedAt.add(Duration(minutes: timing['total'] ?? 18));
+        final acceptedRows = await Supabase.instance.client
             .from('qr_orders')
-            .update({'status': 'ACCEPTED'})
-            .eq('id', orderId);
+            .update({
+              'status': 'ACCEPTED',
+              'accepted_at': acceptedAt.toIso8601String(),
+              'estimated_wait_minutes': acceptanceMinutes,
+              'estimated_prep_minutes': timing['prep'] ?? 18,
+              'estimated_queue_minutes': timing['queue'] ?? 0,
+              'estimated_ready_at': eta.toIso8601String(),
+              'kot_id': createdKot['id'].toString(),
+            })
+            .eq('id', orderId)
+            .eq('status', 'ACCEPTING')
+            .select('id');
+        if ((acceptedRows as List).isEmpty) {
+          throw StateError('ऑर्डर की स्वीकृति सेव नहीं हो सकी।');
+        }
+        accepted = true;
 
         if (mounted) {
           setState(() {
@@ -3197,6 +3235,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
           'items': items,
           'id': createdKot['id'],
           'created_at': createdKot['created_at'],
+          'qr_order_id': orderId,
         };
         if (_socketConnected && _waiterSocket != null) {
           _waiterSocket!.write('${jsonEncode(message)}\n');
@@ -3206,7 +3245,8 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
         await Supabase.instance.client
             .from('qr_orders')
             .update({'status': 'REJECTED'})
-            .eq('id', orderId);
+            .eq('id', orderId)
+            .eq('status', 'PENDING_APPROVAL');
         if (mounted) {
           setState(() {
             pendingQrOrders.removeWhere((order) => order['id'].toString() == orderId);
@@ -3215,6 +3255,14 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
         VoiceService.speak('टेबल $tableNo का QR ऑर्डर निरस्त किया गया');
       }
     } catch (error) {
+      if (isAccepted && claimed && !accepted) {
+        try {
+          await Supabase.instance.client.from('qr_orders')
+              .update({'status': 'PENDING_APPROVAL'})
+              .eq('id', orderId)
+              .eq('status', 'ACCEPTING');
+        } catch (_) {}
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('QR ऑर्डर अपडेट नहीं हुआ: $error')),
