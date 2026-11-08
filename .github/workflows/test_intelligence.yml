@@ -1,0 +1,31 @@
+name: Python Intelligence Tests
+
+on:
+  pull_request:
+    paths:
+      - "python_intelligence/**"
+      - ".github/workflows/test_intelligence.yml"
+  push:
+    branches:
+      - "feat/qr-kitchen-intelligence-live-tracking"
+    paths:
+      - "python_intelligence/**"
+      - ".github/workflows/test_intelligence.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python_intelligence
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+      - name: Run intelligence engine tests
+        run: pytest -q
