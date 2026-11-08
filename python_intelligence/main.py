@@ -565,8 +565,16 @@ async def estimate_kitchen_time(request: KitchenEstimateRequest) -> dict[str, An
     wait_values = [v for v in wait_values if 0 <= v <= 240]
     acceptance_wait = _percentile(wait_values) if wait_values else 3
 
-    # Queue delay is conservative and scales with the hotel's learned prep pace.
-    queue_minutes = min(60, request.pending_orders_ahead * max(2, round(prep_minutes * 0.25)))
+    # Learn the actual wait between KOT creation/acceptance and the cook pressing
+    # "start". Add a modest load buffer for orders already ahead in the queue.
+    queue_values = [
+        int(row.get("queue_minutes") or 0)
+        for row in (bucket if len(bucket) >= 5 else all_rows)
+    ]
+    queue_values = [v for v in queue_values if 0 <= v <= 240]
+    learned_queue = _percentile([v for v in queue_values if v > 0]) if any(queue_values) else 0
+    load_buffer = max(1, round(prep_minutes * 0.15)) * max(0, request.pending_orders_ahead)
+    queue_minutes = min(90, learned_queue + load_buffer)
     total = max(1, acceptance_wait + prep_minutes + queue_minutes)
     ready_at = now + timedelta(minutes=total)
     sample_count = len(prep_values)
@@ -583,6 +591,7 @@ async def estimate_kitchen_time(request: KitchenEstimateRequest) -> dict[str, An
         "estimated_ready_at": ready_at.isoformat(),
         "prep_sample_count": sample_count,
         "acceptance_sample_count": len(wait_values),
+        "queue_sample_count": len([v for v in queue_values if v > 0]),
         "confidence": confidence,
         "basis": prep_basis,
         "is_learned": bool(history),
