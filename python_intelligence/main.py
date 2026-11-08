@@ -439,7 +439,7 @@ async def _load_kitchen_observations(store_code: str) -> list[dict[str, Any]]:
     }
     cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
     params = {
-        "select": "local_weekday,local_hour,item_signature,items,prep_minutes,order_acceptance_minutes,queue_minutes,ready_at",
+        "select": "local_weekday,local_hour,order_weekday,order_hour,item_signature,items,prep_minutes,order_acceptance_minutes,queue_minutes,ready_at",
         "store_code": f"eq.{store_code}",
         "ready_at": f"gte.{cutoff}",
         "order": "ready_at.desc",
@@ -508,7 +508,14 @@ async def estimate_kitchen_time(request: KitchenEstimateRequest) -> dict[str, An
         else "cold-start fallback"
     )
 
-    wait_rows = [row for row in bucket if row.get("order_acceptance_minutes") is not None]
+    # Acceptance time is bucketed by when the customer placed the order,
+    # independently from the kitchen-start bucket used for preparation/queue.
+    order_bucket = [
+        row for row in all_rows
+        if int(row.get("order_weekday") or row.get("local_weekday") or 0) == weekday
+        and abs(int(row.get("order_hour") if row.get("order_hour") is not None else row.get("local_hour") or 0) - hour) <= 1
+    ]
+    wait_rows = [row for row in order_bucket if row.get("order_acceptance_minutes") is not None]
     if len(wait_rows) < 5:
         wait_rows = [row for row in all_rows if row.get("order_acceptance_minutes") is not None]
     wait_values = [int(row.get("order_acceptance_minutes") or 0) for row in wait_rows]
