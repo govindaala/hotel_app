@@ -106,19 +106,18 @@
     let allItems = [];
     let activeCat = 'ALL';
     let cart = {};
-    let activeTrackedOrder = null, trackingTick = null, trackingPoll = null;
-    let hotelFacts = [], hotelShowTimer = true, trackingApiUrl = '';
+    let activeTrackedOrder = null, trackingTick = null;
+    let hotelFacts = [], hotelShowTimer = true;
 
     async function initMenu() {
       try {
         const { data: resto } = await supabaseClient
           .from('restaurants')
-          .select('name, customer_facts, show_customer_timer, customer_tracking_api_url')
+          .select('name, customer_facts, show_customer_timer')
           .eq('store_code', storeCode)
           .maybeSingle();
         if (resto && resto.name) document.getElementById('hotelTitle').innerText = resto.name;
         hotelShowTimer = resto?.show_customer_timer !== false;
-        trackingApiUrl = String(resto?.customer_tracking_api_url || '').trim().replace(/\\/+$/, '');
         const rawFacts = resto?.customer_facts;
         hotelFacts = Array.isArray(rawFacts) ? rawFacts : (typeof rawFacts === 'string' ? JSON.parse(rawFacts || '[]') : []);
         hotelFacts = hotelFacts.map(x => String(x || '').trim()).filter(Boolean).slice(0, 50);
@@ -258,9 +257,7 @@
     }
     function stopTracking() {
       if (trackingTick) clearInterval(trackingTick);
-      if (trackingPoll) clearInterval(trackingPoll);
       trackingTick = null;
-      trackingPoll = null;
     }
     function createTrackingToken() {
       const bytes = new Uint8Array(24);
@@ -291,37 +288,24 @@
         document.getElementById('trackingEta').textContent = seconds > 0 ? 'अनुमानित समय शेष • तैयार होने का समय ' + eta.toLocaleTimeString('hi-IN',{hour:'2-digit',minute:'2-digit'}) : 'अनुमानित समय पूरा हुआ; किचन से पुष्टि की प्रतीक्षा करें।';
       } else {
         document.getElementById('trackingTimer').textContent = '—';
-        document.getElementById('trackingEta').textContent = !trackingApiUrl ? 'होटल मालिक को Customer tracking API URL सेट करना होगा।' : hotelShowTimer ? 'वेटर की पुष्टि और किचन के अनुमान की प्रतीक्षा…' : 'होटल ने ग्राहक टाइमर बंद रखा है।';
+        document.getElementById('trackingEta').textContent = hotelShowTimer ? 'वेटर की पुष्टि और किचन के अनुमान की प्रतीक्षा…' : 'होटल ने ग्राहक टाइमर बंद रखा है।';
       }
       document.getElementById('trackingNote').textContent = status === 'PENDING_APPROVAL' ? 'वेटर की पुष्टि होते ही किचन के पिछले वास्तविक रिकॉर्ड से समय का अनुमान बनेगा।' : 'अनुमान होटल के अपने दिन, समय, डिश और हाल के वास्तविक किचन रिकॉर्ड पर आधारित है; वास्तविक समय बदल सकता है।';
     }
-    async function refreshTrackedOrder(token) {
-      if (!trackingApiUrl) return;
-      try {
-        const response = await fetch(trackingApiUrl + '/v1/kitchen/order-status', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({store_code:storeCode, tracking_token:token})
-        });
-        if (response.status === 404) return;
-        if (!response.ok) throw new Error('स्थिति सेवा उपलब्ध नहीं है');
-        renderOrderTracking(await response.json());
-      } catch (_) {
-        document.getElementById('trackingCard').style.display = 'block';
-        document.getElementById('trackingNote').textContent = 'स्थिति अपडेट अस्थायी रूप से नहीं मिल रही। इंटरनेट जुड़ते ही फिर प्रयास होगा।';
-      }
-    }
-    async function watchOrder(token) {
+    async function watchOrder(orderId, trackingToken) {
       stopTracking();
-      document.getElementById('trackingCard').style.display = 'block';
-      if (!trackingApiUrl) {
-        document.getElementById('trackingTimer').textContent = '—';
-        document.getElementById('trackingEta').textContent = 'होटल मालिक को Customer tracking API URL सेट करना होगा।';
-        return;
-      }
-      await refreshTrackedOrder(token);
-      trackingPoll = setInterval(() => refreshTrackedOrder(token), 5000);
-      trackingTick = setInterval(() => { if (activeTrackedOrder) renderOrderTracking(activeTrackedOrder); }, 1000);
+      if (!orderId || !trackingToken) return;
+      const refresh = async () => {
+        try {
+          const result = await supabaseClient.rpc('get_qr_order_tracking', {
+            p_order_id: String(orderId),
+            p_tracking_token: String(trackingToken)
+          });
+          if (!result.error && result.data) renderOrderTracking(result.data);
+        } catch (_) {}
+      };
+      await refresh();
+      trackingTick = setInterval(refresh, 5000);
     }
 
     async function submitTableOrder() {
@@ -336,17 +320,20 @@
 
       try {
         const trackingToken = createTrackingToken();
-        const { error } = await supabaseClient.from('qr_orders').insert({
-          store_code: storeCode,
-          table_no: tableNo,
-          items: itemsList,
-          total_amount: totalAmount,
-          status: 'PENDING_APPROVAL',
-          public_tracking_token: trackingToken
+        const { data: newOrder, error } = await supabaseClient.rpc('create_qr_order', {
+          p_store_code: storeCode,
+          p_table_no: Number(tableNo),
+          p_items: itemsList,
+          p_total_amount: totalAmount,
+          p_tracking_token: trackingToken
         });
         if (error) throw error;
-        sessionStorage.setItem('aala_qr_order_' + storeCode + '_' + tableNo, trackingToken);
-        await watchOrder(trackingToken);
+        if (newOrder?.id) {
+          const key = storeCode + '_' + tableNo;
+          sessionStorage.setItem('aala_qr_order_' + key, String(newOrder.id));
+          sessionStorage.setItem('aala_qr_token_' + key, trackingToken);
+          await watchOrder(String(newOrder.id), trackingToken);
+        }
 
         document.getElementById('orderSuccessAlert').style.display = 'block';
         cart = {};
@@ -363,8 +350,10 @@
     }
 
     initMenu().then(async () => {
-      const savedToken = sessionStorage.getItem('aala_qr_order_' + storeCode + '_' + tableNo);
-      if (savedToken) await watchOrder(savedToken);
+      const key = storeCode + '_' + tableNo;
+      const savedOrderId = sessionStorage.getItem('aala_qr_order_' + key);
+      const savedToken = sessionStorage.getItem('aala_qr_token_' + key);
+      if (savedOrderId && savedToken) await watchOrder(savedOrderId, savedToken);
     });
   </script>
 </body>
