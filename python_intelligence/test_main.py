@@ -43,8 +43,10 @@ import main
 def test_kitchen_estimate_uses_weekday_hour_and_dish_history(monkeypatch):
     rows = [
         {
-            "local_weekday": 7,
-            "local_hour": 12,
+            "local_weekday": 1,
+            "local_hour": 1,
+            "order_weekday": 7,
+            "order_hour": 12,
             "items": [{"name": "Paneer Tikka"}],
             "prep_minutes": value,
             "order_acceptance_minutes": wait,
