@@ -1860,6 +1860,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
   void _openCounterTakeOrderSheet(int tbl) {
     final Map<dynamic, int> cart = {};
+    bool isSubmitting = false;
 
     showModalBottomSheet(
       context: context,
@@ -1905,9 +1906,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   height: 48,
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
-                    onPressed: cart.isEmpty
+                    onPressed: cart.isEmpty || isSubmitting
                         ? null
                         : () async {
+                            setBState(() => isSubmitting = true);
                             List<Map<String, dynamic>> newOrderItems = [];
                             cart.forEach((id, qty) {
                               if (qty > 0) {
@@ -1946,6 +1948,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                                     SnackBar(content: Text('KOT सेव नहीं हुआ: $error')),
                                   );
                                 }
+                                setBState(() => isSubmitting = false);
                                 return;
                               }
                               try {
@@ -1961,6 +1964,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                                     SnackBar(content: Text('KOT लोकल में भी सुरक्षित नहीं हुआ: $queueError')),
                                   );
                                 }
+                                setBState(() => isSubmitting = false);
                                 return;
                               }
                               createdKot = {
