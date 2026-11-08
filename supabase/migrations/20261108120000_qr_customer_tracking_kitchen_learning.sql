@@ -143,4 +143,97 @@ FOR EACH ROW
 WHEN (NEW.status = 'ready' AND OLD.status IS DISTINCT FROM NEW.status)
 EXECUTE FUNCTION public.capture_kitchen_learning_observation();
 
+
+-- Customer tracking is token-gated. Anonymous customers must never be able to
+-- list/read other tables' QR orders through the base table.
+CREATE TABLE IF NOT EXISTS public.qr_order_tracking_access (
+  order_id text PRIMARY KEY,
+  store_code text NOT NULL,
+  token_hash text NOT NULL UNIQUE,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.qr_order_tracking_access ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.qr_order_tracking_access FROM anon, authenticated;
+GRANT ALL ON public.qr_order_tracking_access TO service_role;
+
+CREATE OR REPLACE FUNCTION public.create_qr_order(
+  p_store_code text,
+  p_table_no integer,
+  p_items jsonb,
+  p_total_amount numeric,
+  p_tracking_token text
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $
+DECLARE
+  v_order_id text;
+BEGIN
+  IF length(COALESCE(p_tracking_token, '')) < 32 OR length(p_tracking_token) > 128 THEN
+    RAISE EXCEPTION 'Invalid customer tracking token';
+  END IF;
+  IF p_store_code IS NULL OR length(trim(p_store_code)) = 0
+     OR p_table_no IS NULL OR p_table_no < 1
+     OR p_items IS NULL OR jsonb_typeof(p_items) <> 'array'
+     OR jsonb_array_length(p_items) = 0
+     OR p_total_amount IS NULL OR p_total_amount < 0 THEN
+    RAISE EXCEPTION 'Invalid QR order payload';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.restaurants r WHERE r.store_code = p_store_code) THEN
+    RAISE EXCEPTION 'Unknown restaurant';
+  END IF;
+
+  INSERT INTO public.qr_orders (store_code, table_no, items, total_amount, status)
+  VALUES (p_store_code, p_table_no, p_items, p_total_amount, 'PENDING_APPROVAL')
+  RETURNING id::text INTO v_order_id;
+
+  INSERT INTO public.qr_order_tracking_access (order_id, store_code, token_hash)
+  VALUES (v_order_id, p_store_code, md5(p_tracking_token));
+
+  RETURN jsonb_build_object('id', v_order_id, 'status', 'PENDING_APPROVAL');
+END;
+$;
+
+CREATE OR REPLACE FUNCTION public.get_qr_order_tracking(
+  p_order_id text,
+  p_tracking_token text
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $
+DECLARE
+  v_result jsonb;
+BEGIN
+  IF length(COALESCE(p_tracking_token, '')) < 32 OR length(p_tracking_token) > 128 THEN
+    RETURN NULL;
+  END IF;
+  SELECT jsonb_build_object(
+    'id', q.id::text,
+    'status', q.status,
+    'created_at', q.created_at,
+    'accepted_at', q.accepted_at,
+    'estimated_ready_at', q.estimated_ready_at,
+    'estimated_wait_minutes', q.estimated_wait_minutes,
+    'estimated_prep_minutes', q.estimated_prep_minutes,
+    'estimated_queue_minutes', q.estimated_queue_minutes,
+    'ready_at', q.ready_at
+  ) INTO v_result
+  FROM public.qr_orders q
+  JOIN public.qr_order_tracking_access a
+    ON a.order_id = q.id::text
+   AND a.store_code = q.store_code
+  WHERE q.id::text = p_order_id
+    AND a.token_hash = md5(p_tracking_token)
+  LIMIT 1;
+  RETURN v_result;
+END;
+$;
+
+REVOKE ALL ON FUNCTION public.create_qr_order(text, integer, jsonb, numeric, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.get_qr_order_tracking(text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.create_qr_order(text, integer, jsonb, numeric, text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_qr_order_tracking(text, text) TO anon, authenticated;
+
 NOTIFY pgrst, 'reload schema';
