@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import httpx
 from pydantic import BaseModel, Field, ConfigDict
@@ -30,6 +31,18 @@ app = FastAPI(
     title="AALA POS Hotel Intelligence",
     version="1.0.0",
     description="Stateless sales, purchasing and kitchen-operations analysis for AALA POS.",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://govindaala.github.io",
+        "http://localhost",
+        "http://127.0.0.1",
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
 )
 
 # Stateless, best-effort per-process throttling. No business payloads are persisted.
