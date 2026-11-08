@@ -42,7 +42,7 @@ void main() {
 
   group('isRetryableNetworkError', () {
     test('queues transport failures but not application errors', () {
-      expect(isRetryableNetworkError(const SocketException('offline')), isTrue);
+      expect(isRetryableNetworkError(SocketException('offline')), isTrue);
       expect(isRetryableNetworkError(TimeoutException('timed out')), isTrue);
       expect(isRetryableNetworkError(StateError('invalid payload')), isFalse);
     });
