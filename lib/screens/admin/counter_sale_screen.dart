@@ -193,11 +193,23 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     }
 
     try {
-      final List<dynamic> allRows = await supabase
+      // Load only shared catalogue rows and this hotel's own stock rows.
+      // Fetching every hotel's inventory wastes bandwidth and exposes unrelated
+      // tenant rows to the client even though the UI later filters them out.
+      final globalRows = await supabase
           .from('counter_inventory')
           .select('*')
+          .isFilter('restaurant_id', null)
           .order('id', ascending: true);
-      final rows = allRows.map((row) => Map<String, dynamic>.from(row)).toList();
+      final storeRows = await supabase
+          .from('counter_inventory')
+          .select('*')
+          .eq('restaurant_id', widget.storeCode)
+          .order('id', ascending: true);
+      final rows = [
+        ...globalRows.map((row) => Map<String, dynamic>.from(row)),
+        ...storeRows.map((row) => Map<String, dynamic>.from(row)),
+      ];
       await prefs.setString(cacheKey, jsonEncode(rows));
       final grouped = _groupInventoryRows(rows);
       if (mounted) {
