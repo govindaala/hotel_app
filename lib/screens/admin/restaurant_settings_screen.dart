@@ -251,7 +251,7 @@ class _RestaurantSettingsScreenState extends State<RestaurantSettingsScreen>
       await _supabase.from('restaurants').update({
         'customer_facts': customerFacts,
         'show_customer_timer': _showCustomerTimer,
-        'customer_tracking_api_url': _customerTrackingApiCtrl.text.trim().replaceAll(RegExp("/+$"), ''),
+        'customer_tracking_api_url': _customerTrackingApiCtrl.text.trim().replaceAll(RegExp(r"/+$"), ''),
       }).eq('store_code', widget.storeCode);
 
       final prefs = await SharedPreferences.getInstance();
