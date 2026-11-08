@@ -2525,6 +2525,14 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   onChanged: (val) => _toggleIncentiveOffer(val),
                 ),
                 const Divider(),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('शिफ्ट और स्टाफ़ प्रबंधन',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+                  ),
+                ),
                 ListTile(
                   leading: const Icon(Icons.swap_horiz, color: Colors.indigo),
                   title: const Text('गल्ला हैंडओवर (Shift Change)', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -2551,6 +2559,14 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     Navigator.pop(context);
                     _openPrinterDialog();
                   },
+                ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('होटल संचालन और डिवाइस',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+                  ),
                 ),
                 ListTile(
                   leading: const Icon(Icons.qr_code_2, color: Colors.teal),
@@ -2594,6 +2610,14 @@ class _FullCounterAppState extends State<FullCounterApp> {
                     );
                   },
                 ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('वित्त, स्टाफ़ प्रदर्शन और रिपोर्ट',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+                  ),
+                ),
                 ListTile(
                   leading: const Icon(Icons.handshake_outlined, color: Colors.cyan),
                   title: const Text('पार्टनर लेज़र व लाभ बंटवारा', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -2634,6 +2658,14 @@ class _FullCounterAppState extends State<FullCounterApp> {
                       MaterialPageRoute(builder: (_) => CounterReportsScreen(storeCode: widget.storeCode)),
                     );
                   },
+                ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('स्टोर कॉन्फ़िगरेशन',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+                  ),
                 ),
                 ListTile(
                   leading: const Icon(Icons.settings_outlined, color: Colors.blueGrey),
