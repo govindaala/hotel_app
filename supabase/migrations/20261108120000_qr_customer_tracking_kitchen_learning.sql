@@ -174,7 +174,7 @@ CREATE OR REPLACE FUNCTION public.create_qr_order(
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
-AS $
+AS $$
 DECLARE
   v_order_id text;
 BEGIN
@@ -201,7 +201,7 @@ BEGIN
 
   RETURN jsonb_build_object('id', v_order_id, 'status', 'PENDING_APPROVAL');
 END;
-$;
+$$;
 
 CREATE OR REPLACE FUNCTION public.get_qr_order_tracking(
   p_order_id text,
@@ -210,7 +210,7 @@ CREATE OR REPLACE FUNCTION public.get_qr_order_tracking(
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
-AS $
+AS $$
 DECLARE
   v_result jsonb;
 BEGIN
@@ -237,7 +237,7 @@ BEGIN
   LIMIT 1;
   RETURN v_result;
 END;
-$;
+$$;
 
 REVOKE ALL ON FUNCTION public.create_qr_order(text, integer, jsonb, numeric, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.get_qr_order_tracking(text, text) FROM PUBLIC;
