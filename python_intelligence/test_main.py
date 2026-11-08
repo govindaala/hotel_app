@@ -32,3 +32,40 @@ def test_item_names_normalize_and_ignore_blank():
     assert _item_names([{"name": "Paneer Tikka"}, {"item_name": " Tea "}, {"name": ""}]) == {
         "paneer tikka", "tea"
     }
+
+
+import asyncio
+from datetime import datetime
+
+import main
+
+
+def test_kitchen_estimate_uses_weekday_hour_and_dish_history(monkeypatch):
+    rows = [
+        {
+            "local_weekday": 7,
+            "local_hour": 12,
+            "items": [{"name": "Paneer Tikka"}],
+            "prep_minutes": value,
+            "order_acceptance_minutes": wait,
+        }
+        for value, wait in [(20, 2), (25, 3), (30, 4), (35, 5), (40, 6)]
+    ]
+
+    async def fake_history(_store_code):
+        return rows
+
+    monkeypatch.setattr(main, "_load_kitchen_observations", fake_history)
+    request = main.KitchenEstimateRequest(
+        store_code="TEST-01",
+        items=[{"name": "Paneer Tikka"}],
+        pending_orders_ahead=2,
+        now=datetime(2026, 11, 8, 12, 0, tzinfo=main.IST).isoformat(),
+    )
+    result = asyncio.run(main.estimate_kitchen_time(request))
+
+    assert result["prep_minutes"] == 35
+    assert result["acceptance_wait_minutes"] == 5
+    assert result["queue_minutes"] > 0
+    assert result["is_learned"] is True
+    assert result["confidence"] == "medium"
