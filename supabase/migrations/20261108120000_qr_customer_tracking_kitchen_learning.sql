@@ -71,8 +71,8 @@ DECLARE
   v_queue integer;
   v_items jsonb;
   v_signature text;
-  v_local timestamptz;
-  v_order_local timestamptz;
+  v_local timestamp without time zone;
+  v_order_local timestamp without time zone;
 BEGIN
   IF NEW.status IS DISTINCT FROM 'ready' THEN
     RETURN NEW;
