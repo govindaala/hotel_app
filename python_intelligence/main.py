@@ -6,12 +6,14 @@ import io
 import os
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
+import httpx
 from pydantic import BaseModel, Field, ConfigDict
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
@@ -457,6 +459,57 @@ async def _load_kitchen_observations(store_code: str) -> list[dict[str, Any]]:
         raise HTTPException(status_code=503, detail="Kitchen history is temporarily unavailable.") from exc
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=503, detail="Could not reach kitchen history storage.") from exc
+
+
+
+class CustomerOrderTrackingRequest(BaseModel):
+    store_code: str = Field(min_length=1, max_length=64)
+    tracking_token: str = Field(min_length=32, max_length=80)
+
+
+@app.post("/v1/kitchen/order-status")
+async def customer_order_status(request: CustomerOrderTrackingRequest) -> dict[str, Any]:
+    """Return only safe status fields for a customer holding an unguessable order token."""
+    token = request.tracking_token.strip()
+    if not all(ch.isalnum() or ch in "-_" for ch in token):
+        raise HTTPException(status_code=400, detail="Invalid tracking token.")
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not supabase_url or not service_key:
+        raise HTTPException(status_code=503, detail="Order tracking service is not configured.")
+    headers = {
+        "apikey": service_key,
+        "Authorization": f"Bearer {service_key}",
+        "Accept": "application/json",
+    }
+    params = {
+        "select": "status,created_at,accepted_at,estimated_ready_at,ready_at,table_no",
+        "store_code": f"eq.{request.store_code.strip()}",
+        "public_tracking_token": f"eq.{token}",
+        "limit": "1",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as client:
+            response = await client.get(
+                f"{supabase_url}/rest/v1/qr_orders",
+                headers=headers,
+                params=params,
+            )
+            response.raise_for_status()
+            rows = response.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail="Order status is temporarily unavailable.") from exc
+    if not isinstance(rows, list) or not rows:
+        raise HTTPException(status_code=404, detail="Order tracking token not found.")
+    row = rows[0]
+    return {
+        "status": row.get("status"),
+        "created_at": row.get("created_at"),
+        "accepted_at": row.get("accepted_at"),
+        "estimated_ready_at": row.get("estimated_ready_at"),
+        "ready_at": row.get("ready_at"),
+        "table_no": row.get("table_no"),
+    }
 
 
 @app.post("/v1/kitchen/estimate")
