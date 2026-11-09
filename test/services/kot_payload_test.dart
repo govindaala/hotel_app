@@ -40,6 +40,23 @@ void main() {
     });
   });
 
+  group('buildKotStatusPayload', () {
+    test('scopes status retries to the originating store with a stable key', () {
+      final payload = buildKotStatusPayload(
+        id: 'kot-123',
+        storeCode: 'HOTEL-01',
+        status: 'ready',
+      );
+
+      expect(payload, {
+        'id': 'kot-123',
+        'store_code': 'HOTEL-01',
+        'status': 'ready',
+      });
+      expect(buildKotStatusOperationId('kot-123', 'ready'), 'kot-123-status-ready');
+    });
+  });
+
   group('isRetryableNetworkError', () {
     test('queues transport failures but not application errors', () {
       expect(isRetryableNetworkError(SocketException('offline')), isTrue);
