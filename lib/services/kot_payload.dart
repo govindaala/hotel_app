@@ -41,3 +41,20 @@ bool isRetryableNetworkError(Object error) {
       error is TimeoutException ||
       error is http.ClientException;
 }
+
+
+/// Builds a tenant-scoped, idempotent status update for the local retry queue.
+Map<String, dynamic> buildKotStatusPayload({
+  required String id,
+  required String storeCode,
+  required String status,
+}) {
+  return {
+    'id': id,
+    'store_code': storeCode,
+    'status': status,
+  };
+}
+
+String buildKotStatusOperationId(String kotId, String status) =>
+    '$kotId-status-$status';
