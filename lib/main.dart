@@ -1867,9 +1867,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
       context: context,
       isScrollControlled: true,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setBState) {
+        builder: (sheetContext, setBState) {
           return Container(
-            height: MediaQuery.of(context).size.height * 0.90,
+            height: MediaQuery.of(sheetContext).size.height * 0.90,
             padding: const EdgeInsets.all(12),
             child: Column(
               children: [
@@ -1878,7 +1878,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   children: [
                     Text('🍽️ टेबल T-$tbl पर नया ऑर्डर लें',
                         style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(sheetContext)),
                   ],
                 ),
                 const Divider(),
@@ -1944,12 +1944,12 @@ class _FullCounterAppState extends State<FullCounterApp> {
                               createdKot = Map<String, dynamic>.from(cloudKot);
                             } catch (error) {
                               if (!isRetryableNetworkError(error)) {
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
+                                if (sheetContext.mounted) {
+                                  ScaffoldMessenger.of(sheetContext).showSnackBar(
                                     SnackBar(content: Text('KOT सेव नहीं हुआ: $error')),
                                   );
                                 }
-                                setBState(() => isSubmitting = false);
+                                if (sheetContext.mounted) setBState(() => isSubmitting = false);
                                 return;
                               }
                               try {
@@ -1960,20 +1960,20 @@ class _FullCounterAppState extends State<FullCounterApp> {
                                   payload: kotPayload,
                                 );
                               } catch (queueError) {
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
+                                if (sheetContext.mounted) {
+                                  ScaffoldMessenger.of(sheetContext).showSnackBar(
                                     SnackBar(content: Text('KOT लोकल में भी सुरक्षित नहीं हुआ: $queueError')),
                                   );
                                 }
-                                setBState(() => isSubmitting = false);
+                                if (sheetContext.mounted) setBState(() => isSubmitting = false);
                                 return;
                               }
                               createdKot = {
                                 'id': kotId,
                                 'created_at': createdAtIso,
                               };
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
+                              if (sheetContext.mounted) {
+                                ScaffoldMessenger.of(sheetContext).showSnackBar(
                                   const SnackBar(
                                     content: Text('इंटरनेट उपलब्ध नहीं है। KOT इस डिवाइस में सुरक्षित है और नेटवर्क आने पर Sync होगा।'),
                                     backgroundColor: Colors.orange,
@@ -1985,23 +1985,24 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
                             // Do not show a local active table until the KOT is
                             // confirmed in cloud or durably stored in the offline queue.
-                            setState(() {
-                              activeOrders[tbl] = newOrderItems;
-                              tableStateMap[tbl] = 'running';
-                              tableWaiterMap[tbl] = 'COUNTER';
-                            });
+                            if (mounted) {
+                              setState(() {
+                                activeOrders[tbl] = newOrderItems;
+                                tableStateMap[tbl] = 'running';
+                                tableWaiterMap[tbl] = 'COUNTER';
+                              });
 
-                            _broadcastLocal({
-                              'type': 'NEW_KOT',
-                              'table': tbl,
-                              'waiter_id': 'COUNTER',
-                              'items': newOrderItems,
-                              'id': createdKot['id'],
-                              'created_at': createdKot['created_at'],
-                            });
-
-                            if (mounted) Navigator.pop(context);
-                            VoiceService.speak("टेबल $tbl का KOT किचन भेज दिया गया");
+                              _broadcastLocal({
+                                'type': 'NEW_KOT',
+                                'table': tbl,
+                                'waiter_id': 'COUNTER',
+                                'items': newOrderItems,
+                                'id': createdKot['id'],
+                                'created_at': createdKot['created_at'],
+                              });
+                              VoiceService.speak("टेबल $tbl का KOT किचन भेज दिया गया");
+                            }
+                            if (sheetContext.mounted) Navigator.pop(sheetContext);
                           },
                     child: const Text('किचन KOT भेजें ➔',
                         style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
