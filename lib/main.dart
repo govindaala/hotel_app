@@ -32,6 +32,7 @@ import 'screens/admin/qr_table_generator_screen.dart';
 import 'services/kitchen_learning_service.dart';
 import 'services/usb_printer_service.dart';
 import 'services/offline_database.dart';
+import 'services/kot_payload.dart';
 
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
@@ -896,6 +897,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 .from('hotel_kots')
                 .update({'status': payload['status']})
                 .eq('id', payload['id'])
+                .eq('store_code', widget.storeCode)
                 .select('id');
             if ((updatedRows as List).isEmpty) {
               throw StateError('KOT ${payload['id']} नहीं मिला; ऑफलाइन अपडेट कतार में रखा गया।');
@@ -1859,14 +1861,15 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
   void _openCounterTakeOrderSheet(int tbl) {
     final Map<dynamic, int> cart = {};
+    bool isSubmitting = false;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setBState) {
+        builder: (sheetContext, setBState) {
           return Container(
-            height: MediaQuery.of(context).size.height * 0.90,
+            height: MediaQuery.of(sheetContext).size.height * 0.90,
             padding: const EdgeInsets.all(12),
             child: Column(
               children: [
@@ -1875,7 +1878,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   children: [
                     Text('🍽️ टेबल T-$tbl पर नया ऑर्डर लें',
                         style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(sheetContext)),
                   ],
                 ),
                 const Divider(),
@@ -1904,9 +1907,10 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   height: 48,
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A)),
-                    onPressed: cart.isEmpty
+                    onPressed: cart.isEmpty || isSubmitting
                         ? null
                         : () async {
+                            setBState(() => isSubmitting = true);
                             List<Map<String, dynamic>> newOrderItems = [];
                             cart.forEach((id, qty) {
                               if (qty > 0) {
@@ -1916,22 +1920,77 @@ class _FullCounterAppState extends State<FullCounterApp> {
                               }
                             });
 
-                            setState(() {
-                              activeOrders[tbl] = newOrderItems;
-                              tableStateMap[tbl] = 'running';
-                              tableWaiterMap[tbl] = 'COUNTER';
-                            });
+                            final kotId = OfflineDatabase.instance.createId();
+                            final createdAt = DateTime.now();
+                            final createdAtIso = createdAt.toIso8601String();
+                            final kotPayload = buildKotPayload(
+                              id: kotId,
+                              storeCode: widget.storeCode,
+                              tableNo: tbl,
+                              tableName: 'T-$tbl',
+                              items: newOrderItems,
+                              source: 'COUNTER',
+                              waiterId: 'COUNTER',
+                              createdAt: createdAt,
+                            );
 
+                            Map<String, dynamic> createdKot;
                             try {
-                              final createdKot = await Supabase.instance.client.from('hotel_kots').insert({
-                                'store_code': widget.storeCode,
-                                'table_no': tbl,
-                                'waiter_id': 'COUNTER',
-                                'items': jsonEncode(newOrderItems),
-                                'status': 'pending',
-                                'source': 'COUNTER',
-                                'created_at': DateTime.now().toIso8601String(),
-                              }).select('id, created_at').single();
+                              final cloudKot = await Supabase.instance.client
+                                  .from('hotel_kots')
+                                  .insert(kotPayload)
+                                  .select('id, created_at')
+                                  .single();
+                              createdKot = Map<String, dynamic>.from(cloudKot);
+                            } catch (error) {
+                              if (!isRetryableNetworkError(error)) {
+                                if (sheetContext.mounted) {
+                                  ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                    SnackBar(content: Text('KOT सेव नहीं हुआ: $error')),
+                                  );
+                                }
+                                if (sheetContext.mounted) setBState(() => isSubmitting = false);
+                                return;
+                              }
+                              try {
+                                await OfflineDatabase.instance.enqueue(
+                                  id: kotId,
+                                  storeCode: widget.storeCode,
+                                  entity: 'hotel_kots',
+                                  payload: kotPayload,
+                                );
+                              } catch (queueError) {
+                                if (sheetContext.mounted) {
+                                  ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                    SnackBar(content: Text('KOT लोकल में भी सुरक्षित नहीं हुआ: $queueError')),
+                                  );
+                                }
+                                if (sheetContext.mounted) setBState(() => isSubmitting = false);
+                                return;
+                              }
+                              createdKot = {
+                                'id': kotId,
+                                'created_at': createdAtIso,
+                              };
+                              if (sheetContext.mounted) {
+                                ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('इंटरनेट उपलब्ध नहीं है। KOT इस डिवाइस में सुरक्षित है और नेटवर्क आने पर Sync होगा।'),
+                                    backgroundColor: Colors.orange,
+                                  ),
+                                );
+                              }
+                              debugPrint('Counter table KOT queued for offline sync: $error');
+                            }
+
+                            // Do not show a local active table until the KOT is
+                            // confirmed in cloud or durably stored in the offline queue.
+                            if (mounted) {
+                              setState(() {
+                                activeOrders[tbl] = newOrderItems;
+                                tableStateMap[tbl] = 'running';
+                                tableWaiterMap[tbl] = 'COUNTER';
+                              });
 
                               _broadcastLocal({
                                 'type': 'NEW_KOT',
@@ -1941,17 +2000,9 @@ class _FullCounterAppState extends State<FullCounterApp> {
                                 'id': createdKot['id'],
                                 'created_at': createdKot['created_at'],
                               });
-                            } catch (error) {
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('KOT सेव नहीं हुआ: $error')),
-                                );
-                              }
-                              return;
+                              VoiceService.speak("टेबल $tbl का KOT किचन भेज दिया गया");
                             }
-
-                            if (mounted) Navigator.pop(context);
-                            VoiceService.speak("टेबल $tbl का KOT किचन भेज दिया गया");
+                            if (sheetContext.mounted) Navigator.pop(sheetContext);
                           },
                     child: const Text('किचन KOT भेजें ➔',
                         style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
@@ -4027,6 +4078,9 @@ class _FullCookAppState extends State<FullCookApp> {
   Timer? _cookSyncTimer;
 
   Map<String, dynamic>? _lastReadyOrder;
+  bool _isMarkingReady = false;
+  bool _isUndoingReadyKot = false;
+  bool _isSyncingKotStatuses = false;
 
   @override
   void initState() {
@@ -4035,6 +4089,7 @@ class _FullCookAppState extends State<FullCookApp> {
 
     _cookSyncTimer = Timer.periodic(const Duration(seconds: 25), (_) {
       if (!_socketConnected) _connectToSocket();
+      _syncPendingKotStatusOperations();
       _syncFromCloud();
     });
 
@@ -4052,6 +4107,7 @@ class _FullCookAppState extends State<FullCookApp> {
     final prefs = await SharedPreferences.getInstance();
     _counterIp = prefs.getString('saved_counter_ip') ?? '192.168.43.1';
     _connectToSocket();
+    _syncPendingKotStatusOperations();
     _syncFromCloud();
   }
 
@@ -4243,11 +4299,65 @@ class _FullCookAppState extends State<FullCookApp> {
 
   Future<void> _queueOfflineKotStatus(String kotId, String status) async {
     await OfflineDatabase.instance.enqueue(
-      id: '$kotId-status-$status',
+      id: buildKotStatusOperationId(kotId, status),
       storeCode: widget.storeCode,
       entity: 'hotel_kots_update',
-      payload: {'id': kotId, 'status': status},
+      payload: buildKotStatusPayload(
+        id: kotId,
+        storeCode: widget.storeCode,
+        status: status,
+      ),
     );
+  }
+
+  /// The kitchen device owns its own durable queue. Drain KOT status changes
+  /// here as well as in the counter app so a cook-only device can recover
+  /// without logging into the counter role.
+  Future<void> _syncPendingKotStatusOperations() async {
+    if (_isSyncingKotStatuses) return;
+    _isSyncingKotStatuses = true;
+    try {
+      final pending = await OfflineDatabase.instance.pending(widget.storeCode);
+      for (final operation in pending) {
+        if (operation['entity']?.toString() != 'hotel_kots_update') continue;
+        final operationId = operation['id'].toString();
+        try {
+          final payload = Map<String, dynamic>.from(
+            jsonDecode(operation['payload'].toString()) as Map,
+          );
+          final kotId = payload['id']?.toString() ?? '';
+          final status = payload['status']?.toString() ?? '';
+          final payloadStoreCode = payload['store_code']?.toString();
+          if (kotId.isEmpty ||
+              !const {'pending', 'ready'}.contains(status) ||
+              (payloadStoreCode != null && payloadStoreCode != widget.storeCode)) {
+            throw StateError('अमान्य या दूसरे होटल का KOT status operation: $operationId');
+          }
+
+          final rows = await Supabase.instance.client
+              .from('hotel_kots')
+              .update({'status': status})
+              .eq('id', kotId)
+              .eq('store_code', widget.storeCode)
+              .select('id');
+          if ((rows as List).isEmpty) {
+            throw StateError('KOT $kotId इस होटल में नहीं मिला; status sync रोका गया।');
+          }
+          await OfflineDatabase.instance.markSynced(operationId);
+        } catch (error) {
+          try {
+            await OfflineDatabase.instance.recordFailure(operationId, error);
+          } catch (queueError) {
+            debugPrint('KOT status retry metadata update failed: $queueError');
+          }
+          debugPrint('Kitchen KOT status sync deferred: $error');
+        }
+      }
+    } catch (error) {
+      debugPrint('Kitchen offline KOT queue read failed: $error');
+    } finally {
+      _isSyncingKotStatuses = false;
+    }
   }
 
   Future<void> _markOrderPreparing(int index) async {
@@ -4262,6 +4372,7 @@ class _FullCookAppState extends State<FullCookApp> {
           .from('hotel_kots')
           .update({'status': 'preparing', 'started_at': startedAt.toIso8601String()})
           .eq('id', kotId)
+          .eq('store_code', widget.storeCode)
           .eq('status', 'pending')
           .select('id');
       if ((rows as List).isEmpty) {
@@ -4291,22 +4402,54 @@ class _FullCookAppState extends State<FullCookApp> {
     }
   }
 
-  void _markOrderReady(int index) async {
-    final order = kitchenOrders[index];
-    setState(() {
-      _lastReadyOrder = Map<String, dynamic>.from(order);
-      kitchenOrders.removeAt(index);
-    });
-
-    if (_socketConnected && _cookSocket != null) {
-      try {
-        _cookSocket!.write(jsonEncode({'type': 'ORDER_READY', 'table': order['table']}) + "\n");
-      } catch (_) {}
+  Future<void> _markOrderReady(int index) async {
+    if (_isMarkingReady || index < 0 || index >= kitchenOrders.length) return;
+    final order = Map<String, dynamic>.from(kitchenOrders[index]);
+    final kotId = order['id']?.toString();
+    if (kotId == null || kotId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('इस KOT की सर्वर पहचान उपलब्ध नहीं है; इसे Ready नहीं किया गया।')),
+      );
+      return;
     }
 
-    if (order['id'] != null) {
-      final kotId = order['id'].toString();
-      final createdAt = DateTime.tryParse(order['started_at']?.toString() ?? '') ?? DateTime.tryParse(order['created_at']?.toString() ?? '') ?? DateTime.now();
+    _isMarkingReady = true;
+    try {
+      // Persist remotely or in the durable local queue before removing the KOT.
+      try {
+        final readyRows = await Supabase.instance.client
+            .from('hotel_kots')
+            .update({'status': 'ready'})
+            .eq('id', kotId)
+            .eq('store_code', widget.storeCode)
+            .select('id');
+        if ((readyRows as List).isEmpty) {
+          throw StateError('KOT $kotId इस होटल में नहीं मिला; स्थिति अपडेट नहीं हुई।');
+        }
+      } catch (error) {
+        if (!isRetryableNetworkError(error)) rethrow;
+        await _queueOfflineKotStatus(kotId, 'ready');
+        debugPrint('KOT ready status queued for cloud sync: $error');
+      }
+
+      if (!mounted) return;
+      setState(() {
+        final currentIndex = kitchenOrders.indexWhere(
+          (candidate) => candidate['id']?.toString() == kotId,
+        );
+        if (currentIndex >= 0) kitchenOrders.removeAt(currentIndex);
+        _lastReadyOrder = Map<String, dynamic>.from(order);
+      });
+
+      if (_socketConnected && _cookSocket != null) {
+        try {
+          _cookSocket!.write(jsonEncode({'type': 'ORDER_READY', 'table': order['table']}) + "\n");
+        } catch (_) {}
+      }
+
+      final createdAt = DateTime.tryParse(order['started_at']?.toString() ?? '') ??
+          DateTime.tryParse(order['created_at']?.toString() ?? '') ??
+          DateTime.now();
       try {
         await KitchenLearningService.recordKotCompletionAndLearn(
           storeCode: widget.storeCode,
@@ -4316,58 +4459,79 @@ class _FullCookAppState extends State<FullCookApp> {
       } catch (error) {
         debugPrint('Kitchen learning update deferred: $error');
       }
-      try {
-        final readyRows = await Supabase.instance.client
-            .from('hotel_kots')
-            .update({'status': 'ready'})
-            .eq('id', kotId)
-            .select('id');
-        if ((readyRows as List).isEmpty) {
-          throw StateError('KOT $kotId सर्वर पर नहीं मिला; स्थिति अपडेट नहीं हुई।');
-        }
-      } catch (error) {
-        await _queueOfflineKotStatus(kotId, 'ready');
-        debugPrint('KOT ready status queued for cloud sync: $error');
-      }
-    }
 
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('टेबल T-${order['table']} तैयार मार्क हुआ'),
-        duration: const Duration(seconds: 6),
-        action: SnackBarAction(
-          label: 'वापस लाएं (Undo)',
-          textColor: Colors.yellowAccent,
-          onPressed: _undoReadyKot,
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('टेबल T-${order['table']} तैयार मार्क हुआ'),
+          duration: const Duration(seconds: 6),
+          action: SnackBarAction(
+            label: 'वापस लाएं (Undo)',
+            textColor: Colors.yellowAccent,
+            onPressed: _undoReadyKot,
+          ),
         ),
-      ),
-    );
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('KOT Ready सेव नहीं हुआ: $error')),
+        );
+      }
+    } finally {
+      _isMarkingReady = false;
+    }
   }
 
-  void _undoReadyKot() async {
-    if (_lastReadyOrder == null) return;
-    final order = _lastReadyOrder!;
-    setState(() {
-      kitchenOrders.insert(0, order);
-      _lastReadyOrder = null;
-    });
+  Future<void> _undoReadyKot() async {
+    if (_isUndoingReadyKot || _lastReadyOrder == null) return;
+    final order = Map<String, dynamic>.from(_lastReadyOrder!);
+    final kotId = order['id']?.toString();
+    if (kotId == null || kotId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Undo नहीं हुआ: KOT की सर्वर पहचान उपलब्ध नहीं है।')),
+      );
+      return;
+    }
 
-    if (order['id'] != null) {
-      final kotId = order['id'].toString();
+    _isUndoingReadyKot = true;
+    try {
       try {
         final pendingRows = await Supabase.instance.client
             .from('hotel_kots')
             .update({'status': 'pending'})
             .eq('id', kotId)
+            .eq('store_code', widget.storeCode)
             .select('id');
         if ((pendingRows as List).isEmpty) {
-          throw StateError('KOT $kotId सर्वर पर नहीं मिला; Undo स्थिति सिंक नहीं हुई।');
+          throw StateError('KOT $kotId इस होटल में नहीं मिला; Undo स्थिति अपडेट नहीं हुई।');
         }
       } catch (error) {
+        if (!isRetryableNetworkError(error)) rethrow;
         await _queueOfflineKotStatus(kotId, 'pending');
         debugPrint('KOT undo status queued for cloud sync: $error');
       }
+
+      if (!mounted) return;
+      setState(() {
+        kitchenOrders.removeWhere(
+          (candidate) => candidate['id']?.toString() == kotId,
+        );
+        order['status'] = 'pending';
+        kitchenOrders.insert(0, order);
+        if (_lastReadyOrder?['id']?.toString() == kotId) {
+          _lastReadyOrder = null;
+        }
+      });
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('KOT Undo सेव नहीं हुआ: $error')),
+        );
+      }
+    } finally {
+      _isUndoingReadyKot = false;
     }
   }
 
