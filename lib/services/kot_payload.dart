@@ -43,16 +43,25 @@ bool isRetryableNetworkError(Object error) {
 }
 
 
+/// Only these KOT states are written by the offline status queue.
+bool isSupportedKotStatus(String status) =>
+    const {'pending', 'preparing', 'ready'}.contains(status);
+
 /// Builds a tenant-scoped, idempotent status update for the local retry queue.
+/// Preparing operations retain their original start time and QR order link.
 Map<String, dynamic> buildKotStatusPayload({
   required String id,
   required String storeCode,
   required String status,
+  String? startedAt,
+  String? qrOrderId,
 }) {
   return {
     'id': id,
     'store_code': storeCode,
     'status': status,
+    if (startedAt != null) 'started_at': startedAt,
+    if (qrOrderId != null && qrOrderId.isNotEmpty) 'qr_order_id': qrOrderId,
   };
 }
 

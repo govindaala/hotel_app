@@ -55,6 +55,28 @@ void main() {
       });
       expect(buildKotStatusOperationId('kot-123', 'ready'), 'kot-123-status-ready');
     });
+
+    test('preserves preparing time and QR linkage for offline recovery', () {
+      const startedAt = '2026-11-10T09:15:00.000Z';
+      final payload = buildKotStatusPayload(
+        id: 'kot-456',
+        storeCode: 'HOTEL-02',
+        status: 'preparing',
+        startedAt: startedAt,
+        qrOrderId: 'qr-789',
+      );
+
+      expect(payload, {
+        'id': 'kot-456',
+        'store_code': 'HOTEL-02',
+        'status': 'preparing',
+        'started_at': startedAt,
+        'qr_order_id': 'qr-789',
+      });
+      expect(buildKotStatusOperationId('kot-456', 'preparing'), 'kot-456-status-preparing');
+      expect(isSupportedKotStatus('preparing'), isTrue);
+      expect(isSupportedKotStatus('cancelled'), isFalse);
+    });
   });
 
   group('isRetryableNetworkError', () {
