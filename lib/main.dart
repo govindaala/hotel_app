@@ -893,14 +893,38 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 .single();
             await OfflineDatabase.instance.markSynced(operation['id'].toString());
           } else if (entity == 'hotel_kots_update') {
+            final kotId = payload['id']?.toString() ?? '';
+            final status = payload['status']?.toString() ?? '';
+            final payloadStoreCode = payload['store_code']?.toString();
+            if (kotId.isEmpty ||
+                !isSupportedKotStatus(status) ||
+                (payloadStoreCode != null && payloadStoreCode != widget.storeCode)) {
+              throw StateError('अमान्य या दूसरे होटल का KOT status operation: ${operation['id']}');
+            }
+            final update = <String, dynamic>{'status': status};
+            if (status == 'preparing' && payload['started_at'] != null) {
+              update['started_at'] = payload['started_at'];
+            }
             final updatedRows = await Supabase.instance.client
                 .from('hotel_kots')
-                .update({'status': payload['status']})
-                .eq('id', payload['id'])
+                .update(update)
+                .eq('id', kotId)
                 .eq('store_code', widget.storeCode)
                 .select('id');
             if ((updatedRows as List).isEmpty) {
-              throw StateError('KOT ${payload['id']} नहीं मिला; ऑफलाइन अपडेट कतार में रखा गया।');
+              throw StateError('KOT $kotId नहीं मिला; ऑफलाइन अपडेट कतार में रखा गया।');
+            }
+            final qrOrderId = payload['qr_order_id']?.toString();
+            if (status == 'preparing' && qrOrderId != null && qrOrderId.isNotEmpty) {
+              final qrRows = await Supabase.instance.client
+                  .from('qr_orders')
+                  .update({'status': 'PREPARING'})
+                  .eq('id', qrOrderId)
+                  .eq('store_code', widget.storeCode)
+                  .select('id');
+              if ((qrRows as List).isEmpty) {
+                throw StateError('QR ऑर्डर $qrOrderId इस होटल में नहीं मिला; status sync रोका गया।');
+              }
             }
             await OfflineDatabase.instance.markSynced(operation['id'].toString());
           } else if (entity == 'counter_inventory_update') {
@@ -4297,7 +4321,12 @@ class _FullCookAppState extends State<FullCookApp> {
     );
   }
 
-  Future<void> _queueOfflineKotStatus(String kotId, String status) async {
+  Future<void> _queueOfflineKotStatus(
+    String kotId,
+    String status, {
+    DateTime? startedAt,
+    String? qrOrderId,
+  }) async {
     await OfflineDatabase.instance.enqueue(
       id: buildKotStatusOperationId(kotId, status),
       storeCode: widget.storeCode,
@@ -4306,6 +4335,8 @@ class _FullCookAppState extends State<FullCookApp> {
         id: kotId,
         storeCode: widget.storeCode,
         status: status,
+        startedAt: startedAt?.toIso8601String(),
+        qrOrderId: qrOrderId,
       ),
     );
   }
@@ -4329,19 +4360,35 @@ class _FullCookAppState extends State<FullCookApp> {
           final status = payload['status']?.toString() ?? '';
           final payloadStoreCode = payload['store_code']?.toString();
           if (kotId.isEmpty ||
-              !const {'pending', 'ready'}.contains(status) ||
+              !isSupportedKotStatus(status) ||
               (payloadStoreCode != null && payloadStoreCode != widget.storeCode)) {
             throw StateError('अमान्य या दूसरे होटल का KOT status operation: $operationId');
           }
 
+          final update = <String, dynamic>{'status': status};
+          if (status == 'preparing' && payload['started_at'] != null) {
+            update['started_at'] = payload['started_at'];
+          }
           final rows = await Supabase.instance.client
               .from('hotel_kots')
-              .update({'status': status})
+              .update(update)
               .eq('id', kotId)
               .eq('store_code', widget.storeCode)
               .select('id');
           if ((rows as List).isEmpty) {
             throw StateError('KOT $kotId इस होटल में नहीं मिला; status sync रोका गया।');
+          }
+          final qrOrderId = payload['qr_order_id']?.toString();
+          if (status == 'preparing' && qrOrderId != null && qrOrderId.isNotEmpty) {
+            final qrRows = await Supabase.instance.client
+                .from('qr_orders')
+                .update({'status': 'PREPARING'})
+                .eq('id', qrOrderId)
+                .eq('store_code', widget.storeCode)
+                .select('id');
+            if ((qrRows as List).isEmpty) {
+              throw StateError('QR ऑर्डर $qrOrderId इस होटल में नहीं मिला; status sync रोका गया।');
+            }
           }
           await OfflineDatabase.instance.markSynced(operationId);
         } catch (error) {
@@ -4366,31 +4413,65 @@ class _FullCookAppState extends State<FullCookApp> {
     if ((order['status'] ?? 'pending').toString().toLowerCase() == 'preparing') return;
     final kotId = order['id']?.toString();
     if (kotId == null || kotId.isEmpty) return;
+
     final startedAt = DateTime.now();
+    final startedAtIso = startedAt.toIso8601String();
+    final qrOrderId = order['qr_order_id']?.toString();
+    var queuedOffline = false;
     try {
-      final rows = await Supabase.instance.client
-          .from('hotel_kots')
-          .update({'status': 'preparing', 'started_at': startedAt.toIso8601String()})
-          .eq('id', kotId)
-          .eq('store_code', widget.storeCode)
-          .eq('status', 'pending')
-          .select('id');
-      if ((rows as List).isEmpty) {
-        throw StateError('KOT की स्थिति बदल चुकी है; सूची रीफ़्रेश करें।');
+      try {
+        final rows = await Supabase.instance.client
+            .from('hotel_kots')
+            .update({'status': 'preparing', 'started_at': startedAtIso})
+            .eq('id', kotId)
+            .eq('store_code', widget.storeCode)
+            .eq('status', 'pending')
+            .select('id');
+        if ((rows as List).isEmpty) {
+          throw StateError('KOT की स्थिति बदल चुकी है; सूची रीफ़्रेश करें।');
+        }
+      } catch (error) {
+        if (!isRetryableNetworkError(error)) rethrow;
+        await _queueOfflineKotStatus(
+          kotId,
+          'preparing',
+          startedAt: startedAt,
+          qrOrderId: qrOrderId,
+        );
+        queuedOffline = true;
       }
-      if (mounted) {
-        setState(() {
-          order['status'] = 'preparing';
-          order['started_at'] = startedAt.toIso8601String();
-        });
+
+      if (!queuedOffline && qrOrderId != null && qrOrderId.isNotEmpty) {
+        try {
+          await Supabase.instance.client
+              .from('qr_orders')
+              .update({'status': 'PREPARING'})
+              .eq('id', qrOrderId)
+              .eq('store_code', widget.storeCode);
+        } catch (error) {
+          if (!isRetryableNetworkError(error)) rethrow;
+          await _queueOfflineKotStatus(
+            kotId,
+            'preparing',
+            startedAt: startedAt,
+            qrOrderId: qrOrderId,
+          );
+          queuedOffline = true;
+        }
       }
-      final qrOrderId = order['qr_order_id']?.toString();
-      if (qrOrderId != null && qrOrderId.isNotEmpty) {
-        await Supabase.instance.client
-            .from('qr_orders')
-            .update({'status': 'PREPARING'})
-            .eq('id', qrOrderId)
-            .eq('store_code', widget.storeCode);
+
+      if (!mounted) return;
+      setState(() {
+        order['status'] = 'preparing';
+        order['started_at'] = startedAtIso;
+      });
+      if (queuedOffline) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('इंटरनेट नहीं है। किचन स्टार्ट स्थिति इस डिवाइस में सुरक्षित है; नेटवर्क आने पर Sync होगी।'),
+            backgroundColor: Colors.orange,
+          ),
+        );
       }
       VoiceService.speak('टेबल ${order['table']} का खाना बनना शुरू हुआ');
     } catch (error) {
