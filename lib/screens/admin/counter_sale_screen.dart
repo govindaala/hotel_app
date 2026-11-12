@@ -192,9 +192,15 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     }
 
     try {
+      final storeCode = widget.storeCode.trim();
+      if (!RegExp(r'^[A-Za-z0-9_-]{1,64}$').hasMatch(storeCode)) {
+        throw StateError('अमान्य स्टोर कोड; इन्वेंटरी सुरक्षित रूप से लोड नहीं की जा सकती।');
+      }
       final List<dynamic> allRows = await supabase
           .from('counter_inventory')
+          // Cache only the shared catalogue and this hotel's own stock rows.
           .select('*')
+          .or('restaurant_id.is.null,restaurant_id.eq.$storeCode')
           .order('id', ascending: true);
       final rows = allRows.map((row) => Map<String, dynamic>.from(row)).toList();
       await prefs.setString(cacheKey, jsonEncode(rows));
