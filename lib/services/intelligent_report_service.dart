@@ -42,8 +42,9 @@ class IntelligentReportService {
   }) async {
     if (_apiBaseUrl.trim().isEmpty) {
       throw StateError(
-        'Python रिपोर्ट सर्वर कॉन्फ़िगर नहीं है। Render पर सेवा deploy करके '
-        'AALA_INTELLIGENCE_API_URL के साथ APK build करें।',
+        'Python Intelligence सेवा का API पता इस APK में सेट नहीं है। '
+        'अभी कोई रिपोर्ट सर्वर कनेक्ट नहीं है; सेवा उपलब्ध होने और '
+        'AALA_INTELLIGENCE_API_URL कॉन्फ़िगर होने के बाद रिपोर्ट बनेगी।',
       );
     }
 

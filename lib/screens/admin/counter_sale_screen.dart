@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -316,7 +317,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         'price': item['price'],
       }).toList();
       final invoiceNo = billNo ?? 'POS-${DateTime.now().millisecondsSinceEpoch}';
-      bool printed = false;
+      Uint8List? receiptImage;
 
       final receipt = await buildThermalReceiptPdf(
         hotelName: (_hotelProfile['name'] ?? 'AALA').toString(),
@@ -339,8 +340,9 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         reviewUrl: _hotelProfile['google_review_link']?.toString(),
         paperWidthMm: 58,
         onImageGenerated: (imageBytes) async {
-          printed = await UsbThermalPrinterManager.instance
-              .printPngImage(imageBytes, paperWidthMm: 58);
+          // Generate the receipt first. Printing is an explicit user action below,
+          // so a missing printer can never suppress the PDF/share options.
+          receiptImage = imageBytes;
         },
       );
 
@@ -349,34 +351,61 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       await pdfFile.writeAsBytes(await receipt.save(), flush: true);
 
       if (!mounted) return;
-      final shouldShare = await showDialog<String>(
+      final action = await showDialog<String>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('काउंटर बिल तैयार है'),
-          content: Text(printed
-              ? 'बिल थर्मल प्रिंटर पर प्रिंट हो गया। क्या PDF भी शेयर करनी है?'
-              : 'थर्मल प्रिंटर कनेक्ट नहीं है। क्या PDF WhatsApp पर भेजनी है?'),
+          title: const Text('बिल सफलतापूर्वक तैयार है'),
+          content: Text(
+            'बिल नंबर: $invoiceNo\nकुल राशि: ₹${total.toStringAsFixed(2)}\n\nअब आप प्रिंट कर सकते हैं या PDF WhatsApp सहित किसी ऐप पर भेज सकते हैं।',
+          ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, 'later'),
-              child: const Text('बाद में'),
-            ),
-            if (_normalizedWhatsAppNumber(customerPhone ?? '').isNotEmpty)
-              OutlinedButton.icon(
-                onPressed: () => Navigator.pop(dialogContext, 'whatsapp'),
-                icon: const Icon(Icons.chat, color: Colors.green),
-                label: const Text('WhatsApp पर PDF भेजें'),
-              ),
-            ElevatedButton.icon(
-              onPressed: () => Navigator.pop(dialogContext, 'share'),
-              icon: const Icon(Icons.share),
-              label: const Text('PDF शेयर करें'),
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, 'next'),
+                  child: const Text('अगली बिक्री'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.pop(dialogContext, 'print'),
+                  icon: const Icon(Icons.print),
+                  label: const Text('प्रिंट'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.pop(dialogContext, 'whatsapp'),
+                  icon: const Icon(Icons.chat, color: Colors.green),
+                  label: const Text('WhatsApp पर भेजें'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(dialogContext, 'share'),
+                  icon: const Icon(Icons.share),
+                  label: const Text('PDF शेयर'),
+                ),
+              ],
             ),
           ],
         ),
       );
-      final billMessage = '${_hotelProfile['name'] ?? 'AALA'} का काउंटर बिल $invoiceNo, कुल ₹${total.toStringAsFixed(2)}';
-      if (shouldShare == 'whatsapp' || shouldShare == 'share') {
+
+      if (action == 'print') {
+        final imageBytes = receiptImage;
+        final printed = imageBytes != null &&
+            await UsbThermalPrinterManager.instance
+                .printPngImage(imageBytes, paperWidthMm: 58);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(printed
+                  ? 'बिल थर्मल प्रिंटर पर प्रिंट हो गया।'
+                  : 'प्रिंटर कनेक्ट नहीं है। Bluetooth प्रिंटर जोड़कर फिर प्रयास करें।'),
+            ),
+          );
+        }
+      } else if (action == 'whatsapp' || action == 'share') {
+        final billMessage =
+            '${_hotelProfile['name'] ?? 'AALA'} का काउंटर बिल $invoiceNo, कुल ₹${total.toStringAsFixed(2)}';
         await Share.shareXFiles(
           [XFile(pdfFile.path)],
           text: '$billMessage${customerPhone == null || customerPhone.trim().isEmpty ? '' : ' | ग्राहक मोबाइल: $customerPhone'}',
@@ -635,7 +664,9 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           _customerNameController.clear();
           _customerPhoneController.clear();
         });
-        _initScreenData();
+        // Stock and inventory cache were updated above. Keep this screen mounted
+        // and ready for the next sale instead of switching to a full-screen reload.
+
       }
     } catch (e) {
       if (mounted) {
