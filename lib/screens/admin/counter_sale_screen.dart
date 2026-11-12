@@ -356,7 +356,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         builder: (dialogContext) => AlertDialog(
           title: const Text('बिल सफलतापूर्वक तैयार है'),
           content: Text(
-            'बिल नंबर: $invoiceNo\\nकुल राशि: ₹${total.toStringAsFixed(2)}\\n\\nअब आप प्रिंट कर सकते हैं या PDF WhatsApp सहित किसी ऐप पर भेज सकते हैं।',
+            'बिल नंबर: $invoiceNo\nकुल राशि: ₹${total.toStringAsFixed(2)}\n\nअब आप प्रिंट कर सकते हैं या PDF WhatsApp सहित किसी ऐप पर भेज सकते हैं।',
           ),
           actions: [
             Wrap(
