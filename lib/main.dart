@@ -32,6 +32,7 @@ import 'screens/admin/qr_table_generator_screen.dart';
 import 'services/kitchen_learning_service.dart';
 import 'services/usb_printer_service.dart';
 import 'services/offline_database.dart';
+import 'services/line_json_protocol.dart';
 
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
@@ -476,21 +477,14 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
       socket.write(authPacket + "\n");
       await socket.flush();
 
-      socket.listen((data) {
-        final lines = utf8.decode(data).split("\n");
-        for (var l in lines) {
-          if (l.trim().isEmpty) continue;
-          try {
-            final msg = jsonDecode(l);
-            if (msg['type'] == 'AUTH_RESULT') {
-              if (msg['success'] == true) {
-                tableCount = msg['tables'] ?? 10;
-                if (!completer.isCompleted) completer.complete(true);
-              } else {
-                if (!completer.isCompleted) completer.complete(false);
-              }
-            }
-          } catch (_) {}
+      decodeJsonLines(socket).listen((msg) {
+        if (msg['type'] == 'AUTH_RESULT') {
+          if (msg['success'] == true) {
+            tableCount = msg['tables'] ?? 10;
+            if (!completer.isCompleted) completer.complete(true);
+          } else {
+            if (!completer.isCompleted) completer.complete(false);
+          }
         }
       }, onError: (_) => !completer.isCompleted ? completer.complete(false) : null,
          onDone: () => !completer.isCompleted ? completer.complete(false) : null);
@@ -1681,12 +1675,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
       server = await ServerSocket.bind(InternetAddress.anyIPv4, tcpServerPort);
       server!.listen((Socket client) {
         connectedClients.add(client);
-        client.listen((data) {
+        decodeJsonLines(client).listen((msg) {
           try {
-            final lines = utf8.decode(data).split("\n");
-            for (var line in lines) {
-              if (line.trim().isEmpty) continue;
-              final msg = jsonDecode(line);
 
               if (msg['type'] == 'AUTH_STAFF') {
                 final sRole = msg['role'] ?? '';
@@ -1772,7 +1762,6 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 _syncMasterData();
                 VoiceService.speak("रसोई से नई राशन मांग आई है");
               }
-            }
           } catch (_) {}
         },
             onDone: () => connectedClients.remove(client),
@@ -3291,12 +3280,8 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
       if (mounted) setState(() => _socketConnected = true);
       _waiterSocket!.write(jsonEncode({'type': 'GET_MENU'}) + "\n");
 
-      _waiterSocket!.listen((data) {
-        final lines = utf8.decode(data).split("\n");
-        for (var l in lines) {
-          if (l.trim().isEmpty) continue;
-          try {
-            final msg = jsonDecode(l);
+      decodeJsonLines(_waiterSocket!).listen((msg) {
+        try {
             if (msg['type'] == 'MENU_DATA' && mounted) {
               setState(() => menu = List<Map<String, dynamic>>.from(msg['menu']));
             } else if (msg['type'] == 'INCENTIVE_UPDATE' && mounted) {
@@ -3310,7 +3295,6 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
               VoiceService.speak("टेबल $tbl का खाना तैयार है, तुरंत पिक करें");
             }
           } catch (_) {}
-        }
       },
           onDone: () {
             if (mounted) setState(() => _socketConnected = false);
@@ -3968,12 +3952,8 @@ class _FullCookAppState extends State<FullCookApp> {
       _cookSocket = await Socket.connect(_counterIp, tcpServerPort, timeout: const Duration(seconds: 2));
       if (mounted) setState(() => _socketConnected = true);
 
-      _cookSocket!.listen((data) {
-        final lines = utf8.decode(data).split("\n");
-        for (var l in lines) {
-          if (l.trim().isEmpty) continue;
-          try {
-            final msg = jsonDecode(l);
+      decodeJsonLines(_cookSocket!).listen((msg) {
+        try {
             if (msg['type'] == 'NEW_KOT' && mounted) {
               int tbl = msg['table'];
               final newKotMap = Map<String, dynamic>.from(msg);
