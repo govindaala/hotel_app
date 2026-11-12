@@ -3982,7 +3982,6 @@ class _FullCookAppState extends State<FullCookApp> {
               VoiceService.speak("टेबल $fromTbl का ऑर्डर टेबल $toTbl पर शिफ्ट हुआ");
             }
           } catch (_) {}
-        }
       },
           onDone: () {
             if (mounted) setState(() => _socketConnected = false);
