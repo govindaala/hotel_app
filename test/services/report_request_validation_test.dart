@@ -11,7 +11,7 @@ void main() {
       expect(() => ReportRequestValidation.normalizeStoreCode('A,store_code.neq.B'),
           throwsArgumentError);
       expect(() => ReportRequestValidation.normalizeStoreCode(''), throwsArgumentError);
-      expect(() => ReportRequestValidation.normalizeStoreCode('A' * 65), throwsArgumentError);
+      expect(() => ReportRequestValidation.normalizeStoreCode(List.filled(65, 'A').join()), throwsArgumentError);
     });
 
     test('accepts a valid exclusive end date', () {
