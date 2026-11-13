@@ -26,6 +26,7 @@ Run these checks on a test restaurant/store before merging or distributing the A
 ## LAN client authentication
 - [ ] A new TCP client cannot fetch the menu or send KOT/status commands before authenticating.
 - [ ] Waiter/cook login uses a one-use challenge response; the raw PIN is not sent over the LAN.
+- [ ] Five failed LAN authentication attempts from one device are throttled for one minute.
 - [ ] A waiter cannot mark a KOT ready or submit another waiter's identity; a cook cannot create a waiter KOT.
 - [ ] A saved waiter/cook session reconnects after app restart using the existing locally cached credential.
 
