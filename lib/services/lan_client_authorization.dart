@@ -45,6 +45,18 @@ class LanAuthRateLimiter {
   }
 }
 
+/// Closes unauthenticated LAN sockets that never finish the handshake.
+class LanAuthHandshakeGuard {
+  LanAuthHandshakeGuard({
+    required Duration timeout,
+    required void Function() onTimeout,
+  }) : _timer = Timer(timeout, onTimeout);
+
+  final Timer _timer;
+
+  void cancel() => _timer.cancel();
+}
+
 /// Challenge-response and role checks for the counter's local TCP protocol.
 ///
 /// The staff PIN is never sent over the LAN. The server issues a one-use nonce

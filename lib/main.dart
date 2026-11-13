@@ -1712,6 +1712,15 @@ class _FullCounterAppState extends State<FullCounterApp> {
         String? authenticatedStaffId;
         Map<String, dynamic>? pendingStaff;
         String? pendingNonce;
+        final handshakeGuard = LanAuthHandshakeGuard(
+          timeout: const Duration(seconds: 5),
+          onTimeout: () {
+            if (!clientAuthenticated) {
+              _lanAuthRateLimiter.recordFailure(remoteAddress);
+              unawaited(client.close());
+            }
+          },
+        );
 
         decodeJsonLines(client).listen((msg) {
           try {
@@ -1791,6 +1800,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
               _lanAuthRateLimiter.clear(remoteAddress);
               clientAuthenticated = true;
+              handshakeGuard.cancel();
               authenticatedRole = pendingStaff?['role']?.toString() ?? '';
               authenticatedStaffId =
                   pendingStaff?['staff_id']?.toString() ?? '';
@@ -1906,8 +1916,14 @@ class _FullCounterAppState extends State<FullCounterApp> {
             }
           } catch (_) {}
         },
-            onDone: () => connectedClients.remove(client),
-            onError: (_) => connectedClients.remove(client));
+            onDone: () {
+              handshakeGuard.cancel();
+              connectedClients.remove(client);
+            },
+            onError: (_) {
+              handshakeGuard.cancel();
+              connectedClients.remove(client);
+            });
       });
     } catch (_) {}
   }

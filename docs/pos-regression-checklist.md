@@ -24,6 +24,7 @@ Run these checks on a test restaurant/store before merging or distributing the A
 - [ ] With internet disabled, the saved local menu remains usable; restore internet and verify sync clears the pending flag.
 
 ## LAN client authentication
+- [ ] A TCP client that sends no AUTH_HELLO/AUTH_PROOF is disconnected after five seconds.
 - [ ] A new TCP client cannot fetch the menu or send KOT/status commands before authenticating.
 - [ ] Waiter/cook login uses a one-use challenge response; the raw PIN is not sent over the LAN.
 - [ ] Five failed LAN authentication attempts from one device are throttled for one minute.

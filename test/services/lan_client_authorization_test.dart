@@ -4,6 +4,31 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hotel_pos/services/lan_client_authorization.dart';
 
 void main() {
+  group('LanAuthHandshakeGuard', () {
+    test('expires a connection when authentication never completes', () async {
+      var timedOut = false;
+      LanAuthHandshakeGuard(
+        timeout: const Duration(milliseconds: 10),
+        onTimeout: () => timedOut = true,
+      );
+
+      await Future.delayed(const Duration(milliseconds: 30));
+      expect(timedOut, isTrue);
+    });
+
+    test('does not expire a connection after authentication succeeds', () async {
+      var timedOut = false;
+      final guard = LanAuthHandshakeGuard(
+        timeout: const Duration(milliseconds: 10),
+        onTimeout: () => timedOut = true,
+      );
+
+      guard.cancel();
+      await Future.delayed(const Duration(milliseconds: 30));
+      expect(timedOut, isFalse);
+    });
+  });
+
   group('LanClientAuthorization challenge response', () {
     final nonce = base64UrlEncode(List<int>.generate(32, (index) => index));
 
