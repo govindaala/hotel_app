@@ -486,6 +486,9 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
         role: widget.role,
         staffId: staffId,
         pin: pin,
+        onAuthResult: (result) {
+          tableCount = (result['tables'] as num?)?.toInt() ?? 10;
+        },
       );
       await socket.close();
     } catch (_) {
@@ -515,6 +518,7 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
       await prefs.setString('saved_role', widget.role);
       await prefs.setString('saved_store_code', code);
       await prefs.setString('saved_staff_id', staffId);
+      await prefs.setInt('saved_tables', tableCount);
       await prefs.setString('saved_counter_ip', targetIp);
       await prefs.setString('cached_staff_pin_${code}_$staffId', pin);
 
