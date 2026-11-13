@@ -33,6 +33,7 @@ import 'services/kitchen_learning_service.dart';
 import 'services/usb_printer_service.dart';
 import 'services/offline_database.dart';
 import 'services/line_json_protocol.dart';
+import 'services/lan_client_authorization.dart';
 
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
@@ -189,6 +190,8 @@ void main() async {
   final String savedRole = prefs.getString('saved_role') ?? '';
   final String savedStoreCode = prefs.getString('saved_store_code') ?? '111';
   final String savedStaffId = prefs.getString('saved_staff_id') ?? '';
+  final String savedStaffPin =
+      prefs.getString('cached_staff_pin_${savedStoreCode}_$savedStaffId') ?? '';
   final String savedHotelName = prefs.getString('saved_hotel_name') ?? 'होटल';
   final int savedTables = prefs.getInt('saved_tables') ?? 10;
   final String savedPartnerId = prefs.getString('saved_active_partner_id') ?? 'P1';
@@ -204,11 +207,19 @@ void main() async {
         activePartnerId: savedPartnerId,
         activePartnerName: savedPartnerName,
       );
-    } else if (savedRole == 'waiter') {
+    } else if (savedRole == 'waiter' && savedStaffPin.isNotEmpty) {
       initialScreen = FullWaiterApp(
-          storeCode: savedStoreCode, tables: savedTables, staffId: savedStaffId);
-    } else if (savedRole == 'cook') {
-      initialScreen = FullCookApp(storeCode: savedStoreCode);
+        storeCode: savedStoreCode,
+        tables: savedTables,
+        staffId: savedStaffId,
+        staffPin: savedStaffPin,
+      );
+    } else if (savedRole == 'cook' && savedStaffPin.isNotEmpty) {
+      initialScreen = FullCookApp(
+        storeCode: savedStoreCode,
+        staffId: savedStaffId,
+        staffPin: savedStaffPin,
+      );
     }
   }
 
@@ -464,32 +475,18 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
     int tableCount = 10;
 
     try {
-      final socket = await Socket.connect(targetIp, tcpServerPort, timeout: const Duration(milliseconds: 1500));
-      final completer = Completer<bool>();
-      final authPacket = jsonEncode({
-        'type': 'AUTH_STAFF',
-        'role': widget.role,
-        'store_code': code,
-        'staff_id': staffId,
-        'pin': pin,
-      });
-
-      socket.write(authPacket + "\n");
-      await socket.flush();
-
-      decodeJsonLines(socket).listen((msg) {
-        if (msg['type'] == 'AUTH_RESULT') {
-          if (msg['success'] == true) {
-            tableCount = msg['tables'] ?? 10;
-            if (!completer.isCompleted) completer.complete(true);
-          } else {
-            if (!completer.isCompleted) completer.complete(false);
-          }
-        }
-      }, onError: (_) => !completer.isCompleted ? completer.complete(false) : null,
-         onDone: () => !completer.isCompleted ? completer.complete(false) : null);
-
-      authSuccess = await completer.future.timeout(const Duration(seconds: 2), onTimeout: () => false);
+      final socket = await Socket.connect(
+        targetIp,
+        tcpServerPort,
+        timeout: const Duration(milliseconds: 1500),
+      );
+      authSuccess = await LanClientAuthorization.authenticateSocket(
+        socket: socket,
+        storeCode: code,
+        role: widget.role,
+        staffId: staffId,
+        pin: pin,
+      );
       await socket.close();
     } catch (_) {
       authSuccess = false;
@@ -526,12 +523,23 @@ class _StaffAuthScreenState extends State<StaffAuthScreen> {
           Navigator.pushAndRemoveUntil(
               context,
               MaterialPageRoute(
-                  builder: (_) => FullWaiterApp(storeCode: code, tables: tableCount, staffId: staffId)),
+                  builder: (_) => FullWaiterApp(
+                    storeCode: code,
+                    tables: tableCount,
+                    staffId: staffId,
+                    staffPin: pin,
+                  )),
               (r) => false);
         } else {
           Navigator.pushAndRemoveUntil(
               context,
-              MaterialPageRoute(builder: (_) => FullCookApp(storeCode: code)),
+              MaterialPageRoute(
+                builder: (_) => FullCookApp(
+                  storeCode: code,
+                  staffId: staffId,
+                  staffPin: pin,
+                ),
+              ),
               (r) => false);
         }
       }
@@ -734,8 +742,15 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
     _loadMenu();
     _loadRestoProfile();
-    _loadStaffCache();
-    _startLocalSocketServer();
+    unawaited(
+      _loadStaffCache()
+          .catchError((Object error) {
+            debugPrint('Staff cache load failed; using cached staff: $error');
+          })
+          .then((_) {
+            if (mounted) _startLocalSocketServer();
+          }),
+    );
     _startUdpBeacon();
     _syncMasterData();
     _fetchDailyBalances();
@@ -1494,7 +1509,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
     } catch (_) {}
   }
 
-  void _loadStaffCache() async {
+  Future<void> _loadStaffCache() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('saved_staff_cache_${widget.storeCode}');
     if (saved != null) {
@@ -1506,7 +1521,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
       final res = await Supabase.instance.client
           .from('hotel_staff')
           .select()
-          .eq('store_code', widget.storeCode);
+          .eq('store_code', widget.storeCode)
+          .timeout(const Duration(seconds: 5));
       _staffCache = List<Map<String, dynamic>>.from(res)
           .where((staff) => staff['is_active'] != false)
           .toList();
@@ -1674,94 +1690,198 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
       server = await ServerSocket.bind(InternetAddress.anyIPv4, tcpServerPort);
       server!.listen((Socket client) {
-        connectedClients.add(client);
+        var clientAuthenticated = false;
+        String? authenticatedRole;
+        String? authenticatedStaffId;
+        Map<String, dynamic>? pendingStaff;
+        String? pendingNonce;
+
         decodeJsonLines(client).listen((msg) {
           try {
+            if (!clientAuthenticated) {
+              if (pendingStaff == null) {
+                if (msg['type'] != 'AUTH_HELLO') {
+                  client.write(jsonEncode({
+                        'type': 'AUTH_RESULT',
+                        'success': false,
+                        'error': 'AUTH_REQUIRED',
+                      }) +
+                      "\n");
+                  unawaited(client.close());
+                  return;
+                }
 
-              if (msg['type'] == 'AUTH_STAFF') {
-                final sRole = msg['role'] ?? '';
-                final sId = msg['staff_id'] ?? '';
-                final sPin = msg['pin'] ?? '';
+                pendingStaff = LanClientAuthorization.findStaff(
+                  expectedStoreCode: widget.storeCode,
+                  requestedStoreCode: msg['store_code']?.toString() ?? '',
+                  role: msg['role']?.toString() ?? '',
+                  staffId: msg['staff_id']?.toString() ?? '',
+                  staffCache: _staffCache,
+                );
 
-                bool matched = _staffCache.any((s) =>
-                    s['staff_id'] == sId && s['pin'] == sPin && s['role'] == sRole);
+                if (pendingStaff == null) {
+                  client.write(jsonEncode({
+                        'type': 'AUTH_RESULT',
+                        'success': false,
+                        'error': 'INVALID_STAFF',
+                      }) +
+                      "\n");
+                  unawaited(client.close());
+                  return;
+                }
 
+                pendingNonce = LanClientAuthorization.createNonce();
+                client.write(jsonEncode({
+                      'type': 'AUTH_CHALLENGE',
+                      'nonce': pendingNonce,
+                    }) +
+                    "\n");
+                unawaited(client.flush());
+                return;
+              }
+
+              if (msg['type'] != 'AUTH_PROOF' || pendingNonce == null) {
                 client.write(jsonEncode({
                       'type': 'AUTH_RESULT',
-                      'success': matched,
-                      'hotel_name': widget.hotelName,
-                      'tables': widget.tables,
-                    }) + "\n");
+                      'success': false,
+                      'error': 'INVALID_AUTH_SEQUENCE',
+                    }) +
+                    "\n");
+                unawaited(client.close());
+                return;
+              }
 
-                if (sRole == 'waiter') {
-                  client.write(jsonEncode({
-                        'type': 'INCENTIVE_UPDATE',
-                        'active': _isIncentiveActive,
-                        'pct': _incentivePct,
-                      }) + "\n");
-                }
-              } else if (msg['type'] == 'GET_MENU') {
-                client.write(jsonEncode({'type': 'MENU_DATA', 'menu': hotelMenu}) + "\n");
+              final pendingPin = pendingStaff?['pin']?.toString() ?? '';
+              final proofValid = LanClientAuthorization.verifyProof(
+                pin: pendingPin,
+                nonce: pendingNonce!,
+                proof: msg['proof']?.toString() ?? '',
+              );
+              if (!proofValid) {
+                client.write(jsonEncode({
+                      'type': 'AUTH_RESULT',
+                      'success': false,
+                      'error': 'INVALID_PROOF',
+                    }) +
+                    "\n");
+                unawaited(client.close());
+                return;
+              }
+
+              clientAuthenticated = true;
+              authenticatedRole = pendingStaff?['role']?.toString() ?? '';
+              authenticatedStaffId =
+                  pendingStaff?['staff_id']?.toString() ?? '';
+              connectedClients.add(client);
+
+              client.write(jsonEncode({
+                    'type': 'AUTH_RESULT',
+                    'success': true,
+                    'hotel_name': widget.hotelName,
+                    'tables': widget.tables,
+                  }) +
+                  "\n");
+
+              if (authenticatedRole == 'waiter') {
                 client.write(jsonEncode({
                       'type': 'INCENTIVE_UPDATE',
                       'active': _isIncentiveActive,
                       'pct': _incentivePct,
-                    }) + "\n");
-              } else if (msg['type'] == 'NEW_KOT') {
-                int tbl = msg['table'];
-                final kotId = (msg['id']?.toString().isNotEmpty ?? false)
-                    ? msg['id'].toString()
-                    : OfflineDatabase.instance.createId();
-                final createdAt = msg['created_at']?.toString() ?? DateTime.now().toIso8601String();
-                msg['id'] = kotId;
-                msg['created_at'] = createdAt;
-                unawaited(OfflineDatabase.instance.enqueue(
-                  id: kotId,
-                  storeCode: widget.storeCode,
-                  entity: 'hotel_kots',
-                  payload: {
-                    'id': kotId,
-                    'store_code': widget.storeCode,
-                    'table_no': tbl,
-                    'waiter_id': msg['waiter_id']?.toString(),
-                    'items': jsonEncode(msg['items'] ?? []),
-                    'status': 'pending',
-                    'source': 'LAN_LOCAL',
-                    'created_at': createdAt,
-                  },
-                ));
-                if (msg['waiter_id'] != null) {
-                  tableWaiterMap[tbl] = msg['waiter_id'].toString();
-                }
-                setState(() {
-                  if (tbl >= 900) {
-                    parcelOrders.putIfAbsent(tbl, () => []);
-                    parcelOrders[tbl]!.addAll(List<Map<String, dynamic>>.from(msg['items']));
-                  } else {
-                    activeOrders.putIfAbsent(tbl, () => []);
-                    activeOrders[tbl]!.addAll(List<Map<String, dynamic>>.from(msg['items']));
-                    tableStateMap[tbl] = 'running';
-                  }
-                });
-                _broadcastLocal(msg);
-              } else if (msg['type'] == 'BILL_READY') {
-                int tbl = msg['table'];
-                setState(() => tableStateMap[tbl] = 'bill_ready');
-                if (!_spokenBillTables.contains(tbl)) {
-                  _spokenBillTables.add(tbl);
-                  VoiceService.speak("टेबल $tbl का बिल तैयार है");
-                }
-              } else if (msg['type'] == 'ORDER_READY') {
-                final int tbl = msg['table'];
-                if (tbl < 900) {
-                  setState(() => tableStateMap[tbl] = 'ready');
-                }
-                _broadcastLocal(msg);
-                VoiceService.speak("टेबल $tbl का खाना तैयार है");
-              } else if (msg['type'] == 'RATION_DEMAND') {
-                _syncMasterData();
-                VoiceService.speak("रसोई से नई राशन मांग आई है");
+                    }) +
+                    "\n");
               }
+              pendingStaff = null;
+              pendingNonce = null;
+              return;
+            }
+
+            final role = authenticatedRole ?? '';
+            final staffId = authenticatedStaffId ?? '';
+            if (!LanClientAuthorization.canHandleMessage(
+              role: role,
+              staffId: staffId,
+              message: msg,
+            )) {
+              client.write(jsonEncode({
+                    'type': 'ERROR',
+                    'code': 'NOT_AUTHORIZED',
+                  }) +
+                  "\n");
+              unawaited(client.close());
+              return;
+            }
+
+            if (msg['type'] == 'GET_MENU') {
+              client.write(jsonEncode({
+                    'type': 'MENU_DATA',
+                    'menu': hotelMenu,
+                  }) +
+                  "\n");
+              client.write(jsonEncode({
+                    'type': 'INCENTIVE_UPDATE',
+                    'active': _isIncentiveActive,
+                    'pct': _incentivePct,
+                  }) +
+                  "\n");
+            } else if (msg['type'] == 'NEW_KOT') {
+              final int tbl = msg['table'];
+              final kotId = (msg['id']?.toString().isNotEmpty ?? false)
+                  ? msg['id'].toString()
+                  : OfflineDatabase.instance.createId();
+              final createdAt =
+                  msg['created_at']?.toString() ??
+                      DateTime.now().toIso8601String();
+              msg['id'] = kotId;
+              msg['created_at'] = createdAt;
+              unawaited(OfflineDatabase.instance.enqueue(
+                id: kotId,
+                storeCode: widget.storeCode,
+                entity: 'hotel_kots',
+                payload: {
+                  'id': kotId,
+                  'store_code': widget.storeCode,
+                  'table_no': tbl,
+                  'waiter_id': staffId,
+                  'items': jsonEncode(msg['items'] ?? []),
+                  'status': 'pending',
+                  'source': 'LAN_LOCAL',
+                  'created_at': createdAt,
+                },
+              ));
+              tableWaiterMap[tbl] = staffId;
+              setState(() {
+                if (tbl >= 900) {
+                  parcelOrders.putIfAbsent(tbl, () => []);
+                  parcelOrders[tbl]!.addAll(
+                    List<Map<String, dynamic>>.from(msg['items']),
+                  );
+                } else {
+                  activeOrders.putIfAbsent(tbl, () => []);
+                  activeOrders[tbl]!.addAll(
+                    List<Map<String, dynamic>>.from(msg['items']),
+                  );
+                  tableStateMap[tbl] = 'running';
+                }
+              });
+              _broadcastLocal(msg);
+            } else if (msg['type'] == 'BILL_READY') {
+              final int tbl = msg['table'];
+              setState(() => tableStateMap[tbl] = 'bill_ready');
+              if (!_spokenBillTables.contains(tbl)) {
+                _spokenBillTables.add(tbl);
+                VoiceService.speak("टेबल $tbl का बिल तैयार है");
+              }
+            } else if (msg['type'] == 'ORDER_READY') {
+              final int tbl = msg['table'];
+              if (tbl < 900) {
+                setState(() => tableStateMap[tbl] = 'ready');
+              }
+              _broadcastLocal(msg);
+              VoiceService.speak("टेबल $tbl का खाना तैयार है");
+            } else if (msg['type'] == 'RATION_DEMAND') {
+              _syncMasterData();
+              VoiceService.speak("रसोई से नई राशन मांग आई है");
+            }
           } catch (_) {}
         },
             onDone: () => connectedClients.remove(client),
@@ -2979,9 +3099,15 @@ class _FullCounterAppState extends State<FullCounterApp> {
 // 6. Full Waiter App (Dynamic Incentive Banner & Food Ready Top Alert)
 // =========================================================================
 class FullWaiterApp extends StatefulWidget {
-  final String storeCode, staffId;
+  final String storeCode, staffId, staffPin;
   final int tables;
-  const FullWaiterApp({super.key, required this.storeCode, required this.tables, required this.staffId});
+  const FullWaiterApp({
+    super.key,
+    required this.storeCode,
+    required this.tables,
+    required this.staffId,
+    required this.staffPin,
+  });
   @override
   State<FullWaiterApp> createState() => _FullWaiterAppState();
 }
@@ -2989,6 +3115,7 @@ class FullWaiterApp extends StatefulWidget {
 class _FullWaiterAppState extends State<FullWaiterApp> {
   String _counterIp = '192.168.43.1';
   bool _socketConnected = false;
+  bool _socketConnecting = false;
   Socket? _waiterSocket;
   List<Map<String, dynamic>> menu = [];
   Map<int, List<Map<String, dynamic>>> liveTables = {};
@@ -3275,14 +3402,42 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
   }
 
   void _connectToSocket() async {
+    if (_socketConnecting || _socketConnected || widget.staffPin.trim().isEmpty) {
+      return;
+    }
+    _socketConnecting = true;
     try {
-      _waiterSocket = await Socket.connect(_counterIp, tcpServerPort, timeout: const Duration(seconds: 2));
-      if (mounted) setState(() => _socketConnected = true);
-      _waiterSocket!.write(jsonEncode({'type': 'GET_MENU'}) + "\n");
+      final socket = await Socket.connect(
+        _counterIp,
+        tcpServerPort,
+        timeout: const Duration(seconds: 2),
+      );
+      _waiterSocket = socket;
+      final authCompleter = Completer<bool>();
 
-      decodeJsonLines(_waiterSocket!).listen((msg) {
-        try {
-            if (msg['type'] == 'MENU_DATA' && mounted) {
+      decodeJsonLines(socket).listen(
+        (msg) {
+          try {
+            if (msg['type'] == 'AUTH_CHALLENGE') {
+              final proof = LanClientAuthorization.createProof(
+                pin: widget.staffPin,
+                nonce: msg['nonce']?.toString() ?? '',
+              );
+              socket.write(
+                jsonEncode({'type': 'AUTH_PROOF', 'proof': proof}) + "\n",
+              );
+              unawaited(socket.flush());
+            } else if (msg['type'] == 'AUTH_RESULT') {
+              final success = msg['success'] == true;
+              if (!authCompleter.isCompleted) {
+                authCompleter.complete(success);
+              }
+              if (success) {
+                if (mounted) setState(() => _socketConnected = true);
+                socket.write(jsonEncode({'type': 'GET_MENU'}) + "\n");
+                unawaited(socket.flush());
+              }
+            } else if (msg['type'] == 'MENU_DATA' && mounted) {
               setState(() => menu = List<Map<String, dynamic>>.from(msg['menu']));
             } else if (msg['type'] == 'INCENTIVE_UPDATE' && mounted) {
               setState(() {
@@ -3290,20 +3445,47 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                 _incentivePct = (msg['pct'] as num?)?.toDouble() ?? 1.0;
               });
             } else if (msg['type'] == 'ORDER_READY' && mounted) {
-              int tbl = msg['table'];
+              final int tbl = msg['table'];
               setState(() => _readyTablesAlert.add(tbl));
               VoiceService.speak("टेबल $tbl का खाना तैयार है, तुरंत पिक करें");
             }
-          } catch (_) {}
-      },
-          onDone: () {
-            if (mounted) setState(() => _socketConnected = false);
-          },
-          onError: (_) {
-            if (mounted) setState(() => _socketConnected = false);
-          });
+          } catch (_) {
+            if (!authCompleter.isCompleted) authCompleter.complete(false);
+          }
+        },
+        onDone: () {
+          if (!authCompleter.isCompleted) authCompleter.complete(false);
+          if (mounted) setState(() => _socketConnected = false);
+        },
+        onError: (_) {
+          if (!authCompleter.isCompleted) authCompleter.complete(false);
+          if (mounted) setState(() => _socketConnected = false);
+        },
+      );
+
+      socket.write(
+        jsonEncode({
+              'type': 'AUTH_HELLO',
+              'store_code': widget.storeCode,
+              'role': 'waiter',
+              'staff_id': widget.staffId,
+            }) +
+            "\n",
+      );
+      await socket.flush();
+      final authenticated = await authCompleter.future.timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => false,
+      );
+      if (!authenticated) {
+        socket.destroy();
+        if (identical(_waiterSocket, socket)) _waiterSocket = null;
+        if (mounted) setState(() => _socketConnected = false);
+      }
     } catch (_) {
-      if (mounted && _socketConnected) setState(() => _socketConnected = false);
+      if (mounted) setState(() => _socketConnected = false);
+    } finally {
+      _socketConnecting = false;
     }
   }
 
@@ -3571,7 +3753,7 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
                           onPressed: () async {
                             if (_socketConnected && _waiterSocket != null) {
                               try {
-                                _waiterSocket!.write(jsonEncode({'type': 'BILL_READY', 'table': tableNum}) + "\n");
+                                _waiterSocket!.write(jsonEncode({'type': 'BILL_READY', 'table': tableNum, 'staff_id': widget.staffId}) + "\n");
                               } catch (_) {}
                             }
                             try {
@@ -3903,8 +4085,13 @@ class _FullWaiterAppState extends State<FullWaiterApp> {
 // 7. Full Cook App (KDS - Live Cooking Timer, Ration Demand & Undo)
 // =========================================================================
 class FullCookApp extends StatefulWidget {
-  final String storeCode;
-  const FullCookApp({super.key, required this.storeCode});
+  final String storeCode, staffId, staffPin;
+  const FullCookApp({
+    super.key,
+    required this.storeCode,
+    required this.staffId,
+    required this.staffPin,
+  });
   @override
   State<FullCookApp> createState() => _FullCookAppState();
 }
@@ -3912,6 +4099,7 @@ class FullCookApp extends StatefulWidget {
 class _FullCookAppState extends State<FullCookApp> {
   String _counterIp = '192.168.43.1';
   bool _socketConnected = false;
+  bool _socketConnecting = false;
   Socket? _cookSocket;
   List<Map<String, dynamic>> kitchenOrders = [];
   final Set<String> _spokenOrderKots = {};
@@ -3948,16 +4136,44 @@ class _FullCookAppState extends State<FullCookApp> {
   }
 
   void _connectToSocket() async {
+    if (_socketConnecting || _socketConnected || widget.staffPin.trim().isEmpty) {
+      return;
+    }
+    _socketConnecting = true;
     try {
-      _cookSocket = await Socket.connect(_counterIp, tcpServerPort, timeout: const Duration(seconds: 2));
-      if (mounted) setState(() => _socketConnected = true);
+      final socket = await Socket.connect(
+        _counterIp,
+        tcpServerPort,
+        timeout: const Duration(seconds: 2),
+      );
+      _cookSocket = socket;
+      final authCompleter = Completer<bool>();
 
-      decodeJsonLines(_cookSocket!).listen((msg) {
-        try {
-            if (msg['type'] == 'NEW_KOT' && mounted) {
-              int tbl = msg['table'];
+      decodeJsonLines(socket).listen(
+        (msg) {
+          try {
+            if (msg['type'] == 'AUTH_CHALLENGE') {
+              final proof = LanClientAuthorization.createProof(
+                pin: widget.staffPin,
+                nonce: msg['nonce']?.toString() ?? '',
+              );
+              socket.write(
+                jsonEncode({'type': 'AUTH_PROOF', 'proof': proof}) + "\n",
+              );
+              unawaited(socket.flush());
+            } else if (msg['type'] == 'AUTH_RESULT') {
+              final success = msg['success'] == true;
+              if (!authCompleter.isCompleted) {
+                authCompleter.complete(success);
+              }
+              if (success && mounted) {
+                setState(() => _socketConnected = true);
+              }
+            } else if (msg['type'] == 'NEW_KOT' && mounted) {
+              final int tbl = msg['table'];
               final newKotMap = Map<String, dynamic>.from(msg);
-              newKotMap['created_at'] = msg['created_at'] ?? DateTime.now().toIso8601String();
+              newKotMap['created_at'] =
+                  msg['created_at'] ?? DateTime.now().toIso8601String();
               final kotId = newKotMap['id']?.toString();
               final isNewKot = kotId == null || _seenKotIds.add(kotId);
               if (isNewKot) {
@@ -3970,8 +4186,8 @@ class _FullCookAppState extends State<FullCookApp> {
                 }
               }
             } else if (msg['type'] == 'TABLE_SHIFT' && mounted) {
-              int fromTbl = msg['from_table'];
-              int toTbl = msg['to_table'];
+              final int fromTbl = msg['from_table'];
+              final int toTbl = msg['to_table'];
               setState(() {
                 for (var ord in kitchenOrders) {
                   if (ord['table'] == fromTbl) {
@@ -3981,16 +4197,43 @@ class _FullCookAppState extends State<FullCookApp> {
               });
               VoiceService.speak("टेबल $fromTbl का ऑर्डर टेबल $toTbl पर शिफ्ट हुआ");
             }
-          } catch (_) {}
-      },
-          onDone: () {
-            if (mounted) setState(() => _socketConnected = false);
-          },
-          onError: (_) {
-            if (mounted) setState(() => _socketConnected = false);
-          });
+          } catch (_) {
+            if (!authCompleter.isCompleted) authCompleter.complete(false);
+          }
+        },
+        onDone: () {
+          if (!authCompleter.isCompleted) authCompleter.complete(false);
+          if (mounted) setState(() => _socketConnected = false);
+        },
+        onError: (_) {
+          if (!authCompleter.isCompleted) authCompleter.complete(false);
+          if (mounted) setState(() => _socketConnected = false);
+        },
+      );
+
+      socket.write(
+        jsonEncode({
+              'type': 'AUTH_HELLO',
+              'store_code': widget.storeCode,
+              'role': 'cook',
+              'staff_id': widget.staffId,
+            }) +
+            "\n",
+      );
+      await socket.flush();
+      final authenticated = await authCompleter.future.timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => false,
+      );
+      if (!authenticated) {
+        socket.destroy();
+        if (identical(_cookSocket, socket)) _cookSocket = null;
+        if (mounted) setState(() => _socketConnected = false);
+      }
     } catch (_) {
-      if (mounted && _socketConnected) setState(() => _socketConnected = false);
+      if (mounted) setState(() => _socketConnected = false);
+    } finally {
+      _socketConnecting = false;
     }
   }
 
@@ -4109,7 +4352,12 @@ class _FullCookAppState extends State<FullCookApp> {
 
                 if (_socketConnected && _cookSocket != null) {
                   try {
-                    _cookSocket!.write(jsonEncode({'type': 'RATION_DEMAND', 'item': itName, 'qty': qty}) + "\n");
+                    _cookSocket!.write(jsonEncode({
+                      'type': 'RATION_DEMAND',
+                      'item': itName,
+                      'qty': qty,
+                      'staff_id': widget.staffId,
+                    }) + "\n");
                   } catch (_) {}
                 }
 
@@ -4151,7 +4399,11 @@ class _FullCookAppState extends State<FullCookApp> {
 
     if (_socketConnected && _cookSocket != null) {
       try {
-        _cookSocket!.write(jsonEncode({'type': 'ORDER_READY', 'table': order['table']}) + "\n");
+        _cookSocket!.write(jsonEncode({
+          'type': 'ORDER_READY',
+          'table': order['table'],
+          'staff_id': widget.staffId,
+        }) + "\n");
       } catch (_) {}
     }
 
