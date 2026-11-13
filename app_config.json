@@ -1,6 +1,6 @@
 {
-  "version_code": 5,
-  "version_name": "1.0.5",
+  "version_code": 6,
+  "version_name": "1.0.6",
   "apk_url": "https://github.com/govindaala/hotel_app/releases/download/latest/app-release.apk",
-  "update_message": "AALA POS v5: ग्राहक QR ऑर्डर पर वेटर पुष्टि, किचन KOT ट्रैकिंग, नकद/UPI दैनिक ऑडिट, हिंदी PDF बिल और सही बिक्री रिपोर्ट।"
+  "update_message": "AALA POS v6: रिपोर्ट इनपुट सत्यापन, Counter Billing, KOT और LAN संदेश स्थिरता सुधार।"
 }
