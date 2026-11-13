@@ -113,6 +113,7 @@ class LanClientAuthorization {
     required String role,
     required String staffId,
     required String pin,
+    void Function(Map<String, dynamic> result)? onAuthResult,
     Duration timeout = const Duration(seconds: 3),
   }) async {
     final completer = Completer<bool>();
@@ -129,9 +130,11 @@ class LanClientAuthorization {
           } catch (_) {
             if (!completer.isCompleted) completer.complete(false);
           }
-        } else if (message['type'] == 'AUTH_RESULT' &&
-            !completer.isCompleted) {
-          completer.complete(message['success'] == true);
+        } else if (message['type'] == 'AUTH_RESULT') {
+          onAuthResult?.call(message);
+          if (!completer.isCompleted) {
+            completer.complete(message['success'] == true);
+          }
         }
       },
       onError: (_) {
