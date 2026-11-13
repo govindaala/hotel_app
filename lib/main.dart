@@ -37,7 +37,7 @@ import 'services/line_json_protocol.dart';
 const String supabaseUrl = "https://hbewnquphiwvxaxittrl.supabase.co";
 const String supabaseKey = "sb_publishable_HA1-PBV55kEZet2GG_IBdg_HjUzfOxf";
 
-const int currentAppVersionCode = 5;
+const int currentAppVersionCode = 6;
 const int tcpServerPort = 4040;
 const int udpDiscoveryPort = 4042;
 

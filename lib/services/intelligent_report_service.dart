@@ -6,6 +6,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'report_request_validation.dart';
+
 /// Sends store-scoped business records only; no customer PII or credentials.
 class IntelligentReportService {
   IntelligentReportService._();
@@ -40,6 +42,9 @@ class IntelligentReportService {
     required DateTime startDate,
     required DateTime endDateExclusive,
   }) async {
+    final validatedStoreCode = ReportRequestValidation.normalizeStoreCode(storeCode);
+    ReportRequestValidation.validateDateRange(startDate, endDateExclusive);
+
     if (_apiBaseUrl.trim().isEmpty) {
       throw StateError(
         'Python Intelligence सेवा का API पता इस APK में सेट नहीं है। '
@@ -54,7 +59,7 @@ class IntelligentReportService {
     final invoices = await _fetchAllRows((from, to) => _supabase
         .from('invoices')
         .select('final_amount, payment_mode, table_no, created_at')
-        .eq('store_code', storeCode)
+        .eq('store_code', validatedStoreCode)
         .gte('created_at', start)
         .lt('created_at', end)
         .order('created_at', ascending: true)
@@ -63,7 +68,7 @@ class IntelligentReportService {
     final invoiceItems = await _fetchAllRows((from, to) => _supabase
         .from('invoice_items')
         .select('item_name, category, qty, price, total_price, invoices!inner(store_code, created_at)')
-        .eq('invoices.store_code', storeCode)
+        .eq('invoices.store_code', validatedStoreCode)
         .gte('invoices.created_at', start)
         .lt('invoices.created_at', end)
         .range(from, to));
@@ -71,7 +76,7 @@ class IntelligentReportService {
     final purchases = await _fetchAllRows((from, to) => _supabase
         .from('ration_demands')
         .select('item_name, quantity, is_received, purchase_cost, vendor_category, created_at')
-        .eq('store_code', storeCode)
+        .eq('store_code', validatedStoreCode)
         .gte('created_at', start)
         .lt('created_at', end)
         .range(from, to));
@@ -79,7 +84,7 @@ class IntelligentReportService {
     final expenses = await _fetchAllRows((from, to) => _supabase
         .from('daily_expenses')
         .select('title, amount, type, created_at')
-        .or('restaurant_id.eq.$storeCode,store_code.eq.$storeCode')
+        .or('restaurant_id.eq.$validatedStoreCode,store_code.eq.$validatedStoreCode')
         .gte('created_at', start)
         .lt('created_at', end)
         .range(from, to));
@@ -87,13 +92,13 @@ class IntelligentReportService {
     final kots = await _fetchAllRows((from, to) => _supabase
         .from('hotel_kots')
         .select('status, actual_prep_minutes, created_at')
-        .eq('store_code', storeCode)
+        .eq('store_code', validatedStoreCode)
         .gte('created_at', start)
         .lt('created_at', end)
         .range(from, to));
 
     final payload = <String, dynamic>{
-      'store_code': storeCode,
+      'store_code': validatedStoreCode,
       'hotel_name': hotelName,
       'period_label': periodLabel,
       'start_date': startDate.toIso8601String().split('T').first,
@@ -127,7 +132,7 @@ class IntelligentReportService {
     }
 
     final directory = await getTemporaryDirectory();
-    final safeStore = storeCode.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final safeStore = validatedStoreCode.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
     final file = File(
       '${directory.path}/AALA-Intelligence-$safeStore-${DateTime.now().millisecondsSinceEpoch}.pdf',
     );
