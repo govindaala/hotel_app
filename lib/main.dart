@@ -716,6 +716,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
   RawDatagramSocket? _udpBeaconSocket;
   Timer? _udpBeaconTimer;
   List<Map<String, dynamic>> _staffCache = [];
+  final LanAuthRateLimiter _lanAuthRateLimiter = LanAuthRateLimiter();
 
   List<Map<String, dynamic>> hotelMenu = [];
   Map<int, List<Map<String, dynamic>>> activeOrders = {};
@@ -1694,6 +1695,18 @@ class _FullCounterAppState extends State<FullCounterApp> {
 
       server = await ServerSocket.bind(InternetAddress.anyIPv4, tcpServerPort);
       server!.listen((Socket client) {
+        final remoteAddress = client.remoteAddress.address;
+        if (_lanAuthRateLimiter.isBlocked(remoteAddress)) {
+          client.write(jsonEncode({
+                'type': 'AUTH_RESULT',
+                'success': false,
+                'error': 'RATE_LIMITED',
+              }) +
+              "\n");
+          unawaited(client.close());
+          return;
+        }
+
         var clientAuthenticated = false;
         String? authenticatedRole;
         String? authenticatedStaffId;
@@ -1705,6 +1718,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
             if (!clientAuthenticated) {
               if (pendingStaff == null) {
                 if (msg['type'] != 'AUTH_HELLO') {
+                  _lanAuthRateLimiter.recordFailure(remoteAddress);
                   client.write(jsonEncode({
                         'type': 'AUTH_RESULT',
                         'success': false,
@@ -1724,6 +1738,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 );
 
                 if (pendingStaff == null) {
+                  _lanAuthRateLimiter.recordFailure(remoteAddress);
                   client.write(jsonEncode({
                         'type': 'AUTH_RESULT',
                         'success': false,
@@ -1745,6 +1760,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
               }
 
               if (msg['type'] != 'AUTH_PROOF' || pendingNonce == null) {
+                _lanAuthRateLimiter.recordFailure(remoteAddress);
                 client.write(jsonEncode({
                       'type': 'AUTH_RESULT',
                       'success': false,
@@ -1762,6 +1778,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 proof: msg['proof']?.toString() ?? '',
               );
               if (!proofValid) {
+                _lanAuthRateLimiter.recordFailure(remoteAddress);
                 client.write(jsonEncode({
                       'type': 'AUTH_RESULT',
                       'success': false,
@@ -1772,6 +1789,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 return;
               }
 
+              _lanAuthRateLimiter.clear(remoteAddress);
               clientAuthenticated = true;
               authenticatedRole = pendingStaff?['role']?.toString() ?? '';
               authenticatedStaffId =
