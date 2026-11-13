@@ -7,6 +7,44 @@ import 'package:crypto/crypto.dart';
 
 import 'line_json_protocol.dart';
 
+/// Limits repeated failed LAN authentication attempts per remote IP.
+class LanAuthRateLimiter {
+  LanAuthRateLimiter({
+    this.maxAttempts = 5,
+    this.window = const Duration(minutes: 1),
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now;
+
+  final int maxAttempts;
+  final Duration window;
+  final DateTime Function() _now;
+  final Map<String, List<DateTime>> _failures = {};
+
+  bool isBlocked(String key) => _recentFailures(key).length >= maxAttempts;
+
+  void recordFailure(String key) {
+    final recent = _recentFailures(key)..add(_now());
+    _failures[key] = recent;
+  }
+
+  void clear(String key) {
+    _failures.remove(key);
+  }
+
+  List<DateTime> _recentFailures(String key) {
+    final cutoff = _now().subtract(window);
+    final recent = (_failures[key] ?? const <DateTime>[])
+        .where((attempt) => attempt.isAfter(cutoff))
+        .toList();
+    if (recent.isEmpty) {
+      _failures.remove(key);
+    } else {
+      _failures[key] = recent;
+    }
+    return recent;
+  }
+}
+
 /// Challenge-response and role checks for the counter's local TCP protocol.
 ///
 /// The staff PIN is never sent over the LAN. The server issues a one-use nonce
