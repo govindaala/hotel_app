@@ -170,4 +170,34 @@ void main() {
       );
     });
   });
+
+  group('LanAuthRateLimiter', () {
+    test('blocks after five failures and expires them after one minute', () {
+      var now = DateTime.utc(2026, 11, 13, 10);
+      final limiter = LanAuthRateLimiter(now: () => now);
+
+      for (var attempt = 0; attempt < 4; attempt++) {
+        limiter.recordFailure('192.168.1.20');
+      }
+      expect(limiter.isBlocked('192.168.1.20'), isFalse);
+
+      limiter.recordFailure('192.168.1.20');
+      expect(limiter.isBlocked('192.168.1.20'), isTrue);
+
+      now = now.add(const Duration(minutes: 2));
+      expect(limiter.isBlocked('192.168.1.20'), isFalse);
+    });
+
+    test('tracks devices separately and clears a successful device', () {
+      final limiter = LanAuthRateLimiter();
+      for (var attempt = 0; attempt < 5; attempt++) {
+        limiter.recordFailure('192.168.1.20');
+      }
+      expect(limiter.isBlocked('192.168.1.20'), isTrue);
+      expect(limiter.isBlocked('192.168.1.21'), isFalse);
+
+      limiter.clear('192.168.1.20');
+      expect(limiter.isBlocked('192.168.1.20'), isFalse);
+    });
+  });
 }
