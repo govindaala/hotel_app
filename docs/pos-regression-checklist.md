@@ -23,6 +23,12 @@ Run these checks on a test restaurant/store before merging or distributing the A
 - [ ] Different store codes do not show one another's menu rows in normal app flows.
 - [ ] With internet disabled, the saved local menu remains usable; restore internet and verify sync clears the pending flag.
 
+## LAN client authentication
+- [ ] A new TCP client cannot fetch the menu or send KOT/status commands before authenticating.
+- [ ] Waiter/cook login uses a one-use challenge response; the raw PIN is not sent over the LAN.
+- [ ] A waiter cannot mark a KOT ready or submit another waiter's identity; a cook cannot create a waiter KOT.
+- [ ] A saved waiter/cook session reconnects after app restart using the existing locally cached credential.
+
 ## KOT and kitchen
 - [ ] Counter table order appears in kitchen and remains after app refresh/restart.
 - [ ] Mark a KOT Ready; server status, ready timestamp and preparation duration are stored.
