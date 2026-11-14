@@ -5,6 +5,22 @@ import 'dart:math';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+/// Builds a stable offline operation key that is unique per store and item.
+///
+/// The local queue's primary key is global to this device, so an item shared by
+/// multiple stores must not reuse the same operation ID across those stores.
+String inventoryUpdateQueueId(String storeCode, Object inventoryItemId) {
+  final normalizedStoreCode = storeCode.trim();
+  final normalizedItemId = inventoryItemId.toString().trim();
+  if (normalizedStoreCode.isEmpty) {
+    throw ArgumentError.value(storeCode, 'storeCode', 'must not be empty');
+  }
+  if (normalizedItemId.isEmpty) {
+    throw ArgumentError.value(inventoryItemId, 'inventoryItemId', 'must not be empty');
+  }
+  return 'inventory:$normalizedStoreCode:$normalizedItemId';
+}
+
 /// Durable local queue for POS transactions created while the cloud is unavailable.
 class OfflineDatabase {
   OfflineDatabase._();
