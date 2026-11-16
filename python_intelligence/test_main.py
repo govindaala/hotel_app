@@ -1,3 +1,5 @@
+from pydantic import ValidationError
+
 from main import ReportRequest, analyze, build_pdf
 
 
@@ -39,3 +41,46 @@ def test_pdf_is_valid_pdf_bytes():
     pdf = build_pdf(sample_payload())
     assert pdf.startswith(b"%PDF-")
     assert len(pdf) > 1000
+
+def test_report_request_rejects_unsafe_store_code():
+    payload = sample_payload().model_dump()
+    payload["store_code"] = "STORE-01\\r\\nX-Injected: true"
+    try:
+        ReportRequest(**payload)
+    except ValidationError:
+        return
+    raise AssertionError("unsafe store_code should be rejected")
+
+
+def test_report_request_normalizes_store_code_whitespace():
+    payload = sample_payload().model_dump()
+    payload["store_code"] = "  STORE-01  "
+    assert ReportRequest(**payload).store_code == "STORE-01"
+
+
+def test_report_request_rejects_invalid_iso_date():
+    payload = sample_payload().model_dump()
+    payload["start_date"] = "2026-02-31"
+    try:
+        ReportRequest(**payload)
+    except ValidationError:
+        return
+    raise AssertionError("invalid calendar date should be rejected")
+
+
+def test_report_request_rejects_reversed_date_range():
+    payload = sample_payload().model_dump()
+    payload["start_date"] = "2026-11-07"
+    payload["end_date"] = "2026-11-06"
+    try:
+        ReportRequest(**payload)
+    except ValidationError:
+        return
+    raise AssertionError("reversed date range should be rejected")
+
+
+def test_report_request_accepts_single_day_period():
+    payload = sample_payload().model_dump()
+    payload["start_date"] = "2026-11-06"
+    payload["end_date"] = "2026-11-06"
+    assert ReportRequest(**payload).start_date == "2026-11-06"
