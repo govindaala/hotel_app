@@ -42,9 +42,10 @@ def test_pdf_is_valid_pdf_bytes():
     assert pdf.startswith(b"%PDF-")
     assert len(pdf) > 1000
 
+
 def test_report_request_rejects_unsafe_store_code():
     payload = sample_payload().model_dump()
-    payload["store_code"] = "STORE-01\\r\\nX-Injected: true"
+    payload["store_code"] = "STORE-01\r\nX-Injected: true"
     try:
         ReportRequest(**payload)
     except ValidationError:
