@@ -2265,7 +2265,7 @@ class _FullCounterAppState extends State<FullCounterApp> {
             // Hindi PDF में वास्तविक UPI राशि और Google Review QR शामिल करें।
             try {
               final profile = _restoProfile;
-              bool thermalPrinted = false;
+              var receiptImage;
               final receipt = await buildThermalReceiptPdf(
                 hotelName: profile?.name ?? widget.hotelName,
                 address: profile?.address,
@@ -2287,8 +2287,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 reviewUrl: profile?.googleReviewLink,
                 paperWidthMm: 58,
                 onImageGenerated: (imageBytes) async {
-                  thermalPrinted = await UsbThermalPrinterManager.instance
-                      .printPngImage(imageBytes, paperWidthMm: 58);
+                  // Generate once; printing is performed only when explicitly selected.
+                  receiptImage = imageBytes;
                 },
               );
               final directory = await getTemporaryDirectory();
@@ -2296,45 +2296,67 @@ class _FullCounterAppState extends State<FullCounterApp> {
               await pdfFile.writeAsBytes(await receipt.save(), flush: true);
 
               if (mounted) {
-                final shouldShare = await showDialog<String>(
+                final action = await showDialog<String>(
                   context: this.context,
-                  builder: (shareContext) => AlertDialog(
-                    title: const Text('बिल तैयार है'),
-                    content: Text(thermalPrinted
-                        ? 'बिल थर्मल प्रिंटर पर प्रिंट हो गया। क्या PDF भी WhatsApp या किसी अन्य ऐप पर भेजना है?'
-                        : 'क्या इस बिल की PDF WhatsApp या किसी अन्य ऐप पर भेजनी है?'),
+                  builder: (dialogContext) => AlertDialog(
+                    title: const Text('फाइनल बिल तैयार है'),
+                    content: Text(
+                      'बिल नंबर: $generatedBillNo\n'
+                      'कुल राशि: ₹${finalPayable.toStringAsFixed(2)}\n'
+                      '${phoneDigits.isEmpty ? 'ग्राहक का WhatsApp नंबर दर्ज नहीं है।' : 'ग्राहक का WhatsApp नंबर: $phoneDigits'}',
+                    ),
                     actions: [
                       TextButton(
-                        onPressed: () => Navigator.pop(shareContext, 'later'),
+                        onPressed: () => Navigator.pop(dialogContext, 'later'),
                         child: const Text('बाद में'),
                       ),
-                      if (phoneDigits.isNotEmpty)
-                        OutlinedButton.icon(
-                          onPressed: () => Navigator.pop(shareContext, 'whatsapp'),
-                          icon: const Icon(Icons.chat, color: Colors.green),
-                          label: const Text('WhatsApp चैट'),
-                        ),
+                      OutlinedButton.icon(
+                        onPressed: () => Navigator.pop(dialogContext, 'print'),
+                        icon: const Icon(Icons.print),
+                        label: const Text('केवल बिल प्रिंट'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: phoneDigits.isEmpty
+                            ? null
+                            : () => Navigator.pop(dialogContext, 'print_whatsapp'),
+                        icon: const Icon(Icons.print),
+                        label: const Text('प्रिंट + WhatsApp'),
+                      ),
                       ElevatedButton.icon(
-                        onPressed: () => Navigator.pop(shareContext, 'share'),
-                        icon: const Icon(Icons.share),
-                        label: const Text('PDF शेयर करें'),
+                        onPressed: phoneDigits.isEmpty
+                            ? null
+                            : () => Navigator.pop(dialogContext, 'whatsapp'),
+                        icon: const Icon(Icons.chat, color: Colors.white),
+                        label: const Text('केवल WhatsApp PDF'),
                       ),
                     ],
                   ),
                 );
 
-                final billMessage = '${profile?.name ?? widget.hotelName} का बिल $generatedBillNo, कुल ₹${finalPayable.toStringAsFixed(2)}';
-                if (shouldShare == 'whatsapp') {
-                  final waPhone = phoneDigits.length == 10 ? '91$phoneDigits' : phoneDigits;
-                  final waUri = Uri.parse('https://wa.me/$waPhone?text=${Uri.encodeComponent('$billMessage. PDF भी भेजने के लिए चैट में अटैच करें।')}');
-                  final opened = await launchUrl(waUri, mode: LaunchMode.externalApplication);
-                  if (!opened && mounted) {
-                    ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('WhatsApp चैट नहीं खुली।')));
+                if (action == 'print' || action == 'print_whatsapp') {
+                  final imageBytes = receiptImage;
+                  final printed = imageBytes != null &&
+                      await UsbThermalPrinterManager.instance
+                          .printPngImage(imageBytes, paperWidthMm: 58);
+                  if (!printed && mounted) {
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      const SnackBar(
+                        content: Text('प्रिंटर कनेक्ट नहीं है या प्रिंट विफल हुआ। PDF सुरक्षित है।'),
+                      ),
+                    );
                   }
-                } else if (shouldShare == 'share') {
+                }
+
+                if (action == 'whatsapp' || action == 'print_whatsapp') {
+                  final billMessage =
+                      '${profile?.name ?? widget.hotelName} का बिल $generatedBillNo, कुल ₹${finalPayable.toStringAsFixed(2)}';
+                  final waPhone = phoneDigits.length == 10
+                      ? '91$phoneDigits'
+                      : phoneDigits;
                   await Share.shareXFiles(
                     [XFile(pdfFile.path)],
-                    text: '$billMessage${customerPhone.isEmpty ? '' : ' | ग्राहक मोबाइल: $customerPhone'}',
+                    subject: 'बिल $generatedBillNo',
+                    text: '$billMessage | ग्राहक WhatsApp: +$waPhone',
                   );
                 }
               }
