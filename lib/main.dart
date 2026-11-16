@@ -2301,8 +2301,8 @@ class _FullCounterAppState extends State<FullCounterApp> {
                   builder: (dialogContext) => AlertDialog(
                     title: const Text('फाइनल बिल तैयार है'),
                     content: Text(
-                      'बिल नंबर: $generatedBillNo\\n'
-                      'कुल राशि: ₹${finalPayable.toStringAsFixed(2)}\\n'
+                      'बिल नंबर: $generatedBillNo\n'
+                      'कुल राशि: ₹${finalPayable.toStringAsFixed(2)}\n'
                       '${phoneDigits.isEmpty ? 'ग्राहक का WhatsApp नंबर दर्ज नहीं है।' : 'ग्राहक का WhatsApp नंबर: $phoneDigits'}',
                     ),
                     actions: [
