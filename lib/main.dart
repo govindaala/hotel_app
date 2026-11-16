@@ -8,7 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
+import 'services/whatsapp_bill_share_service.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:ota_update/ota_update.dart';
@@ -2350,14 +2350,22 @@ class _FullCounterAppState extends State<FullCounterApp> {
                 if (action == 'whatsapp' || action == 'print_whatsapp') {
                   final billMessage =
                       '${profile?.name ?? widget.hotelName} का बिल $generatedBillNo, कुल ₹${finalPayable.toStringAsFixed(2)}';
-                  final waPhone = phoneDigits.length == 10
-                      ? '91$phoneDigits'
-                      : phoneDigits;
-                  await Share.shareXFiles(
-                    [XFile(pdfFile.path)],
+                  final sharedToWhatsApp =
+                      await WhatsAppBillShareService.sharePdf(
+                    phone: customerPhone,
+                    filePath: pdfFile.path,
                     subject: 'बिल $generatedBillNo',
-                    text: '$billMessage | ग्राहक WhatsApp: +$waPhone',
+                    message: billMessage,
                   );
+                  if (!sharedToWhatsApp && mounted) {
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'WhatsApp पर सीधा शेयर उपलब्ध नहीं हुआ; शेयर मेन्यू खुला है। WhatsApp चुनकर ग्राहक की पुष्टि करें।',
+                        ),
+                      ),
+                    );
+                  }
                 }
               }
             } catch (error) {
