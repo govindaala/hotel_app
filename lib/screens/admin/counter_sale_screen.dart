@@ -614,7 +614,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           }).eq('id', item['id']);
         } catch (error) {
           await OfflineDatabase.instance.enqueue(
-            id: 'inventory-${item['id']}',
+            id: inventoryUpdateQueueId(widget.storeCode, item['id']),
             storeCode: widget.storeCode,
             entity: 'counter_inventory_update',
             payload: {'id': item['id'], 'stock_qty': remaining},
