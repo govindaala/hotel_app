@@ -55,6 +55,36 @@ jobs:
           # ऐप के अंदर ऑटो-अपडेट इंस्टॉल की अनुमति
           sed -i '/<manifest/a \    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />' android/app/src/main/AndroidManifest.xml
 
+      - name: Configure WhatsApp PDF FileProvider
+        run: |
+          mkdir -p android/app/src/main/res/xml
+          cat > android/app/src/main/res/xml/provider_paths.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths xmlns:android="http://schemas.android.com/apk/res/android">
+            <cache-path name="cache" path="." />
+            <files-path name="files" path="." />
+          </paths>
+          EOF
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          content = manifest.read_text()
+          if "androidx.core.content.FileProvider" not in content:
+              provider = """
+                  <provider
+                      android:name="androidx.core.content.FileProvider"
+                      android:authorities="${applicationId}.provider"
+                      android:exported="false"
+                      android:grantUriPermissions="true">
+                      <meta-data
+                          android:name="android.support.FILE_PROVIDER_PATHS"
+                          android:resource="@xml/provider_paths" />
+                  </provider>
+              """
+              content = content.replace("</application>", provider + "\n    </application>")
+              manifest.write_text(content)
+          PY
+
       - name: Install dependencies
         run: flutter pub get
 
