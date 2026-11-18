@@ -3,15 +3,16 @@ from __future__ import annotations
 import html
 import io
 import os
+import re
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
@@ -47,6 +48,34 @@ class ReportRequest(BaseModel):
     purchases: list[dict[str, Any]] = Field(default_factory=list, max_length=5000)
     expenses: list[dict[str, Any]] = Field(default_factory=list, max_length=10000)
     kots: list[dict[str, Any]] = Field(default_factory=list, max_length=10000)
+
+    @field_validator("store_code")
+    @classmethod
+    def validate_store_code(cls, value: str) -> str:
+        normalized = value.strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", normalized):
+            raise ValueError(
+                "store_code must contain only letters, digits, hyphens or underscores"
+            )
+        return normalized
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def validate_iso_date(cls, value: str) -> str:
+        normalized = value.strip()
+        try:
+            parsed = date.fromisoformat(normalized)
+        except (TypeError, ValueError) as error:
+            raise ValueError("date must be a valid YYYY-MM-DD value") from error
+        if parsed.isoformat() != normalized:
+            raise ValueError("date must use YYYY-MM-DD format")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "ReportRequest":
+        if date.fromisoformat(self.end_date) < date.fromisoformat(self.start_date):
+            raise ValueError("end_date must be on or after start_date")
+        return self
 
 
 def _number(row: dict[str, Any], key: str) -> float:
