@@ -1,19 +1,19 @@
 # REA-driven restaurant POS reverse-engineering tracker
 
-**Last updated:** 2026-11-18  
-**AALA repository baseline:** `main` at `ea75fb47fb0de2624040e6b4d04b40cbd57c6d54`  
+**Last updated:** 2026-11-20 15:06 IST  
+**AALA repository baseline:** `main` at `13bf76ca7f93619de2ca4e42780bc1a21e9a9e1e`  
 **Purpose:** Maintain an evidence-led, lawful comparison of restaurant POS workflows and turn verified findings into small, independently implemented AALA improvements. This is a research tracker, not a feature-parity claim or market-share ranking.
 
 ## 1. Canonical REA project and current capabilities
 
-Canonical project verified on 2026-11-18:
+Canonical project re-verified on 2026-11-20:
 
 - Repository: [morluto/rea](https://github.com/morluto/rea)
 - Repository name/title: `rea` / **REA: Reverse Engineer Anything**
-- Owner: `morluto`; default branch: `main`; current main SHA checked today: `b21db3f3293bcfaffa6793be2f09b1aaf35dcc69`
-- Latest published release observed: [rea-agents 6.9.0](https://github.com/morluto/rea/releases/tag/rea-agents-6.9.0), published 2026-11-12
+- Owner: `morluto`; default branch: `main`; latest release commit checked today: `8bb01b514ac766c0c3ecc8f362bd38186eaec9c2`
+- Latest published release observed: [rea-agents 6.10.1](https://github.com/morluto/rea/releases/tag/rea-agents-6.10.1), published 2026-11-20. Release 6.10.0 (also 2026-11-20) adds more offline artifact/format inspection families, including Android boot-image and OTA payload inspection; 6.10.1 fixes a Kuna serial job-count constant.
 - License: [MIT](https://github.com/morluto/rea/blob/main/LICENSE). Third-party engines retain their own licenses and terms.
-- Package: [rea-agents](https://www.npmjs.com/package/rea-agents), version 6.9.0.
+- Package: [rea-agents](https://www.npmjs.com/package/rea-agents), version 6.10.1; required Node range: `^22.23.4 || ^24.22.1 || >=26.12.1`.
 
 ### Relevant analysis families
 
@@ -35,15 +35,14 @@ Primary REA documentation:
 - [Security boundary](https://github.com/morluto/rea/blob/main/SECURITY.md)
 - [Responsible-use disclaimer](https://github.com/morluto/rea/blob/main/DISCLAIMER.md)
 
-### Execution readiness checked on 2026-11-18
+### Execution readiness checked on 2026-11-20
 
-- Available Node.js: `v22.16.0`; REA 6.9.0 requires `^22.23.4 || ^24.22.1 || >=26.12.1`. Current Node is below the supported minimum.
-- Available npm: `10.9.2`; REA package declares `npm@11.16.0`.
-- `rea`, `adb`, `emulator`, `apktool` and JADX are not installed in this execution environment.
-- Attempt to resolve/run `rea-agents@6.9.0` through npm timed out; no package was installed and no REA command executed.
-- No competitor APK, vendor-authorized demo account, Android test device or emulator was supplied/available.
+- Available Node.js remains `v22.16.0`, below REA 6.10.1's minimum supported Node version `22.23.4`; npm is `10.9.2`.
+- `rea`, `adb`, `emulator`, `apktool`, JADX, Flutter and Dart are not installed in this execution environment. No local AALA APK file or Android device/emulator is available here.
+- REA's package/docs were inspected from the public GitHub repository. The REA CLI was **not** installed or executed in this run; npm installation was not attempted again while the current Node runtime is outside the supported range.
+- No competitor APK, vendor-authorized demo account or public demo session was supplied/available.
 
-**Execution result:** repository and documentation study completed; actual REA analysis of AALA or a competitor app was **not** performed. Do not count documentation research as reverse engineering. The next execution prerequisite is a supported Node runtime and local REA package; JADX is additionally required for Android Java/Kotlin class/method inspection. Flutter APK build identification itself does not need JADX. Competitor runtime workflow observation additionally requires authorized app access and a suitable device/session.
+**Execution result:** current repository, README, package metadata, installation, Android/JADX, Flutter AOT, CLI, MIT license, SECURITY and DISCLAIMER material were studied. Actual REA analysis of AALA or a competitor app was **not** performed. Do not count documentation research as reverse engineering. First restore a supported Node runtime and install the local REA package; add JDK 17+ plus the pinned JADX bridge only for Java/Kotlin class/method analysis. Flutter APK identification needs no decompiler but still requires an actual APK file. Competitor workflow observation requires lawful public/vendor-authorized access and a suitable device/session.
 
 ## 2. Competitor target shortlist and coverage
 
@@ -67,10 +66,23 @@ This is a working shortlist of India-focused restaurant POS products plus two ad
 | 14 | Vemo | [Official platform](https://www.vemohq.com/) | POS, KOT/KDS, inventory/food-cost workflows and offline-first operation | Vendor claim; public webpage, 2026-11-18 | Pending |
 | 15 | NamastePOS | [Official platform](https://namastepos.in/) | Offline-first billing/KOT, GST, QR, loyalty, WhatsApp receipts, inventory/costing and reservations | Vendor claim; public webpage, 2026-11-18 | Pending |
 
+### Focused vendor-source review — 2026-11-20
+
+The following official public sources were checked today. These are **vendor claims**, not observed application workflows:
+
+| Target | Source and access method | Claims described by the source | Evidence strength / AALA usefulness |
+|---|---|---|---|
+| Petpooja | [Restaurant billing POS](https://www.petpooja.com/poss/restaurant-billing-software); public official webpage, checked 2026-11-20 | Three-click billing, configurable bills, multi-terminal/master-station setup, table/area management, station-wise KOT printers, taxes/discounts and offline/cloud operation | Vendor claim only. Useful questions for AALA: local master/terminal topology, KOT printer routing and offline bill recovery; no sync/idempotency behavior was verified. |
+| Petpooja | [How the Bridge Server Works Inside POS Local](https://blog.petpooja.com/industry-business-guides/bridge-server-works-inside-pos-local/); official vendor blog dated 2026-07-08, checked 2026-11-20 | Describes local storage of bills/KOT/reports/customer records, LAN-connected billing/KDS/captain devices, cloud-to-local menu/order sync, claimed operation for up to five days without internet in a split-server setup, and scheduled backups | Vendor architecture claim only. Strong design reference for AALA's LAN/offline-first investigation; it does not prove exactly-once replay, conflict handling or the five-day claim independently. |
+| Petpooja | [Online Order Management](https://www.petpooja.com/poss/online-order-management-software); public official webpage, checked 2026-11-20 | Aggregated online orders, stock-based menu availability, menu sync and online-order reconciliation reporting | Vendor claim only. Useful as a future menu-availability and payout/commission reconciliation benchmark; no live aggregator integration was tested. |
+| TMBill | [Official platform](https://www.tmbill.com/); public official webpage, checked 2026-11-20 | Describes a QR/kiosk-to-POS-to-KOT/KDS-to-payment/settlement flow, split bills, offline operation, recipe-linked stock, low-stock alerts, QR ordering, CRM and reports | Vendor-described workflow only, not a public demo observation. Useful to frame acceptance tests around order routing, split tender/settlement and stock deduction; no correctness or offline recovery was verified. |
+| Restroworks | [Official platform](https://www.restroworks.com/); public official webpage, checked 2026-11-20 | Claims front-of-house POS/table and handheld workflows, operation during connectivity loss, kitchen routing/display, ingredient-level inventory/waste controls and integrations | Vendor claim only. Useful for a future kitchen-routing and inventory evidence checklist; offline behavior and integration depth were not independently tested. |
+
 ### Coverage counters
 
-- Public vendor pages located/reviewed today: **15/15** (vendor claims only).
-- Public demo workflows actually watched/observed today: **0/15**.
+- Working shortlist: **15/15** products recorded in the matrix above.
+- Public vendor pages reviewed in the 2026-11-18 shortlist audit: **15/15** (claims only); four focused official pages/articles across three platform groups rechecked on 2026-11-20.
+- Public demo workflows actually watched/observed: **0/15**.
 - REA static APK inspections: **0/15**.
 - REA runtime/device workflow observations: **0/15**.
 - Independently verified competitor feature claims: **0**.
@@ -83,7 +95,7 @@ Record: target/version/build if known; exact feature question; source URL; acces
 
 ## 3. AALA baseline and confirmed reliability gaps
 
-Static source inspection of `main` at `ea75fb47fb0de2624040e6b4d04b40cbd57c6d54` found:
+Static source inspection of current `main` at `13bf76ca7f93619de2ca4e42780bc1a21e9a9e1e` (2026-11-20) confirms:
 
 1. **P1 — checkout retry is not durable-idempotent.** Table settlement creates a new timestamp bill number inside each `completeSettlement` attempt in [lib/main.dart](../lib/main.dart#L2174-L2233). Direct counter sale does the same in [counter_sale_screen.dart](../lib/screens/admin/counter_sale_screen.dart#L557-L596). The SQL migration adds a unique `(store_code, bill_no)` index and handles a repeated identical bill number, but a retry after an ambiguous timeout gets a new bill number. If the first transaction committed and the response was lost, a second invoice and `daily_expenses` CASH_IN row can be created. A correct fix needs a durable per-checkout operation ID persisted before the RPC and reused across retries/restarts in both flows, plus regression tests. Do not merely move the timestamp outside the callback.
 2. **P2 — final settlement is absent from the offline replay dispatcher.** [lib/main.dart](../lib/main.dart#L923-L976) currently replays `hotel_kots`, `hotel_kots_update` and `counter_inventory_update`; no `hotel_settlement` handler exists. KOT queueing is not equivalent to durable offline invoice/payment settlement.
@@ -116,9 +128,17 @@ Do not adopt a vendor capability solely because a marketing page lists it. Evalu
 
 ## 6. Next research step
 
-1. Restore a supported local REA runtime (Node.js 22.23.4+ or another version allowed by the package engine) and verify `rea doctor` / the required analysis family before processing a target.
-2. Start with the AALA release APK using REA's Flutter static-analysis family to establish our own artifact baseline; retain APK SHA-256 and Evidence.
-3. For Petpooja, use a public product demo or vendor-authorized test session. Record billing → KOT/KDS → settlement → day-end behavior; request an authorized APK only if static Android inspection is necessary.
-4. Repeat with GoFrugal, then TMBill, Restroworks, Rista and PosBytz. Expand the remaining shortlist after those core workflows have evidence.
+1. Restore Node.js 22.23.4+ (or another range supported by REA 6.10.1), install the package in an isolated working directory, run `rea doctor` and verify the Flutter APK analysis family.
+2. Analyze the AALA release APK with REA's Flutter static-analysis family; retain the APK SHA-256 and Evidence. Treat hash/snapshot and bounded string-pool observations as partial artifact facts, not recovered Dart source.
+3. For Petpooja, obtain a public demo or vendor-authorized test session and record billing → KOT/KDS → settlement → day-end behavior. Do not infer actual local-bridge synchronization from the blog alone.
+4. Continue with GoFrugal, TMBill, Restroworks, Rista and PosBytz; capture exact source/version, evidence ID or reproducible observation, and limitations before marking a workflow covered.
 
 **Do not mark a target as reverse-engineered until an actual REA operation or an explicitly documented authorized workflow observation has been completed and its Evidence/limitations retained.**
+
+
+## 7. Daily delta — 2026-11-20
+
+- REA identity reconfirmed from the owner/repository metadata and exact README title; latest published package moved from 6.9.0 to 6.10.1 today. Node.js in the analysis environment is still unsupported, so no REA binary-analysis command ran.
+- AALA source-level P1 settlement-retry and P2 offline-settlement gaps remain present on current main. No code change was made because this environment lacks Flutter/Dart and cannot run the required regression tests; changing settlement identity without a verified durable local record and server-side uniqueness contract would risk duplicate/missing sales.
+- The existing evidence-tracker PR is the only open AALA PR observed: [PR #33](https://github.com/govindaala/hotel_app/pull/33). This document update records today's REA release, runtime blocker, focused vendor-source checks and current-main baseline; it does not claim any competitor app was reverse-engineered.
+- No authorized competitor APK/demo, device, live printer, or test Supabase instance was available. Public website claims remain vendor claims until independently observed.
