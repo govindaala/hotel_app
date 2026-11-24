@@ -1,7 +1,7 @@
 # REA-driven restaurant POS reverse-engineering tracker
 
-**Last updated:** 2026-11-20 15:06 IST  
-**AALA repository baseline:** `main` at `13bf76ca7f93619de2ca4e42780bc1a21e9a9e1e`  
+**Last updated:** 2026-11-23 15:53 IST  
+**AALA repository baseline:** `main` at `c52ed32ce365db9b2b27fc02d92fbad2a61570de`  
 **Purpose:** Maintain an evidence-led, lawful comparison of restaurant POS workflows and turn verified findings into small, independently implemented AALA improvements. This is a research tracker, not a feature-parity claim or market-share ranking.
 
 ## 1. Canonical REA project and current capabilities
@@ -179,3 +179,117 @@ All observations below are **vendor claims from public official pages**, not REA
 - Likely impact **if this migration is present in the live Supabase schema**: a caller using the public publishable key in the `anon` role can read, insert, update or delete custom-menu rows for arbitrary store codes, including item name, price, category and availability. The source repository proves the permissive policy and app client configuration; whether this migration has been applied to production was **not checked**.
 - A `sb_publishable_` key is public by design, not a leaked secret. Supabase documents that a publishable key without Supabase Auth uses the `anon` Postgres role and that RLS policies are the row-level security boundary: [Securing your data](https://supabase.com/docs/guides/database/secure-data), [API keys](https://supabase.com/docs/guides/getting-started/api-keys).
 - No policy/code change was made: the current app does not establish a Supabase Auth identity in the inspected repository, and simply denying `anon` could break custom-menu cloud sync. A safe fix needs a server-verifiable user/store-membership identity, separate least-privilege table policies and cross-store tests. Do not replace `true` with another client-supplied `store_code` check; that remains forgeable.
+
+
+## 9. Daily delta — 2026-11-23
+
+### REA source, package and execution readiness
+
+- Canonical repository reconfirmed: [morluto/rea](https://github.com/morluto/rea), README title **REA: Reverse Engineer Anything**, owner `morluto`, default branch `main`, MIT license.
+- REA source `main` HEAD: [`ca26f2ac8499fa06af59f2590ec071af8a020094`](https://github.com/morluto/rea/commit/ca26f2ac8499fa06af59f2590ec071af8a020094), committed 2026-11-23 09:41:53 UTC. Latest published npm/release remains [`rea-agents 6.10.1`](https://github.com/morluto/rea/releases/tag/rea-agents-6.10.1), published 2026-11-20. Package metadata declares MIT and Node `^22.23.4 || ^24.22.1 || >=26.12.1`.
+- [REA PR #13361](https://github.com/morluto/rea/pull/13361) was merged on 2026-11-22. The source-main change improves Android/JADX class and method indexing, retains raw method identities and adds a bounded external-caller lookup index (4,096 entries, with scan fallback). This is **source-main capability**, not evidence that the older published npm 6.10.1 package contains the merged post-release change.
+- Runtime checked in this run: Node `v22.16.0`, npm `10.9.2`, OpenJDK `21.0.12.1`, and `ps` available. Node is below REA's declared minimum. `rea`, ADB, emulator, Flutter, Dart, Apktool and JADX are absent. No APK file or authorized competitor app/device/session is mounted locally.
+- The README, package metadata, installation guide, Android/JADX guide, Flutter APK guide, CLI/Evidence guide, SECURITY and MIT LICENSE were read. Flutter APK analysis is pure parsing (snapshot hash, ABI library digests, engine build ID and bounded strings); it does not recover complete typed Dart source or execute the app. Android Java/Kotlin inspection requires the supported REA runtime and the separate JADX engine.
+- **Execution result:** no REA CLI command ran; no AALA or competitor APK was inspected. Repository study is not app reverse engineering.
+
+### India POS comparative evidence — 2026-11-23
+
+All evidence remains scoped to public sources. No authentication, paywall, DRM, rate-limit or other access control was bypassed.
+
+| Target | Source / access method / date | Evidence strength and observed material | AALA usefulness / limit |
+|---|---|---|---|
+| TMBill | [Public browser POS demo](https://www.tmbill.com/resources/free-pos-demo/), opened in browser 2026-11-23 | **Public demo observed — limited initial view.** The page exposes a Master POS, OrderFlow Captain app and KDS demo; it describes table selection, dine-in/pickup/delivery/quick bill, saving a KOT and moving it to Served. The page explicitly says the demo is simplified, sample menu/prices are used and nothing is sent anywhere. Demo buttons were not exercised. | Useful acceptance-flow reference for Captain → POS → KOT → KDS → Served and role/device hand-off. It does not prove real backend sync, payments, offline behavior or production correctness. |
+| Petpooja Offline POS | [Official Offline POS page](https://www.petpooja.com/offline-pos), public webpage read 2026-11-23 | **Vendor claim.** Describes a local Bridge Server holding bills, KOTs, dine-in/takeaway orders and reports; menu/prices/settings and online orders sync from cloud; lists Captain, QR and KDS add-ons and local backup. | Useful architecture question for a small outlet: a local authoritative store plus LAN clients and controlled cloud replication. The advertised offline duration/sync and backup behavior were not independently tested. |
+| Petpooja KDS | [Official KDS page](https://www.petpooja.com/poss/kitchen-display-system), public webpage read 2026-11-23 | **Vendor claim.** Describes Android/Windows KDS, multiple cooking stations, station-wise running orders, individual KOTs plus aggregated item lists, ready status and item out-of-stock updates. | AALA acceptance tests should cover station routing, partial item readiness and availability feedback to waiter/counter. No live KDS or hardware was tested. |
+
+Coverage counters after today's limited public-demo inspection:
+
+- Working shortlist: **15/15** (Petpooja, GoFrugal, Restroworks, Rista, PosBytz, TMBill, eZee Optimus, SlickPOS, UrbanPiper, LimeTray, Restrofi, RestroPod, DinePluz, Vemo, NamastePOS).
+- Public vendor-page survey: **15/15** (claims only).
+- Public demo pages inspected: **1/15** (TMBill initial browser demo only; no interactive flow completed).
+- REA static APK inspections: **0/15**.
+- REA runtime/device workflow observations: **0/15**.
+- Independently verified competitor feature claims: **0**.
+
+### AALA repository, workflow and audit delta
+
+- AALA `main` is now `c52ed32ce365db9b2b27fc02d92fbad2a61570de`. Compared with the prior recorded baseline `13bf76ca7f93619de2ca4e42780bc1a21e9a9e1e`, five commits add/change only `docs/rea-pos-reverse-engineering-tracker.md`; no app source changed. PR [#33](https://github.com/govindaala/hotel_app/pull/33) merged 2026-11-23 01:13:27 UTC. No open PRs were returned by the repository API. Local working-tree status remains unavailable because no repository checkout is mounted in this environment.
+- Latest PR workflow [#293](https://github.com/govindaala/hotel_app/actions/runs/45008902461) succeeded on `research/rea-pos-coverage-2026-11-18`, SHA `4f9e19fe34903fe0f8511846f161bc0ff4281807`; APK artifact `AALA-POS-293` uploaded, release step skipped as expected for a PR.
+- Latest Push workflow [#294](https://github.com/govindaala/hotel_app/actions/runs/45093330929) succeeded on `main`, SHA `c52ed32ce365db9b2b27fc02d92fbad2a61570de`; all build, artifact-upload and release steps succeeded. Artifact `AALA-POS-294` uploaded.
+- Historical PR run [#288](https://github.com/govindaala/hotel_app/actions/runs/44285764172) failed at `Build APK`: Maven Central returned HTTP 429 for `com.squareup:javawriter:2.5.0` and `org.ow2.asm:asm:9.1` on both attempts. Later PR runs #292/#293 and Push #294 succeeded; no new failure was observed.
+- The workflow's `latest` release asset was updated 2026-11-23 01:17:50 UTC, but the Git tag `latest` still points to commit `f7c76b20d246b17bfd3606b8fb362fe4a6bd433f` from 2026-09-03, 371 commits behind current `main`. This is a release-provenance/rollback traceability concern; the APK asset itself is current from run #294.
+- GitHub reports `main.protected = false`; no branch-protection setting was changed. Local Flutter/Dart commands, device tests and production Supabase schema checks were not available.
+
+Confirmed source-level risks remain:
+
+1. **P1 — custom-menu tenant isolation.** Migration `supabase/migrations/20261105100000_custom_menu_and_kot_ready_metrics.sql` lines 15–22 enables RLS but grants `FOR ALL` policies with `USING (true)` and `WITH CHECK (true)` to both `anon` and `authenticated`, and grants CRUD to both. App startup initializes Supabase with the public publishable key and restores role/store/staff/PIN from SharedPreferences; no Supabase Auth sign-in/session calls were found in `lib/main.dart`. Client-side store filters are not an authorization boundary. Impact is conditional on this migration being present in the live schema; production schema was not inspected. A safe correction requires a server-verifiable identity and store-membership model, least-privilege RLS and cross-store tests. Do not replace `true` with another client-supplied store filter.
+2. **P1 — settlement retry can create a second sale.** Table settlement generates `BILL-${DateTime.now().millisecondsSinceEpoch}` inside `completeSettlement` (`lib/main.dart` around line 2185); direct counter sale similarly generates `POS-${DateTime.now().millisecondsSinceEpoch}` (`lib/screens/admin/counter_sale_screen.dart` around line 559). The SQL unique key is `(store_code, bill_no)`, so it protects retries only when the same bill number is reused. A timeout after server commit followed by a fresh retry can use a new bill number and create another invoice/CASH_IN ledger row.
+3. **P2 — no final-settlement offline replay.** `_syncPendingOfflineOperations` handles `hotel_kots`, `hotel_kots_update` and `counter_inventory_update`, but no settlement/invoice entity. KOT queueing is not offline billing.
+
+No app-code fix was applied: the P1 authorization finding cannot be safely repaired without a real identity/store-membership contract, and changing financial retry identity without a durable local immutable operation record plus backend uniqueness contract risks duplicate or missing sales. Flutter/Dart and an integration-test environment are unavailable. No production schema was checked or changed.
+
+### Next work
+
+1. Restore Node `22.23.4+` (or another package-supported version), obtain the current AALA APK and run REA Flutter static analysis; only then consider the pinned JADX bridge for native code.
+2. Obtain a vendor/user-authorized test session or APK before attempting deeper competitor app inspection. Continue TMBill and Petpooja only with reproducible evidence, then move through GoFrugal, Restroworks, Rista and PosBytz.
+3. Design Supabase Auth/store membership and least-privilege RLS before enabling custom-menu cloud access; separately design durable, retry-stable checkout IDs and exact-once invoice/ledger/KOT effects before any settlement patch.
+4. Fix release provenance only in a reviewed feature branch after confirming the intended moving-tag/release policy; do not alter workflow settings automatically.
+
+
+## 9. Daily delta — 2026-11-24
+
+### AALA workflow verification
+
+- Current `main` remains `c52ed32ce365db9b2b27fc02d92fbad2a61570de`; the five commits since the previous app-source baseline affected only this documentation tracker. No local checkout is mounted, so local working-tree cleanliness is not asserted.
+- Latest Push run [#294](https://github.com/govindaala/hotel_app/actions/runs/45093330929) remains successful on `main`, SHA `c52ed32ce365db9b2b27fc02d92fbad2a61570de`. Build and artifact upload succeeded; the direct-release step succeeded. Artifact `AALA-POS-294` is present and retained through 2026-12-07.
+- Previous PR run [#295](https://github.com/govindaala/hotel_app/actions/runs/45156554281) has now completed successfully on `research/rea-pos-coverage-2026-11-23`, SHA `208674d374240e21598858cbf35c28a1b64eb472`. The build and artifact upload succeeded; artifact `AALA-POS-295` is present through 2026-12-07; the release step was skipped as expected for a pull request.
+- No new failed, cancelled or in-progress run was present in the latest relevant run list. Historical Maven Central HTTP 429 failure #288 remains resolved by later successful runs; no rerun was requested or issued.
+- The moving release asset `app-release.apk` was last uploaded by #294 (SHA-256 `b903ffc3b1228b8e28fe1dcbd51d7bae4c024ddd4c7c79f700676f274c8d4cc1`). The Git tag `latest` still resolves to old commit `f7c76b20d246b17bfd3606b8fb362fe4a6bd433f`, not the current `main` commit. This remains a release-provenance/rollback traceability risk; no tag or workflow changes were made.
+- The existing open PR [#34](https://github.com/govindaala/hotel_app/pull/34) is the only open PR returned for AALA. This tracker update is being added to the same branch; no new PR is required.
+
+### REA project state and execution boundary
+
+- Canonical repository reconfirmed: [morluto/rea](https://github.com/morluto/rea), owner `morluto`, repository `rea`, README title **REA: Reverse Engineer Anything**, MIT license. Current source `main` HEAD observed 2026-11-24: `1e1db9e342ad13d26c27f34af8a2d7a5648387c9`.
+- Latest published release remains [`rea-agents 6.10.1`](https://github.com/morluto/rea/releases/tag/rea-agents-6.10.1), published 2026-11-20. Package metadata requires Node `^22.23.4 || ^24.22.1 || >=26.12.1`; available Node is `v22.16.0`, npm `10.9.2`, Java `21.0.12`.
+- Today's source/docs review covered the README, package metadata, installation, CLI/Evidence, Android/JADX, Flutter AOT, Apktool resources, SECURITY, DISCLAIMER and MIT license. The latest recent source commits are mostly CI/test/tooling changes and are newer than the published 6.10.1 release.
+- REA [PR #13361](https://github.com/morluto/rea/pull/13361), previously tracked as open, is now merged. It includes Android JADX indexing/caching and regression-test changes, but those newer source changes must not be treated as included in the unchanged published 6.10.1 npm package without a later release.
+- New open REA feature request [#14038](https://github.com/morluto/rea/issues/14038), filed 2026-11-23, describes compiled Android binary XML (`AndroidManifest.xml`) and `resources.arsc` as opaque to generic artifact inspection; a caller-supplied Apktool path remains the separate resource-decoding option. This is an open proposal/limitation, not an implemented capability.
+- CLI execution remains blocked: `rea`, `adb`, `emulator`, `apktool`, `jadx`, `flutter` and `dart` are not installed; no AALA APK/AAB is mounted; no authorized competitor test account/device is available. Flutter APK parsing can identify build/snapshot/library facts but does not recover full Dart source. JADX requires a supplied pinned headless bridge; runtime/browser/device operations require an authorized target and explicit review.
+- **No REA command ran and no target app was reverse-engineered today.** Repository/documentation inspection is recorded separately from app inspection.
+
+### Competitor evidence delta — public vendor documentation only
+
+All observations below were accessed 2026-11-24 through public official vendor pages/help articles. They are vendor-authored workflow descriptions, not REA inspection, interactive demo execution or independent verification.
+
+| Target | Source URL | Access and documented observation | Evidence strength | AALA use |
+|---|---|---|---|---|
+| GoFrugal Touch POS | [Login and punching a KOT](https://community.gofrugal.com/portal/en/kb/gofrugalserveeasy/touch-pos/articles/login-and-punching-a-kot) | Public vendor help article with screen/image references; describes dine-in/table selection, table states, steward assignment, category/item selection, quantity/priority and KOT submission. | Vendor documentation; public screen references, no live demo execution. | Use table state transitions and a reproducible table→steward→KOT acceptance test; do not copy vendor UI. |
+| GoFrugal KDS | [KDS — Kitchen Display Screen](https://community.gofrugal.com/portal/en/kb/servquick/general/articles/kds-kitchen-display-screen) | Public vendor help article describes role/permission setup and item-level Pending/Preparing/Dispatched/Completed/Ready/Served progress, with aggregate item counts. | Vendor documentation; not independently verified. | Compare AALA's current KOT-level status with item-level preparation and role-gated state transitions; add tests before adopting a richer model. |
+| GoFrugal table management | [Table screen in brief](https://community.gofrugal.com/portal/en/kb/gofrugalserveeasy/general/table-management/customer-management/articles/table-screen-in-brief) | Public help article describes available/occupied/summary filters, additional KOT, bill conversion and steward summary. | Vendor documentation; not independently verified. | Add explicit table-state and running-order test cases, including additional KOT and bill conversion. |
+| PosBytz KOT | [Kitchen Order Ticket System](https://posbytz.com/en/restaurant/features/kitchen-order-ticket-system/) | Public vendor feature page describes multi-channel KOT intake, category/station routing, modifiers/notes, cancellation/change notifications, split/partial KOT, preparation state and offline printing/sync. | Vendor claim; no public interactive flow executed. | Test category routing, partial fulfilment, cancellation, offline print and duplicate-safe reconnect. |
+| PosBytz KDS | [Kitchen Display System](https://posbytz.com/en/restaurant/features/kitchen-display-system/) | Public vendor feature page describes kitchen-wise display routing, priority alerts, live statuses and preparation-time analytics. | Vendor claim; unverified. | Build acceptance scenarios for station routing and per-item timing only after AALA's data model is inspected. |
+| PosBytz QR ordering | [QR Code Ordering](https://posbytz.com/en/restaurant/features/qr-code-ordering/) | Public vendor feature page describes table-specific QR, browser menu, order submission to POS/KOT and additional rounds on a table. | Vendor claim; no interactive guest checkout completed. | AALA's QR generator currently encodes store/table into a menu URL and creates printable standees; verify web-menu→POS order ingestion before claiming end-to-end QR ordering parity. |
+| Petpooja offline POS | [Offline POS](https://www.petpooja.com/offline-pos) | Official public product page describes local bills/orders/KOT during internet loss and later cloud sync of menu/price/online order data. | Vendor claim; architecture not independently tested. | Prioritize durable local settlement records, idempotent replay, visible pending/synced state and conflict recovery; do not assume Petpooja's claimed behavior is proven. |
+
+Coverage remains: shortlist 15/15; vendor-page survey 15/15; public demo page inspected 1/15 (TMBill page only, no interactive flow completed); REA static APK inspections 0/15; REA runtime/device inspections 0/15; independently verified competitor feature claims 0. The seven documentation pages above expand workflow questions, not demo or reverse-engineering counts.
+
+### AALA source audit — unchanged critical risks
+
+- **P1 tenant isolation:** migration `20261105100000_custom_menu_and_kot_ready_metrics.sql` still defines permissive `FOR ALL` RLS policies with `USING (true)` / `WITH CHECK (true)` for both `anon` and `authenticated`. App startup uses a public publishable key, and repository search found no Supabase Auth sign-in call. Production migration status was not inspected; exposure is conditional on this migration being applied. A safe correction requires authenticated server-verifiable store membership, least-privilege RLS and cross-store tests.
+- **P1 settlement retry:** `settle_hotel_order` has a unique `(store_code, bill_no)` index and returns the existing invoice for the *same* bill number. Both table settlement and counter sale currently generate a fresh millisecond-based bill number per attempt. An ambiguous timeout followed by a new attempt can therefore bypass the existing deduplication key and create a second invoice/ledger effect.
+- **P2 offline invoice:** the durable SQLite queue stores IDs/store/entity/payload/attempts, but the dispatcher currently replays KOT create/update and counter inventory only; there is no final invoice/settlement replay handler.
+- **P2 release provenance:** moving `latest` APK asset and immutable old Git tag do not identify the same source commit.
+- Visible Dart test files cover LAN authorization, line JSON protocol, offline database, report request validation and WhatsApp bill-share service. The APK workflow itself runs dependency setup and release build but does not run `flutter analyze` or `flutter test`. No Flutter/Dart executable or Android device/emulator is available in this environment; tests were not run.
+- QR source review: `lib/screens/admin/qr_table_generator_screen.dart` generates a URL of the form `https://govindaala.github.io/hotel_menu/?store=<storeCode>&table=<tableNo>` and can create a PDF standee. The target web menu's actual order-to-KOT/POS behavior was not tested, so end-to-end QR ordering remains unverified.
+
+No app source change was made. The tenant fix cannot be safely designed without a server-verifiable identity/store-membership contract; the settlement fix needs a durable immutable operation record and an exact-once server idempotency contract. A client-only timestamp change would not repair the failure mode. Do not apply production migrations or advertise offline final billing until these contracts and regression tests exist.
+
+### Next actions
+
+1. Make a supported Node runtime (22.23.4+) available, install/use REA locally, and analyze the actual AALA release APK with the Flutter pure-parser family; retain APK SHA-256 and REA Evidence.
+2. Obtain a vendor/public demo or authorized test session and record reproducible Petpooja/GoFrugal/PosBytz workflows; keep claims and observations separate.
+3. Design Supabase Auth/store membership and least-privilege RLS, then add cross-store tests before enabling custom-menu cloud writes.
+4. Design durable checkout operation IDs, immutable invoice payloads, exact-once ledger effects and crash/retry tests before implementing offline settlement.
+5. Resolve the moving release-tag policy only through a reviewed feature-branch change; do not modify workflow configuration automatically.
+
+No application code, production data/schema, workflow, secrets, settings, branch protection or paid resource was changed by this documentation update.
