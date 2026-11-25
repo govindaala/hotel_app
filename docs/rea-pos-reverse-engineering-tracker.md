@@ -1,6 +1,6 @@
 # REA-driven restaurant POS reverse-engineering tracker
 
-**Last updated:** 2026-11-23 15:53 IST  
+**Last updated:** 2026-11-25 15:46 IST  
 **AALA repository baseline:** `main` at `c52ed32ce365db9b2b27fc02d92fbad2a61570de`  
 **Purpose:** Maintain an evidence-led, lawful comparison of restaurant POS workflows and turn verified findings into small, independently implemented AALA improvements. This is a research tracker, not a feature-parity claim or market-share ranking.
 
@@ -293,3 +293,61 @@ No app source change was made. The tenant fix cannot be safely designed without 
 5. Resolve the moving release-tag policy only through a reviewed feature-branch change; do not modify workflow configuration automatically.
 
 No application code, production data/schema, workflow, secrets, settings, branch protection or paid resource was changed by this documentation update.
+
+
+## 10. Daily delta — 2026-11-25
+
+### AALA repository and APK workflow
+
+- Current `main`: `d40bb50c48f48ca27982350e743b5f5006b859bf` (2026-11-24 18:06:38 UTC). Since the prior recorded baseline `cef7af4eb61a33b706fc07f5e788918d2ffac641`, four commits added the evidence matrix and Replica-skill Flutter workflow notes and extended offline ID tests; **no application-runtime source changed**. PR [#35](https://github.com/govindaala/hotel_app/pull/35) merged at that commit. No open AALA PR was returned. No local checkout is mounted, so local working-tree cleanliness is not asserted.
+- Latest APK Push run [#300](https://github.com/govindaala/hotel_app/actions/runs/45455926215): `main`, SHA `d40bb50c48f48ca27982350e743b5f5006b859bf`, completed/success. Build APK, artifact upload and direct APK release steps all succeeded. Artifact `AALA-POS-300` (26,328,790 bytes) is retained through 2026-12-08 18:11 UTC.
+- Latest APK PR run [#299](https://github.com/govindaala/hotel_app/actions/runs/45454915646): `feat/replica-skill-aala-workflow-2026-11-24`, SHA `d04aef5a2c81c048e8224df8b2e246324bc72a8c`, completed/success. Build and artifact upload passed; release was skipped as expected for a PR. Artifact `AALA-POS-299` was uploaded.
+- Immediately previous PR run [#298](https://github.com/govindaala/hotel_app/actions/runs/45454766408) was cancelled during the `Build APK` step, with upload/release skipped. The newer #299 run completed successfully; the workflow uses `cancel-in-progress: true`, so this is consistent with superseding an earlier branch commit rather than a current build failure. No failed or in-progress run is present in the latest target-workflow checks.
+- The latest release asset `app-release.apk` was updated from #300 on 2026-11-24 18:11 UTC (asset SHA-256 `7b1cae54bccff2b8a5ffeea3b81fa478be937d0654aab4ae68e235d8e6f90fea`): [download APK](https://github.com/govindaala/hotel_app/releases/download/latest/app-release.apk). **Release-provenance warning:** Git tag `latest` still points to `f7c76b20d246b17bfd3606b8fb362fe4a6bd433f`, which is 378 commits behind current `main`, while the moving release asset is from #300. The binary asset is current, but the tag does not identify its source commit. No tag or release configuration was changed.
+- The configured APK workflow still does not run `flutter analyze` or `flutter test`; a successful APK build proves packaging/build only, not POS behavior.
+
+### REA canonical project and execution readiness
+
+- Canonical identity confirmed again: [morluto/rea](https://github.com/morluto/rea), owner `morluto`, README title **REA: Reverse Engineer Anything**, public repository, MIT license. The official README links to [rea.tools](https://rea.tools/) and the `rea-agents` package.
+- Source `main` latest commit observed today: [`2e1cc32586c60ae59c0bea66ddd091be7f49df9b`](https://github.com/morluto/rea/commit/2e1cc32586c60ae59c0bea66ddd091be7f49df9b), 2026-11-25 10:16 UTC. Latest published release remains [`rea-agents 6.10.1`](https://github.com/morluto/rea/releases/tag/rea-agents-6.10.1), published 2026-11-20; current package metadata declares MIT and Node `^22.23.4 || ^24.22.1 || >=26.12.1`.
+- Read today: README, `package.json`, supported-target requirements, installation/setup, CLI/Evidence, Android/JADX analysis, Flutter APK parsing, SECURITY and DISCLAIMER. Supported workflows include Flutter APK structural/build identification, Android package/class analysis through a separately supplied pinned JADX engine, Apktool resource inspection and ADB device/runtime inspection. REA is a local tool, not a sandbox; runtime/device actions require separate authorization and review.
+- Execution environment today: Node `v22.16.0` and npm `10.9.2`; Node is below the package's minimum `22.23.4`. OpenJDK 21 is present, but `rea`, `adb`, `emulator`, `flutter`, `dart`, `jadx` and `apktool` are absent. No AALA APK is mounted and no authorized competitor APK/account/device session is available.
+- **No REA command was executed and no app was reverse-engineered today.** This is repository/documentation research only. The Flutter parser would give snapshot hash, ABI library digests and engine build facts; it does not recover complete Dart source. Android class inspection needs the pinned JADX bridge and supported runtime. Runtime comparison requires an authorized device/session.
+
+### POS competitor evidence — 2026-11-25
+
+All three sources below were publicly accessed. None is a private app/API inspection.
+
+| Target | Source / access / date | Evidence strength and bounded observation | AALA usefulness / limitation |
+|---|---|---|---|
+| Petpooja POS Local | [Official POS Local article](https://blog.petpooja.com/industry-business-guides/petpooja-pos-local-that-keeps-data-in-house/), published and updated 2026-07-06; public webpage read 2026-11-25 | Vendor claim. Describes a Bridge Server/local database, LAN-connected billing terminals, bills/KOT/day-end reports held locally, cloud-fed menu/price/aggregator-order sync, scheduled local backups, and up to five days offline for a split server/terminal setup. It explicitly states offline inventory tracking exists but automatic stock consumption on sale is not included. | Useful reference for local-authoritative LAN topology and backup/recovery questions. The vendor's duration and behavior are not independently tested. The explicit inventory limitation reinforces that AALA should not promise recipe/stock parity until its own stock mutations are atomic and reconciled. |
+| TMBill | [Public POS demo](https://www.tmbill.com/resources/free-pos-demo/), browser page inspected 2026-11-25 | Public demo page observed: Master POS, OrderFlow Captain and KDS are presented as a connected demonstration; the described path is table/phone order → save KOT → KDS → Served. The page labels itself a simplified browser demo using sample menu/prices and says nothing is sent anywhere. No interactive controls were exercised. | Useful to define an AALA acceptance flow for Captain/ waiter → POS → KOT → KDS → Served. This is not proof of live backend, payment or offline behavior. |
+| Restroworks | [Official restaurant POS page](https://www.restroworks.com/restaurant-pos-system/), public webpage read 2026-11-25 | Vendor claim. The page describes counter/table/omnichannel order intake, kitchen station routing, connectivity-loss operation, and recipe/ingredient-level inventory and wastage controls. | Useful for future station-routing and BOM acceptance criteria. No app/demo workflow was executed; vendor-reported performance figures are not independently verified. |
+
+Coverage is unchanged: shortlist 15/15; public vendor-page survey 15/15 (claims only); public demo pages inspected 1/15 (TMBill initial browser view only); REA static APK inspection 0/15; REA runtime/device inspection 0/15; independently verified competitor feature claims 0.
+
+### AALA source audit — new and continuing risks
+
+1. **P1 — concurrent counter stock update can lose a deduction (new source-level finding).** In `lib/screens/admin/counter_sale_screen.dart`, checkout refreshes a stock snapshot and validates quantity, then after settlement writes an absolute client-computed `stock_qty = snapshot - quantity` (around lines 437–613). Two terminals can read the same stock before either write; the later absolute update can overwrite the other terminal's deduction. For example, two 6-unit sales starting from 10 can leave stock at 4 although 12 units were sold. No concurrency test or live two-terminal reproduction was available. The safe correction belongs in a server-side atomic compare-and-decrement/settlement transaction with rollback on insufficient stock, not a client-only arithmetic change.
+2. **P1 — ambiguous settlement retry can create duplicate invoice and CASH_IN effects (unchanged).** Table settlement generates a new `BILL-<milliseconds>` inside each submission attempt (`lib/main.dart`, around line 2185); direct counter billing generates a new `POS-<milliseconds>` in `counter_sale_screen.dart` around line 559. The database unique index protects reuse of the same bill number, but a retry after a committed request whose response was lost receives a different number and can create a second sale.
+3. **P1 — custom-menu tenant isolation (conditional on migration deployment).** `supabase/migrations/20261105100000_custom_menu_and_kot_ready_metrics.sql` lines 15–22 gives both `anon` and `authenticated` `FOR ALL` policies with `USING (true)` / `WITH CHECK (true)` and CRUD grants. If this migration is present in the live schema, the policy is not store-isolated. Production schema was not inspected; exposure is not asserted as live. The inspected client initializes Supabase with the public anon key and uses a separate LAN challenge flow; repository search found no Supabase Auth sign-in establishing server-verifiable store membership. A client-supplied store filter is not a safe RLS repair.
+4. **P2 — final invoice/payment is not in the offline replay dispatcher.** `lib/main.dart` around lines 923–969 replays KOT create/update and counter-inventory updates, not a final settlement entity. Direct counter settlement calls the RPC and does not persist a durable immutable settlement operation before sending.
+5. The settlement SQL's same-bill idempotency and customer-name/phone persistence are present in the checked migrations. No current omission of those customer columns is reported. No production schema or transaction was executed.
+
+No application-code fix was made today. The P1 stock race needs a transaction contract and isolated database concurrency tests; the settlement retry needs durable client operation identity plus server-side exactly-once invoice/ledger effects; the RLS issue needs verified Supabase identity/store-membership design. A superficial client patch would risk worsening stock or financial consistency.
+
+### Commands and verification boundary
+
+- Source/API/docs inspections only; no repository checkout is mounted, so no local working-tree command ran.
+- `flutter analyze`, `flutter test`, a new APK build, Android installation/device checks, printer checks and live Supabase integration tests were **not run**: Flutter/Dart, emulator/device, local APK and an isolated test database are unavailable. The GitHub workflow runs above are the actual hosted APK build evidence; its YAML has no Dart analyzer/test steps.
+- No failed latest Push/PR APK build is present. Run #298 was cancelled and superseded by successful #299. No rerun or dispatch was issued.
+
+### Next engineering priorities
+
+1. Design an atomic stock compare-and-decrement integrated into the final sale transaction, with two-terminal race tests and insufficient-stock rollback.
+2. Design durable, immutable, retry-stable settlement identity for both table/parcel and direct-counter paths; add exact-once invoice/items/KOT/ledger integration tests and local restart recovery.
+3. Establish Supabase Auth plus server-verifiable store membership and least-privilege RLS before changing the permissive custom-menu policy.
+4. Make Node 22.23.4+ and a real AALA APK available; then run REA Flutter static parsing and save artifact SHA-256/Evidence. Use JADX only when the pinned engine and JDK/runtime are ready.
+5. Continue the 15-platform tracker with a vendor-authorized or fully public TMBill/Petpooja demonstration; do not raise demo/REA coverage counts until an actual reproducible workflow is captured.
+
+No app code, production data/schema, workflow YAML/settings, secrets, permissions, branch protections, release tag or paid resource was changed in this audit.
