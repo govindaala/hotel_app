@@ -18,7 +18,7 @@ String inventoryUpdateQueueId(String storeCode, Object inventoryItemId) {
   if (normalizedItemId.isEmpty) {
     throw ArgumentError.value(inventoryItemId, 'inventoryItemId', 'must not be empty');
   }
-  return 'inventory:$normalizedStoreCode:$normalizedItemId';
+  return 'inventory:${Uri.encodeComponent(normalizedStoreCode)}:${Uri.encodeComponent(normalizedItemId)}';
 }
 
 /// Durable local queue for POS transactions created while the cloud is unavailable.
