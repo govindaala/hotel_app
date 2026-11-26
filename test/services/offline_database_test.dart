@@ -17,6 +17,13 @@ void main() {
       expect(firstStore, isNot(secondStore));
     });
 
+    test('does not collide when identifiers contain the queue separator', () {
+      final first = inventoryUpdateQueueId('north:001', '42');
+      final second = inventoryUpdateQueueId('north', '001:42');
+
+      expect(first, isNot(second));
+    });
+
     test('normalizes surrounding whitespace and accepts numeric item IDs', () {
       expect(
         inventoryUpdateQueueId(' STORE-1 ', 42),
