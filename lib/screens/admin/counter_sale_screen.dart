@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../receipt_generator.dart';
 import '../../services/usb_printer_service.dart';
 import '../../services/offline_database.dart';
+import '../../services/counter_inventory_validation.dart';
 
 class CounterSaleScreen extends StatefulWidget {
   final String storeCode;
@@ -449,6 +450,32 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           for (final row in latestRows)
             row['id'].toString(): ((row['stock_qty'] as num?)?.toInt() ?? 0),
         };
+        final missingItemIds = missingCounterInventoryIds(
+          requestedIds: itemIds,
+          availableIds: stockById.keys,
+        );
+        if (missingItemIds.isNotEmpty) {
+          final missingItemNames = cart.values
+              .where((item) =>
+                  item['id'] != null &&
+                  missingItemIds.contains(item['id'].toString()))
+              .map((item) =>
+                  item['name']?.toString() ?? item['id'].toString())
+              .toSet()
+              .toList()
+            ..sort();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'स्टॉक सूची में ${missingItemNames.join(', ')} नहीं मिला। बिक्री रोक दी गई है; स्टॉक/मेनू refresh करें।',
+                ),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+          return;
+        }
         for (final item in cart.values) {
           final id = item['id'];
           if (id != null && stockById.containsKey(id.toString())) {
