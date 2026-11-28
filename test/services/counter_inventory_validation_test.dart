@@ -2,6 +2,33 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hotel_pos/services/counter_inventory_validation.dart';
 
 void main() {
+  group('counterInventoryScopeFilter', () {
+    test('trims a valid store code and includes only shared and matching rows', () {
+      expect(
+        counterInventoryScopeFilter('  Garoth_01-2  '),
+        'restaurant_id.is.null,restaurant_id.eq.Garoth_01-2',
+      );
+    });
+
+    test('rejects an empty store code', () {
+      expect(() => counterInventoryScopeFilter('  '), throwsArgumentError);
+    });
+
+    test('rejects PostgREST filter syntax in a store code', () {
+      expect(
+        () => counterInventoryScopeFilter('store-a,restaurant_id.eq.store-b'),
+        throwsArgumentError,
+      );
+    });
+
+    test('rejects store codes longer than 64 characters', () {
+      expect(
+        () => counterInventoryScopeFilter('a' * 65),
+        throwsArgumentError,
+      );
+    });
+  });
+
   group('missingCounterInventoryIds', () {
     test('returns cart item IDs absent from a successful server snapshot', () {
       expect(
