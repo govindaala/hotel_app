@@ -20,3 +20,18 @@ List<String> missingCounterInventoryIds({
 
   return missing.toList()..sort();
 }
+/// Builds a safe PostgREST filter for shared catalogue rows and one store's stock.
+///
+/// Store codes are restricted to the same identifier alphabet used by the
+/// inventory loader so they cannot inject additional PostgREST filter clauses.
+String counterInventoryScopeFilter(String storeCode) {
+  final normalized = storeCode.trim();
+  if (!RegExp(r'^[A-Za-z0-9_-]{1,64}$').hasMatch(normalized)) {
+    throw ArgumentError.value(
+      storeCode,
+      'storeCode',
+      'Expected 1–64 letters, digits, underscores or hyphens.',
+    );
+  }
+  return 'restaurant_id.is.null,restaurant_id.eq.$normalized';
+}
