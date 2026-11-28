@@ -1,7 +1,7 @@
 # REA-driven restaurant POS reverse-engineering tracker
 
-**Last updated:** 2026-11-23 15:53 IST  
-**AALA repository baseline:** `main` at `c52ed32ce365db9b2b27fc02d92fbad2a61570de`  
+**Last updated:** 2026-11-28 15:41 IST  
+**AALA repository baseline:** `main` at `d40bb50c48f48ca27982350e743b5f5006b859bf`  
 **Purpose:** Maintain an evidence-led, lawful comparison of restaurant POS workflows and turn verified findings into small, independently implemented AALA improvements. This is a research tracker, not a feature-parity claim or market-share ranking.
 
 ## 1. Canonical REA project and current capabilities
@@ -293,3 +293,129 @@ No app source change was made. The tenant fix cannot be safely designed without 
 5. Resolve the moving release-tag policy only through a reviewed feature-branch change; do not modify workflow configuration automatically.
 
 No application code, production data/schema, workflow, secrets, settings, branch protection or paid resource was changed by this documentation update.
+
+
+## 10. Daily delta — 2026-11-27
+
+### AALA repository and workflow state
+
+- Current `main` remains [`d40bb50c48f48ca27982350e743b5f5006b859bf`](https://github.com/govindaala/hotel_app/commit/d40bb50c48f48ca27982350e743b5f5006b859bf). The previous day's [PR #36](https://github.com/govindaala/hotel_app/pull/36) remains open and unmerged at `5d97a68ab861314e6776ea1a3e433d1f248955f5`; its offline queue-key encoding fix is not yet in main.
+- Latest relevant Push run [#300](https://github.com/govindaala/hotel_app/actions/runs/45455926215) succeeded on main. Build, artifact upload and direct release step succeeded. Latest relevant PR run before today's new PR [#301](https://github.com/govindaala/hotel_app/actions/runs/45799001699) succeeded on PR #36; build and artifact upload succeeded and direct release was skipped as expected. No new failed or in-progress run was present in the checked run list.
+- Artifact `AALA-POS-301` is retained through 2026-12-10. It is a CI build artifact, not a functional test result.
+- The release tag `latest` still points to [`f7c76b20d246b17bfd3606b8fb362fe4a6bd433f`](https://github.com/govindaala/hotel_app/commit/f7c76b20d246b17bfd3606b8fb362fe4a6bd433f), while current main is `d40bb50c...`. The moving `app-release.apk` asset was updated by run #300 on 2026-11-24. This remains a source-provenance / rollback traceability risk; no tag, release or workflow changes were made.
+- No local AALA checkout is mounted; local working-tree cleanliness cannot be asserted.
+
+### AALA code audit and daily implementation
+
+- Static review of [`counter_sale_screen.dart`](https://github.com/govindaala/hotel_app/blob/d40bb50c48f48ca27982350e743b5f5006b859bf/lib/screens/admin/counter_sale_screen.dart) found a gap after a *successful* Supabase stock refresh: cart items not returned in the response retained their cached stock, and checkout continued. The new feature branch `fix/block-stale-counter-inventory-2026-11-27` adds a pure ID-set validator and stops checkout when a requested item is absent from a successful snapshot. If the query throws (network/offline), the existing cached-stock fallback remains unchanged.
+- Code commits, test-first order: [`6f44349`](https://github.com/govindaala/hotel_app/commit/6f4434932e6f41183ed46604e160fc6f308f1dd2) adds regression tests; [`c5b06c7`](https://github.com/govindaala/hotel_app/commit/c5b06c7bc250b863003806a77c87426b595b3abd) adds `missingCounterInventoryIds`; [`4e4a5fb`](https://github.com/govindaala/hotel_app/commit/4e4a5fb6952ab36ae5fe660b3dbe4692ed53759d) integrates the block in checkout. Exact changed files: `test/services/counter_inventory_validation_test.dart`, `lib/services/counter_inventory_validation.dart`, `lib/screens/admin/counter_sale_screen.dart`.
+- Acceptance conditions: every cart ID returned by a successful stock refresh is validated; missing/deleted/out-of-scope rows stop the bill before settlement and stock deduction; string/numeric ID normalization, duplicate/null handling and the all-present case are tested; network failure retains the existing offline fallback. Flutter/Dart are unavailable locally, so the focused test and `flutter analyze` were not run. Existing `build_akp.yml` does not execute Dart tests.
+- **P1 still open — atomic inventory:** checkout later writes an absolute `stock_qty = remaining` calculated from a client snapshot. Two terminals can race and overwrite each other's deduction. Repository search found no checked-in counter-inventory table DDL or decrement RPC contract; do not invent a client-side fix. Obtain the schema/RPC contract and add a concurrency test before designing the atomic decrement.
+- **P1 still open — durable bill idempotency:** table and direct-counter checkout generate a fresh timestamp bill number for each attempt. The SQL unique key protects only a repeated identical `(store_code,bill_no)`; a retry after an ambiguous timeout can create a new invoice/ledger effect. Needs a persisted immutable checkout operation ID and a backend uniqueness/transaction contract.
+- **P2 still open — offline final settlement:** the `_syncPendingOfflineOperations` dispatcher replays KOT create/update and counter inventory operations, but no final invoice/payment replay path was found. KOT queueing is not proof of offline final billing.
+- **Conditional tenant-security concern:** `20261105100000_custom_menu_and_kot_ready_metrics.sql` has permissive `anon` / `authenticated` policies in the checked-in migration. Whether this migration is applied in production is unknown; do not call this a confirmed production exposure without read-only migration-state evidence.
+
+### REA state and execution
+
+- Canonical repository reconfirmed: [morluto/rea](https://github.com/morluto/rea), owner `morluto`, README title **REA: Reverse Engineer Anything**, package repository URL matching GitHub, MIT license. Current source-main HEAD observed today: [`1aa301e149c558ad46cc5f78adcda50d234d0065`](https://github.com/morluto/rea/commit/1aa301e149c558ad46cc5f78adcda50d234d0065). Recent main commits include Android/Ghidra cancellation, Hopper progress reporting, VSIX parsing and PyInstaller test changes.
+- Published npm/latest release remains [`rea-agents 6.10.1`](https://github.com/morluto/rea/releases/tag/rea-agents-6.10.1), published 2026-11-20. `package.json` still requires Node `^22.23.4 || ^24.22.1 || >=26.12.1`; available Node `v22.16.0` is below range.
+- Today read/rechecked the README, `package.json`, installation guide, supported targets, Flutter analysis guide, Android analysis source, FlutterBuildProvider source and MIT license. Flutter APK identification uses bounded static parsing for snapshot hashes, per-ABI library digests and engine build IDs; it does not recover complete typed Dart source. Deeper Android class/method inspection requires the supplied JADX bridge; Apktool resource decoding is a separate caller-supplied tool.
+- The CI APK from PR #36 was mounted at `/mnt/data/AALA-POS-PR-301.apk` and checked with Python ZIP tooling: ZIP integrity passed, with Flutter `libapp.so` / `libflutter.so` entries for arm64-v8a, armeabi-v7a and x86_64. This is **not REA execution** and does not inspect runtime behavior.
+- Runtime still blocks REA: no compatible Node, `rea`, ADB, emulator, JADX, Apktool, Flutter or Dart executable is installed. No public/authorized competitor app account or Android test device is available. No REA command ran and no AALA/competitor app was reverse-engineered today. Do not count repository reading or ZIP listing as app reverse engineering.
+
+### Replica-skill methodology applied
+
+- [Jakeschincariol/replica-skill](https://github.com/Jakeschincariol/replica-skill) current main HEAD checked: [`77c9436fb3d18c3d58169efb8caf4fe906b0dc51`](https://github.com/Jakeschincariol/replica-skill/commit/77c9436fb3d18c3d58169efb8caf4fe906b0dc51).
+- Read `replica-test/SKILL.md` and `replica-recon/SKILL.md`. Applied test-first sequencing: the new missing-stock-row regression test was committed before the pure validator and UI integration. The recon skill's lawful-source/clean-room rules were applied to competitor research; only public vendor material was used.
+
+### India POS benchmark delta — public sources only
+
+All observations today are **vendor claims**, not REA inspections, executed demos or independent verification:
+
+| Target | Source / access date | Publicly documented claim | AALA usefulness |
+|---|---|---|---|
+| Rista | [Restaurant POS](https://ristaapps.com/Restaurant-pos-software), public official webpage read 2026-11-27 | Offline billing, stock-in/automatic stock-out, recipe/vendor workflows, partial payments, customer records and role/device features are described by the vendor. | Compare the wording to AALA's actual offline billing/stock behavior; do not infer durable settlement replay or atomic deduction from the claim. |
+| Rista | [Direct ordering](https://ristaapps.com/restaurant-direct-ordering-system), public official page read 2026-11-27 | QR/table-linked direct ordering and additional order rounds are described. | Add acceptance questions for repeat ordering on an occupied table; no guest order was submitted in a live demo. |
+| Restroworks | [Inventory management](https://www.restroworks.com/restaurant-inventory-management-software/), public official page read 2026-11-27 | Real-time inventory tracking, offline sync and mobile stock workflows are described. | AALA needs measurable offline conflict recovery and stock reconciliation tests; vendor wording does not verify correctness. |
+| Restroworks | [Product information](https://www.restroworks.com/llm-info/), public official page read 2026-11-27 | Vendor lists POS/table layout, recipe/ingredient inventory, KDS/production, QR/kiosk/mobile ordering and analytics/report categories. | Use as a workflow checklist, not evidence that a given workflow works end-to-end. |
+
+Cumulative working shortlist remains 15/15. Public vendor-source survey is recorded in prior deltas; today's focused source recheck adds Rista and Restroworks. No new public demo was executed, REA app inspection remains 0/15, and independently verified competitor feature claims remain 0. UrbanPiper/LimeTray remain adjacent order-integration references rather than full POS equivalents.
+
+### Next safe priorities
+
+1. Complete a Node-compatible REA execution environment and run `identify-flutter-build` / `inspect-dart-aot` against an exact APK digest; only then decide whether JADX is needed.
+2. Obtain an authorized public/demo workflow target to observe table → order → KOT/KDS → settlement without bypassing access.
+3. Get the checked-in or authorized counter-inventory schema and write a non-production concurrency contract/test before implementing an atomic decrement.
+4. Define durable checkout operation identity and backend idempotency/ledger semantics before retry/offline settlement changes.
+5. Keep release provenance and permissive-RLS questions open until read-only evidence and intended release/auth architecture are available.
+
+No main merge/push, production deploy/data/schema change, workflow/settings/secrets change, release/tag mutation or paid resource was made in this daily delta.
+
+
+## 11. Daily delta — 2026-11-28
+
+### AALA repository, PR and APK workflow
+
+- Main remains `d40bb50c48f48ca27982350e743b5f5006b859bf`; recent main commits are unchanged from the last run. No local checkout is mounted, so working-tree cleanliness is not asserted.
+- PR #36 remains open and unmerged. PR #37 remains open, unmerged and non-draft: [Block counter sales for missing refreshed inventory items](https://github.com/govindaala/hotel_app/pull/37), now at `a469f2b67cd9e23cf3a79a0dfbf23bc82dc7a8c5`.
+- Latest Push run [#300](https://github.com/govindaala/hotel_app/actions/runs/45455926215), main / `d40bb50c...`, completed successfully; APK build, artifact upload and direct release all succeeded. The newest PR run before today's additional commits, [#302](https://github.com/govindaala/hotel_app/actions/runs/45980504083), also completed successfully on PR #37; build and artifact upload succeeded and direct release was skipped.
+- The commits added today to PR #37 triggered [run #305](https://github.com/govindaala/hotel_app/actions/runs/46133850791), head `a469f2b...`, started 2026-11-28 15:39:54 IST. At the 15:41 IST check, job `build` was in progress at **Build APK**; artifact upload was pending and direct release was not applicable to a PR. No failure or cancellation was present. No manual rerun/dispatch was requested or performed.
+- No artifact for run #305 was available at this check. Run #302's artifact `AALA-POS-302` was 26,333,776 bytes and retained through 2026-12-11 10:18:44 UTC. CI package success is not app functional verification.
+
+### Daily application code — PR #37 follow-up
+
+The prior PR #37 fix blocked checkout when an ID was absent from a successful stock snapshot. Today's follow-up makes the snapshot itself use the same store scope as the inventory loader.
+
+- Test commit: [`bff0678`](https://github.com/govindaala/hotel_app/commit/bff06780c2aaf4bf4bc1d6ae22d6ad0c9fa85097) — added tests for trimming a valid store code, the shared-plus-current-store filter, empty/overlong code rejection, and PostgREST-filter injection rejection.
+- Helper commit: [`f113c8a`](https://github.com/govindaala/hotel_app/commit/f113c8ad4e27cb7b4db4f0d5d4eb6b5343e98ef0) — added `counterInventoryScopeFilter(String storeCode)` to validate the store identifier and produce `restaurant_id.is.null,restaurant_id.eq.<store>`.
+- UI integration: [`a469f2b`](https://github.com/govindaala/hotel_app/commit/a469f2b67cd9e23cf3a79a0dfbf23bc82dc7a8c5) — `_initScreenData` and `_performCheckout` now share the same filter; a malformed store code stops checkout before using cached stock. The live checkout query filters by item IDs **and** the selected shared/current-store rows before the missing-ID check.
+
+Exact changed application files:
+- `test/services/counter_inventory_validation_test.dart`
+- `lib/services/counter_inventory_validation.dart`
+- `lib/screens/admin/counter_sale_screen.dart`
+
+The helper allows only 1–64 ASCII letters, digits, underscore or hyphen, matching the existing store-code validation. This closes a client-query scoping mismatch for a successful refresh; it does not replace database RLS or prove cross-store security. The broad refresh catch still treats any query error as a cached/offline fallback; permission/server errors should eventually be distinguished from genuine connectivity loss.
+
+Acceptance criteria: both list loading and checkout refresh use the same shared/current-store filter; invalid identifiers cannot become PostgREST syntax; a cart ID not found in that scoped successful snapshot stops checkout; a valid store with a failed refresh retains the current offline fallback.
+
+Verification:
+- `flutter test test/services/counter_inventory_validation_test.dart` — not run; Flutter/Dart unavailable.
+- `flutter analyze` — not run; Flutter/Dart unavailable.
+- The existing APK workflow does not run these Dart tests. PR #37 run #305 was still building the release APK at the latest check; do not report test/build success until its result is available.
+
+### REA current state and actual execution
+
+- Canonical project remains [morluto/rea](https://github.com/morluto/rea); owner, README title **REA: Reverse Engineer Anything**, package repository URL, and MIT license agree.
+- Current source `main` HEAD observed: [`8acf5e3`](https://github.com/morluto/rea/commit/8acf5e33a1f1f9e2431ddc8bda26321571fbf3a0), with 2026-11-28 commits for Ghidra evidence/verifier handling and CLI error/help behavior. Published package remains `rea-agents 6.10.1`; `package.json` requires Node `^22.23.4 || ^24.22.1 || >=26.12.1`; license is MIT.
+- Read/rechecked the current [README](https://github.com/morluto/rea/blob/main/README.md), [supported targets](https://github.com/morluto/rea/blob/main/docs/reference/supported-targets.md), [Flutter analysis guide](https://github.com/morluto/rea/blob/main/docs/guides/android/flutter-analysis.md), [CLI guide](https://github.com/morluto/rea/blob/main/docs/getting-started/cli.md), [installation guide](https://github.com/morluto/rea/blob/main/docs/getting-started/installation.md), [FlutterBuildProvider](https://github.com/morluto/rea/blob/main/src/flutter/FlutterBuildProvider.ts), package metadata and [license](https://github.com/morluto/rea/blob/main/LICENSE).
+- The documented commands for an authorized APK are `rea identify-flutter-build <apk>` and `rea inspect-dart-aot <apk> [--abi <abi>]`. Flutter build identification is pure, bounded APK parsing; it returns snapshot/library hashes, ABI and engine build facts. It does not recover complete typed Dart source. Native deeper analysis needs a supported provider/bridge.
+- Execution feasibility was actively retried. Available Node is `v22.16.0`, below REA's minimum. Node v22.23.4 is listed on the official [Node archive](https://nodejs.org/en/download/archive/v22.23.4), but downloading the Linux x64 binary failed here: `curl` returned `Could not resolve host: nodejs.org`; the isolated container download also failed. No global install or agent `rea setup` was attempted. `rea`, ADB, emulator, JADX, Apktool, Flutter and Dart are absent.
+- The AALA PR #36 APK is present locally at `/mnt/data/AALA-POS-PR-301.apk`, but no REA binary was available to inspect it. No actual AALA APK REA analysis and no competitor app reverse engineering occurred. Repository reading and a previous ZIP integrity check must not be represented as REA execution.
+
+### Replica-skill methodology applied
+
+- [Jakeschincariol/replica-skill](https://github.com/Jakeschincariol/replica-skill) main remains [`77c9436`](https://github.com/Jakeschincariol/replica-skill/commit/77c9436fb3d18c3d58169efb8caf4fe906b0dc51). Read current `replica-test/SKILL.md` and `replica-recon/SKILL.md`.
+- Applied `replica-test` test-first workflow: scope-filter regression tests were committed before the helper and screen integration. Applied `replica-recon` requirements for lawful public sources, source URLs and explicit evidence strength. Outcome: test code is added, but it has not yet been executed because Flutter/Dart are absent.
+
+### India POS public-source benchmark — 2026-11-28
+
+Today's access was by reading public official product pages/help content without login. These are vendor claims or vendor documentation, not observed app workflows.
+
+| Target | Source URL / access method | Today's documented areas | Evidence strength and AALA use |
+|---|---|---|---|
+| Petpooja | [Offline POS](https://www.petpooja.com/offline-pos) and [billing software](https://www.petpooja.com/poss/restaurant-billing-software); official public webpages | On-premises data for bills/KOT/reports and claimed operation during internet loss; billing page describes master-station/multi-terminal setup, station-wise KOT, e-bills and regional language support | Vendor claims only. AALA can benchmark durable local bill/KOT storage, explicit sync boundaries, multi-terminal routing and localized receipts; none of Petpooja's claims were independently tested. |
+| TMBill | [Products](https://www.tmbill.com/products/) and [2026 product catalogue](https://www.tmbill.com/); official public vendor pages | Split bills, tax/payment modes, printed KOT/KDS and kitchen timers, recipe stock deduction, low-stock and purchase/vendor workflows, QR ordering, CRM/loyalty and reports/accounting | Vendor claims only. AALA acceptance tests should connect bill → KOT/KDS → recipe deduction → settlement/report, but catalogue statements do not prove atomicity or offline correctness. |
+| GoFrugal ServeEasy | [ServeEasy knowledge base](https://community.gofrugal.com/portal/en/kb/gofrugalserveeasy) and [ServQuick item creation guide](https://community.gofrugal.com/portal/en/kb/gofrugalserveeasy/general/table-management/customer-management/articles/how-to-create-an-item-in-servquick-31-12-2021-2); public vendor help articles | Help topics list table/KOT, inventory, recipe/combo, devices, loyalty, roles, purchase, reports, receipt templates and offline setup. Item guide describes modifiers, UOM conversion, tax and stock fields | Vendor documentation, not independently observed. AALA can use this as an item-master checklist: variant/UOM/modifier/tax/stock fields and their validation. The article's dated/legacy product context is a caveat; it is not evidence of the current UI. |
+
+The 15-target shortlist in Section 2 remains unchanged. Three target groups received public-source review today; this does **not** mean three applications were reverse-engineered. Current counts remain: public demos observed 0/15, REA app inspections 0/15, independently verified competitor features 0. UrbanPiper and LimeTray remain adjacent integration references, not full POS equivalents.
+
+### Remaining risks and next steps
+
+1. P1: client stock decrement still writes an absolute value from a local snapshot; concurrent counters can overwrite each other. Obtain the actual counter-inventory DDL/transaction contract and design an atomic decrement plus concurrency test before changing it.
+2. P1: timestamp-based bill numbers are regenerated per attempt; an ambiguous timeout can bypass the existing same-bill idempotency key. A durable operation ID and backend uniqueness/ledger contract are still needed.
+3. P2: offline replay handles KOT create/update and inventory updates, not final invoice/payment settlement.
+4. Conditional P1: permissive custom-menu RLS in a checked-in migration remains conditional on production migration state, which was not inspected.
+5. Next tool step: make Node >=22.23.4 available in a network-enabled isolated environment, then run REA against the AALA APK digest before arranging authorized competitor app/demos.
+
+No main merge/push, production deploy/data/schema change, workflow/settings/secrets change, release/tag mutation or paid resource was made.
